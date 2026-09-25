@@ -157,4 +157,3 @@ func (i Int) Sub(v Int) Int {
 func signBit(v uint32, sz int) uint32 {
 	return v & signMask[sz]
 }
-

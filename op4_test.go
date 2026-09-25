@@ -73,7 +73,7 @@ func TestMovemPCRelative(t *testing.T) {
 		//   We want addr = 4 + d = table. Put table at 0x0C so d = 0x08.
 		//   Wait: bytes: 4CFA 6400 0008 | 4E71 0000 | TABLE
 		//   After mask, PC points at 0008. addr = PC + 8 = table start after 4E71 0000.
-		//   Bytes from 0: 0-5 instr, 6-7 nop, 8-9 eof, 10+ table? 
+		//   Bytes from 0: 0-5 instr, 6-7 nop, 8-9 eof, 10+ table?
 		//   PC at disp word = 4, +8 = 12 = 0x0C.
 		0x11, 0x22, 0x33, 0x44, // A2
 		0x55, 0x66, 0x77, 0x88, // A5
