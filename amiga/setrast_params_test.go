@@ -16,12 +16,14 @@ func TestSetRastParams(t *testing.T) {
 
 	const bpl1Start, bpl1End = 0xA572, 0xC4B2
 	const bpl2Start, bpl2End = 0xC4B2, 0xC4B2 + 8000
-	step := 0; _ = step
+	step := 0
+	_ = step
 	prevBusy := false
 	count := 0
 
 	for i := 0; i < 8_000_000 && count < 40; i++ {
-		step = i; _ = step
+		step = i
+		_ = step
 		if a.Blitter.busy && !prevBusy {
 			dpt := a.Blitter.preDpt
 			sz := a.Blitter.lastSize

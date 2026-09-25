@@ -3,8 +3,6 @@
 package amiga
 
 import (
-	"image"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
@@ -304,11 +302,4 @@ func (d *Display) Run() error {
 	ebiten.SetScreenClearedEveryFrame(false)
 	d.applyGrab(false)
 	return ebiten.RunGame(d)
-}
-
-// ScreenImage returns an RGBA image snapshot of the current video output.
-func (v *Video) ScreenImage() *image.RGBA {
-	img := image.NewRGBA(image.Rect(0, 0, v.Width, v.Height))
-	copy(img.Pix, v.Pixels)
-	return img
 }

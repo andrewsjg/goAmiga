@@ -1,5 +1,7 @@
 package amiga
 
+import "image"
+
 // Video handles Amiga bitplane rendering, converting planar data from
 // chip RAM into an RGBA pixel framebuffer each frame.
 type Video struct {
@@ -242,4 +244,11 @@ func (v *Video) RenderLine(vpos int) {
 	if v.amiga.Sprites != nil {
 		v.amiga.Sprites.RenderOnLine(v.Pixels, lineOffset, v.Width)
 	}
+}
+
+// ScreenImage returns an RGBA image snapshot of the current video output.
+func (v *Video) ScreenImage() *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, v.Width, v.Height))
+	copy(img.Pix, v.Pixels)
+	return img
 }

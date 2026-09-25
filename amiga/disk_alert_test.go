@@ -145,6 +145,6 @@ done:
 
 func mustReadBytes(a *Amiga, addr, n int) []byte {
 	b := make([]byte, n)
-	a.ChipRAM.Read(addr, b)
+	a.Mapper.Read(addr, b) // CPU view, so ROM addresses work too
 	return b
 }

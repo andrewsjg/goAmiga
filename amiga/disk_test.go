@@ -74,7 +74,7 @@ func TestDiskStepping(t *testing.T) {
 	d.HandleCIABWrite(0x77, 0x75) // DIR=0, STEP high→low (bit 0: 1→0, bit 1: 0)
 	// Actually need step falling edge: old bit 0 = 1, new bit 0 = 0
 	// old=0x77 has bit 0 = 1, new=0x76 has bit 0 = 0
-	d.cylinder = 0 // reset
+	d.cylinder = 0                // reset
 	d.HandleCIABWrite(0x77, 0x76) // step falling edge, DIR=1 (toward track 0)
 
 	// DIR=1 means toward track 0, already at 0, so no change
@@ -186,7 +186,7 @@ func TestDiskDMATransfer(t *testing.T) {
 	}
 
 	// Completion interrupts are deferred — advance the timer
-	d.TickCycles(100 * 2 + 64)
+	d.TickCycles(100*2 + 64)
 
 	// Check DSKBLK interrupt was fired (INTREQ bit 1)
 	intreq := a.Custom.ReadReg16(0x09C)

@@ -13,6 +13,7 @@ import (
 // number of RunFrame calls to capture what the display looks like at various
 // boot stages. Saves PNG screenshots.
 func TestCaptureFrame(t *testing.T) {
+	requireDiag(t)
 	romData, err := os.ReadFile("../Kick13.rom")
 	if err != nil {
 		t.Skipf("Cannot load ROM: %v", err)

@@ -25,7 +25,7 @@ func TestWorkbenchIcons(t *testing.T) {
 		}
 		b := make([]byte, 40)
 		for i := 0; i < 40; i++ {
-			v, e := a.CPU.M.Byte(int(addr)+i)
+			v, e := a.CPU.M.Byte(int(addr) + i)
 			if e != nil || v == 0 {
 				return string(b[:i])
 			}

@@ -95,8 +95,8 @@ func TestWBMultiDragStress(t *testing.T) {
 	nw := windowList(a, ib)[0]
 
 	geom := func() (le, te, ww, wh int) {
-		return int(int16(ibRd16(a, nw + 4))), int(int16(ibRd16(a, nw + 6))),
-			int(ibRd16(a, nw + 8)), int(ibRd16(a, nw + 10))
+		return int(int16(ibRd16(a, nw+4))), int(int16(ibRd16(a, nw+6))),
+			int(ibRd16(a, nw+8)), int(ibRd16(a, nw+10))
 	}
 
 	// Drag sequence: down-left, up-right (descending path), down-right, up-left…

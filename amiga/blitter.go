@@ -93,7 +93,7 @@ func (b *Blitter) ptr(hi, lo uint16) uint32 {
 //   - ExecBase / ThisTask / MemList ($600–$A00): never
 //   - input.device band ($3000–$4800): never
 //   - display band [$A000,$18000): start there → write only there (insert-disk
-//     + WB planes; crosses $D000; blocks heap $18000+)
+//   - WB planes; crosses $D000; blocks heap $18000+)
 //   - start ≥ $8000: never write below $8000
 //   - freelist deny map (buildDeny)
 //   - geometric span: boot/display keep a 4KB floor; heap starts do not

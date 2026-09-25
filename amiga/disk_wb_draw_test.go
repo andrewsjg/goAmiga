@@ -26,7 +26,7 @@ func TestWorkbenchDraw(t *testing.T) {
 			np, _ := a.CPU.M.Long(int(a.CPU.A[1]) + 0x0A)
 			b := make([]byte, 24)
 			for j := 0; j < 24; j++ {
-				v, e := a.CPU.M.Byte(int(np)+j)
+				v, e := a.CPU.M.Byte(int(np) + j)
 				if e != nil || v == 0 {
 					b = b[:j]
 					break

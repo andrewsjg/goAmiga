@@ -9,10 +9,10 @@ import (
 )
 
 // TestBPL1ImageFreeze boots Kickstart 1.3 (no disk) and freezes BPL1 when:
-//   1. first non-solid ("IMAGE") content appears
-//   2. peak non-solid word count
-//   3. first solid FILL after image was present
-//   4. final state
+//  1. first non-solid ("IMAGE") content appears
+//  2. peak non-solid word count
+//  3. first solid FILL after image was present
+//  4. final state
 //
 // Logs every blit that writes into the display BPL1 region with full channel
 // parameters for comparison against graphics.library SetRast / BltTemplate.
@@ -53,20 +53,20 @@ func TestBPL1ImageFreeze(t *testing.T) {
 
 	// Active blit classification
 	var (
-		active     bool
-		curCon0    uint16
-		curCon1    uint16
-		curApt     uint32
-		curBpt     uint32
-		curCpt     uint32
-		curDpt     uint32
-		curH, curW int
-		curPC      uint32
-		curStep    int
-		nFF, n00, nOther int
-		sample     uint16
+		active                    bool
+		curCon0                   uint16
+		curCon1                   uint16
+		curApt                    uint32
+		curBpt                    uint32
+		curCpt                    uint32
+		curDpt                    uint32
+		curH, curW                int
+		curPC                     uint32
+		curStep                   int
+		nFF, n00, nOther          int
+		sample                    uint16
 		firstAW, firstBW, firstCW uint16
-		gotChannelSample bool
+		gotChannelSample          bool
 	)
 
 	classify := func() string {

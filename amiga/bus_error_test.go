@@ -32,9 +32,14 @@ func TestOpenBusReadFFFFFF(t *testing.T) {
 	if err := a.Step(); err != nil {
 		t.Fatalf("Step must not return host error, got: %v", err)
 	}
-	// ROM pads past-end bytes with $FF; first byte is last ROM byte.
-	if a.CPU.D[0]&0x00FFFFFF != 0x00FFFFFF {
-		t.Fatalf("D0=$%08X want low 24 bits $FFFFFF (open-bus pad)", a.CPU.D[0])
+	// The 24-bit address bus wraps: the long is the last ROM byte followed by
+	// chip RAM $000000-$000002. (A real 68000 raises an address error for a
+	// long access at an odd address; that exception is not emulated.)
+	want := make([]byte, 4)
+	a.Mapper.Read(0xFFFFFF, want[:1])
+	a.ChipRAM.Read(0, want[1:])
+	if w := uint32(want[0])<<24 | uint32(want[1])<<16 | uint32(want[2])<<8 | uint32(want[3]); a.CPU.D[0] != w {
+		t.Fatalf("D0=$%08X want $%08X (ROM byte + wrapped chip RAM)", a.CPU.D[0], w)
 	}
 	if a.CPU.PC != 0x1002 {
 		t.Fatalf("PC=$%08X want $1002 after MOVE.L", a.CPU.PC)

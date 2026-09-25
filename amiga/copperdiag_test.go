@@ -20,6 +20,7 @@ func readWord(a *Amiga, addr uint32) uint16 {
 }
 
 func TestCopperDiag(t *testing.T) {
+	requireDiag(t)
 	romData, err := os.ReadFile("../Kick13.rom")
 	if err != nil {
 		t.Skipf("Cannot load ROM: %v", err)

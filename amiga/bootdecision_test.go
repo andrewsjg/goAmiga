@@ -17,6 +17,7 @@ import (
 //
 //	FC2FF0 = warm probe (only from user-mode exceptions — not the normal cold boot path)
 func TestBootDecision(t *testing.T) {
+	requireDiag(t)
 	romData, err := LoadROM("../Kick13.rom")
 	if err != nil {
 		t.Skip("Kick13.rom not found:", err)

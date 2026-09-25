@@ -2,12 +2,10 @@ package amiga
 
 import (
 	"testing"
-
-	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
 func setupBlitAmiga() *Amiga {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	return a

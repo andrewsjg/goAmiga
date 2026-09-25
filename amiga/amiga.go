@@ -100,7 +100,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	}
 
 	// Create memory devices
-	a.ChipRAM = m68kmem.NewRAM(ChipRAMSize)
+	a.ChipRAM = newChipRAM(ChipRAMSize)
 	a.ROM = m68kmem.NewROM(romData)
 	a.Custom = NewCustomChips(logger, a)
 	a.CIAA = NewCIA("CIA-A", logger)
@@ -168,7 +168,6 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	// CIA-B PRA: no disk status here (disk status is on CIA-A PRA)
 
 	// Wire up memory map
-	a.Mapper = m68kmem.NewMapper()
 	a.wireMemoryMap(true)
 
 	// Create CPU
@@ -223,6 +222,8 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	}
 	a.overlay = overlay
 	a.Mapper = m68kmem.NewMapper()
+	// Unmapped addresses float rather than fault, as on real hardware.
+	a.Mapper.OpenBus = true
 
 	if overlay {
 		// ROM mapped at $000000-$03FFFF (256KB overlay, same as ROM)
@@ -327,8 +328,9 @@ func (a *Amiga) Step() error {
 		if a.CPU.RunState() == m68k.RunStateStopped {
 			a.cpuStopped = true
 		}
-		// Access violations should be rare now (mapper/ROM use open-bus $FF).
-		// If one still appears, do NOT raise a fake bus error — the 68000 bus
+		// Access violations should not occur: the Mapper runs in OpenBus
+		// mode, so unmapped reads float to 0 and writes are dropped. If one
+		// still appears, do NOT raise a fake bus error — the 68000 bus
 		// error stack frame is not the short SR/PC frame RaiseException builds,
 		// and that mismatch produced Guru #00000000.00000000. Just drop the
 		// host error and keep the UI alive.

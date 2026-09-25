@@ -26,7 +26,7 @@ func TestWorkbenchCopper(t *testing.T) {
 			namePtr, _ := a.CPU.M.Long(int(a.CPU.A[1]) + 0x0A)
 			b := make([]byte, 20)
 			for j := 0; j < 20; j++ {
-				v, e := a.CPU.M.Byte(int(namePtr)+j)
+				v, e := a.CPU.M.Byte(int(namePtr) + j)
 				if e != nil || v == 0 {
 					b = b[:j]
 					break

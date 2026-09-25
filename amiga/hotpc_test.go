@@ -8,6 +8,7 @@ import (
 )
 
 func TestHotPCs(t *testing.T) {
+	requireDiag(t)
 	romData, err := LoadROM("../Kick13.rom")
 	if err != nil {
 		t.Skip("Kick13.rom not found:", err)

@@ -2,13 +2,11 @@ package amiga
 
 import (
 	"testing"
-
-	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
 // Horizontal scroll by 1 pixel (shift=1) twice should not destroy the bitmap.
 func TestShiftedCopyStability(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 
@@ -63,7 +61,7 @@ func TestShiftedCopyStability(t *testing.T) {
 	a.Blitter.aptL = uint16(srcLast)
 	a.Blitter.dptH = uint16(dstLast >> 16)
 	a.Blitter.dptL = uint16(dstLast)
-	// full width DESC amod: 2*width == bpr → amod = -bpr + 2*width = 0 for full width? 
+	// full width DESC amod: 2*width == bpr → amod = -bpr + 2*width = 0 for full width?
 	// earlier analysis: amod = -bpr + 2*width; width words 40, 2*width=80=bpr, amod=0
 	a.Blitter.amod = 0
 	a.Blitter.dmod = 0
@@ -75,7 +73,7 @@ func TestShiftedCopyStability(t *testing.T) {
 
 // Unshifted DESC full-width copy identity
 func TestDescFullWidthIdentity(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	plane := 0x20000

@@ -10,6 +10,7 @@ import (
 // TestBootDiagFast runs the emulator in headless (fast) mode and monitors for
 // exception vectors being entered, copper list changes, and bitplane state.
 func TestBootDiagFast(t *testing.T) {
+	requireDiag(t)
 	romData, err := os.ReadFile("../Kick13.rom")
 	if err != nil {
 		t.Skipf("Cannot load ROM: %v", err)

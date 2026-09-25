@@ -2,8 +2,6 @@ package amiga
 
 import (
 	"testing"
-
-	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
 // graphics.library-style complement line (as used for window drag outlines).
@@ -113,7 +111,7 @@ func planeChecksum(a *Amiga, plane, n int) (sum uint32, nonzero int) {
 
 func TestXORDragOutlineStress(t *testing.T) {
 	for _, sing := range []bool{true, false} {
-		a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+		a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 		a.Custom = NewCustomChips(nil, a)
 		a.Blitter = NewBlitter(a)
 		plane, bpr, rows := 0x10000, 80, 200
@@ -131,8 +129,8 @@ func TestXORDragOutlineStress(t *testing.T) {
 		// initial outline
 		xorRect(a, plane, bpr, x, y, w, h, sing)
 		for step := 0; step < 150; step++ {
-			nx := x + (step%7) - 3
-			ny := y + (step%5) - 2
+			nx := x + (step % 7) - 3
+			ny := y + (step % 5) - 2
 			if nx < 1 {
 				nx = 1
 			}
@@ -172,7 +170,7 @@ func TestXORDragOutlineStress(t *testing.T) {
 }
 
 func TestXORRectIdentity(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	plane, bpr, rows := 0x10000, 80, 100
@@ -206,7 +204,7 @@ func TestXORRectIdentity(t *testing.T) {
 // Drawing adjacent rects that share an edge pixel can leave residue if
 // endpoints are inclusive on both lines.
 func TestXORAdjacentRects(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	plane, bpr, rows := 0x10000, 80, 100
@@ -241,7 +239,7 @@ func TestXORAdjacentRects(t *testing.T) {
 
 // Zero-length and pure vertical/horizontal with SING
 func TestXORAllOctantsTwice(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	plane, bpr, rows := 0x10000, 80, 100
@@ -256,11 +254,11 @@ func TestXORAllOctantsTwice(t *testing.T) {
 	a.ChipRAM.Read(plane, before)
 
 	pts := [][4]int{
-		{20, 20, 80, 20},  // H+
-		{80, 20, 20, 20},  // H-
-		{40, 10, 40, 70},  // V+
-		{40, 70, 40, 10},  // V-
-		{10, 10, 90, 40},  // diag
+		{20, 20, 80, 20}, // H+
+		{80, 20, 20, 20}, // H-
+		{40, 10, 40, 70}, // V+
+		{40, 70, 40, 10}, // V-
+		{10, 10, 90, 40}, // diag
 		{90, 10, 10, 40},
 		{10, 40, 90, 10},
 		{90, 40, 10, 10},
@@ -291,7 +289,7 @@ func TestXORAllOctantsTwice(t *testing.T) {
 // Minterm $4A is the HRM "exclusive-or" line config (AB~C + ~AC).
 // With solid texture B=$FFFF it equals A xor C, but SING handling may differ.
 func TestXOR4AMinterm(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	plane, bpr, rows := 0x10000, 80, 100

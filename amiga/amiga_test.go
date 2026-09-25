@@ -93,7 +93,7 @@ func TestCIATimerA_Underflow(t *testing.T) {
 	a.CIAA.Write(0x0500, ciaBuf[:]) // TAHI (reg 5)
 
 	// Enable Timer A ICR mask (bit 0)
-	ciaBuf[0] = 0x81 // set mode + Timer A
+	ciaBuf[0] = 0x81                // set mode + Timer A
 	a.CIAA.Write(0x0D00, ciaBuf[:]) // ICR
 
 	// Start Timer A
@@ -272,7 +272,7 @@ func TestVBLANKInterrupt(t *testing.T) {
 
 	// Ensure CPU is in supervisor mode with VERTB vector set
 	a.CPU.SR = m68k.StatusSupervisor | (3 << 8) // IPL mask = 3 initially
-	a.CPU.SR = m68k.StatusSupervisor // IPL mask = 0 (allow all interrupts)
+	a.CPU.SR = m68k.StatusSupervisor            // IPL mask = 0 (allow all interrupts)
 
 	// Simulate VBLANK by calling SetIntreq directly
 	a.Custom.SetIntreq(1 << 5)

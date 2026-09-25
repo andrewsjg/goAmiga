@@ -2,14 +2,12 @@ package amiga
 
 import (
 	"testing"
-
-	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
 // Overlapping vertical scroll must use DESC when dest is higher address.
 // Wrong direction destroys the bitmap (classic full-screen corruption).
 func TestScrollOverlapDown(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 
@@ -58,11 +56,11 @@ func TestScrollOverlapDown(t *testing.T) {
 	// Start DESC at bottom line last word: plane+49*bpr-2 for dest...
 	// Standard: amod = -2*(words) - bpr? Let me check HRM.
 	// Ascending: after width words, ptr is at lineStart+2*width. Add amod to get to next line: amod = bpr - 2*width.
-	// Descending: start at lineStart+2*width-2. After width words, ptr = lineStart-2. 
+	// Descending: start at lineStart+2*width-2. After width words, ptr = lineStart-2.
 	// Next line up ends at lineStart-2-bpr+bpr wait: next line start = lineStart - bpr, last word = lineStart - 2.
 	// From lineStart-2, add amod to get to lineStart-bpr-2? = lineStart-2 + amod => amod = -bpr.
 	// Actually after processing line, ptr = start - 2*width = lineStart+2*width-2 - 2*width = lineStart-2.
-	// Want next = (lineStart-bpr)+2*width-2. 
+	// Want next = (lineStart-bpr)+2*width-2.
 	// amod = next - current = (lineStart-bpr+2*width-2) - (lineStart-2) = -bpr + 2*width.
 	// If 2*width == bpr (full width), amod = 0 for DESC full-width scroll!
 	a.Blitter.amod = 0

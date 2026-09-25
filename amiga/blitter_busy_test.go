@@ -2,14 +2,12 @@ package amiga
 
 import (
 	"testing"
-
-	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
 // WaitBlit-style polling must clear BBUSY within a small number of CPU cycles
 // even for large blits, or Workbench freezes during window drag.
 func TestBlitterBusyClearsQuickly(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 
@@ -50,7 +48,7 @@ func TestBlitterBusyClearsQuickly(t *testing.T) {
 // Superseding a busy blit must not drop QBlit completions, and must not
 // raise BLIT INTREQ re-entrantly inside Execute (that caused Guru A1000001).
 func TestBlitterSupersedeDefersBlitIRQ(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	buf := []byte{0x7F, 0xFF}

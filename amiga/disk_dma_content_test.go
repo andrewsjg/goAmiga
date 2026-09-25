@@ -27,7 +27,7 @@ func TestDiskDMAContent(t *testing.T) {
 	a.Disk.side = 0
 	a.Disk.dskpt = 0x6B14
 	a.Disk.dsksync = 0x4489
-	a.Disk.adkcon = 0x0400 // WORDSYNC
+	a.Disk.adkcon = 0x0400              // WORDSYNC
 	a.Disk.WriteDSKLEN(0x8000 | 0x1CBE) // first write
 	a.Disk.WriteDSKLEN(0x8000 | 0x1CBE) // second write triggers (word count from log $9CBE)
 

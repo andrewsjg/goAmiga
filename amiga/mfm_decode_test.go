@@ -42,7 +42,7 @@ func TestMFMTrackdiskDecode(t *testing.T) {
 
 	// Header: 5 longs interleaved = 10 MFM longs = 40 bytes
 	// Then header checksum: 2 MFM longs = 8 bytes
-	// Then data checksum: 2 MFM longs = 8 bytes  
+	// Then data checksum: 2 MFM longs = 8 bytes
 	// Then data: 256 MFM longs = 1024 bytes
 
 	readLong := func(o int) uint32 {

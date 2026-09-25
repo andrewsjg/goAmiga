@@ -2,12 +2,10 @@ package amiga
 
 import (
 	"testing"
-
-	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
 func TestBlitterWriteGuardVectors(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	a.Blitter.GuardWrites = true
@@ -31,7 +29,7 @@ func TestBlitterWriteGuardVectors(t *testing.T) {
 }
 
 func TestBlitterWriteGuardAllowsLowTemp(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	a.Blitter.GuardWrites = true
@@ -56,7 +54,7 @@ func TestBlitterWriteGuardAllowsLowTemp(t *testing.T) {
 }
 
 func TestBlitterWriteGuardBlocksWrapIntoLow(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	a.Blitter.GuardWrites = true
@@ -155,7 +153,7 @@ func TestBlitterWriteGuardBlocksWrapIntoLow(t *testing.T) {
 
 // Tasks on Exec lists (and their stacks) must be denied.
 func TestBlitterWriteGuardDeniesTasks(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	a.Blitter.GuardWrites = true
@@ -203,7 +201,7 @@ func TestBlitterWriteGuardDeniesTasks(t *testing.T) {
 
 // graphics.library base must be denied — OwnBlitter lock smash freezes the OS.
 func TestBlitterWriteGuardDeniesLibraries(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	a.Blitter.GuardWrites = true
@@ -276,7 +274,7 @@ func TestBlitterWriteGuardDeniesLibraries(t *testing.T) {
 
 // Freelist MemChunk headers must be denied even when geometrically "in range".
 func TestBlitterWriteGuardFreelistHeaders(t *testing.T) {
-	a := &Amiga{ChipRAM: m68kmem.NewRAM(ChipRAMSize)}
+	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
 	a.Custom = NewCustomChips(nil, a)
 	a.Blitter = NewBlitter(a)
 	a.Blitter.GuardWrites = true

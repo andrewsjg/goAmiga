@@ -149,8 +149,8 @@ func TestWBOpenWindowAndDrag(t *testing.T) {
 
 	// Ring buffer of recent blits for post-mortem.
 	type blitRec struct {
-		size, con0, con1 uint16
-		apt, bpt, cpt, dpt uint32
+		size, con0, con1       uint16
+		apt, bpt, cpt, dpt     uint32
 		amod, bmod, cmod, dmod int16
 	}
 	var blits []blitRec
@@ -321,10 +321,10 @@ func TestWBOpenWindowAndDrag(t *testing.T) {
 	// Record every blit's registers and the write history of the "must be
 	// restored" band (old window rows that the moved window uncovers).
 	type blitRec2 struct {
-		size, con0, con1        uint16
-		apt, bpt, cpt, dpt      uint32
-		amod, bmod, cmod, dmod  int16
-		adat, bdat, afwm, alwm  uint16
+		size, con0, con1       uint16
+		apt, bpt, cpt, dpt     uint32
+		amod, bmod, cmod, dmod int16
+		adat, bdat, afwm, alwm uint16
 	}
 	var allBlits []blitRec2
 	type wr struct {
@@ -449,7 +449,7 @@ func TestWBOpenWindowAndDrag(t *testing.T) {
 		t.Logf("  hot pc=$%08X count=%d", e.pc, e.n)
 	}
 	t.Logf("during drag: blits=%d lineBlits=%d deniedWrites=%d", blitCount, lineCount, denied)
-	
+
 	snap(t, a, "wb_diag_dragging.png")
 	a.Mouse.LeftButton = false
 	// "Crashes shortly after": watch a good while post-release.

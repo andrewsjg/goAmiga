@@ -32,7 +32,7 @@ func TestWorkbenchScreen(t *testing.T) {
 	// Intuition Screen (V33) approximate:
 	// +12 Width, +14 Height, +16 MouseX, +18 MouseY, +20 ViewPort...
 	// Actually struct Screen:
-	// NextScreen@0, Window@4, ... Title@26? 
+	// NextScreen@0, Window@4, ... Title@26?
 	// From intuition/screens.h V34:
 	// 0 NextScreen, 4 FirstWindow, 8 LeftEdge, 10 TopEdge, 12 Width, 14 Height,
 	// 16 MouseX, 18 MouseY, 20 Flags, 22 Title, 26 DefaultTitle, ...

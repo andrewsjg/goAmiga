@@ -2,14 +2,12 @@ package amiga
 
 import (
 	"testing"
-
-	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
 // newTestAmigaVideo creates a minimal Amiga with chip RAM and video for testing.
 func newTestAmigaVideo() *Amiga {
 	a := &Amiga{
-		ChipRAM: m68kmem.NewRAM(ChipRAMSize),
+		ChipRAM: newChipRAM(ChipRAMSize),
 	}
 	a.Custom = NewCustomChips(nil, a)
 	a.Video = NewVideo(a)
