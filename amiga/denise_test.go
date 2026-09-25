@@ -390,3 +390,50 @@ func TestCLXDATSpritePlayfield(t *testing.T) {
 		t.Errorf("CLXDAT after read = $%04X, want cleared ($8000)", got)
 	}
 }
+
+// The overscan view shows 20 lores pixels more each side and lines 28-311;
+// a standard screen sits inside it at column 40, and a wider display
+// window fills the extra area.
+func TestOverscanView(t *testing.T) {
+	a := deniseAmiga(t, 0x1200, []byte{0x80})
+	a.Video.SetOverscan(true)
+	if a.Video.Width != 720 || a.Video.Height != 284 {
+		t.Fatalf("overscan framebuffer %dx%d, want 720x284", a.Video.Width, a.Video.Height)
+	}
+	if w, h := a.Video.DisplaySize(); w != 720 || h != 568 {
+		t.Errorf("display size %dx%d, want 720x568", w, h)
+	}
+	setColors(a, 0x00F, 0xFFF)
+	a.Custom.WriteReg16(0x1A2, 0xF00)
+	setSprite(a, 0, 8, 0x8000, 0, false) // lores pixel 8 of the standard window
+	a.Video.RenderLine(DisplayTop)       // row DisplayTop-OverscanTop = 16
+	at := func(x int) uint16 { return rgbAt(a, (DisplayTop-OverscanTop)*OverscanWidth+x) }
+	if got := at(39); got != 0x00F {
+		t.Errorf("border column 39 = $%03X, want COLOR00", got)
+	}
+	if got := at(40); got != 0xFFF {
+		t.Errorf("column 40 = $%03X, want first playfield pixel $FFF", got)
+	}
+	if got := at(40 + 16); got != 0xF00 {
+		t.Errorf("sprite at column 56 = $%03X, want $F00", got)
+	}
+
+	// Open the window over the whole overscan area: line 28 is now drawn.
+	a.Custom.WriteReg16(0x08E, 0x1C6D)
+	a.Custom.WriteReg16(0x090, 0x38D5)
+	setColors(a, 0x0F0)
+	a.Video.RenderLine(OverscanTop)
+	if got := rgbAt(a, 0); got != 0x0F0 {
+		t.Errorf("overscan line 28 column 0 = $%03X, want $0F0", got)
+	}
+
+	a.Custom.WriteReg16(0x100, 0x0204) // LACE
+	a.Video.StartFrame()
+	if a.Video.Height != 568 {
+		t.Errorf("interlaced overscan height %d, want 568", a.Video.Height)
+	}
+	a.Video.SetOverscan(false)
+	if a.Video.Width != 640 || a.Video.Height != 512 {
+		t.Errorf("back to standard (laced): %dx%d, want 640x512", a.Video.Width, a.Video.Height)
+	}
+}

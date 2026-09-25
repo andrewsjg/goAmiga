@@ -8,9 +8,7 @@ import (
 )
 
 const (
-	displayLayoutW = 640
-	displayLayoutH = 512
-	maxMouseDelta  = 80
+	maxMouseDelta = 80
 )
 
 // Display implements ebiten.Game to show the Amiga's video output.
@@ -227,8 +225,9 @@ func (d *Display) pollMouse() {
 					ah = d.amiga.Video.Height
 				}
 			}
-			adx := dx * aw / displayLayoutW
-			ady := dy * ah / displayLayoutH
+			lw, lh := d.amiga.Video.DisplaySize()
+			adx := dx * aw / lw
+			ady := dy * ah / lh
 			if adx == 0 && dx != 0 {
 				if dx > 0 {
 					adx = 1
@@ -289,15 +288,16 @@ func (d *Display) Draw(screen *ebiten.Image) {
 	screen.DrawImage(d.screen, op)
 }
 
-// Layout returns the logical screen size (2x vertical scaling).
+// Layout returns the logical screen size: the framebuffer width and two
+// rows per non-interlaced line (Video.DisplaySize).
 func (d *Display) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return displayLayoutW, displayLayoutH
+	return d.amiga.Video.DisplaySize()
 }
 
 // Run starts the Ebitengine game loop at 50fps (PAL).
 func (d *Display) Run() error {
 	d.amiga.Video.DisplayActive = true
-	ebiten.SetWindowSize(displayLayoutW, displayLayoutH)
+	ebiten.SetWindowSize(d.amiga.Video.DisplaySize())
 	ebiten.SetTPS(50)
 	ebiten.SetScreenClearedEveryFrame(false)
 	d.applyGrab(false)

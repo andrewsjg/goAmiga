@@ -13,6 +13,7 @@ func main() {
 	diskPath := flag.String("disk", "", "Path to ADF floppy disk image")
 	maxCycles := flag.Uint64("cycles", 0, "Maximum CPU cycles to execute (headless mode)")
 	headless := flag.Bool("headless", false, "Run without display window")
+	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	flag.Parse()
 
@@ -73,6 +74,7 @@ func main() {
 
 	// Windowed mode: open Ebitengine display
 	fmt.Println("Starting display (50fps PAL)...")
+	a.Video.SetOverscan(*overscan)
 	display := amiga.NewDisplay(a)
 	if err := display.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Display error: %v\n", err)

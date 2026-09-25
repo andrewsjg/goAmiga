@@ -32,10 +32,10 @@ type Video struct {
 
 	// sprCol and sprPair hold the current line's sprite pixels: palette
 	// index (16-31, 0 = none) and sprite pair (0-3) per output column.
-	sprCol, sprPair, sprPresent [OutputWidth]byte
+	sprCol, sprPair, sprPresent [MaxOutputWidth]byte
 
 	// pfIdx holds the current line's playfield colour index per column.
-	pfIdx [OutputWidth]byte
+	pfIdx [MaxOutputWidth]byte
 
 	// clxdat accumulates collisions until CLXDAT is read. clxPF caches the
 	// sprite-free collision bits per playfield index for CLXCON clxPFCon.
@@ -43,6 +43,10 @@ type Video struct {
 	clxPF      [64]uint16
 	clxPFCon   uint16
 	clxPFValid bool
+
+	// The part of the beam the framebuffer shows: lores beam position of
+	// column 0, first line, and rows per field. Width is the column count.
+	left, top, rows int
 
 	// laced is set for frames displayed with BPLCON0 LACE: the framebuffer
 	// is then 512 rows and each field fills alternate rows.
@@ -59,26 +63,61 @@ const (
 	LowResWidth     = 320
 	HiResWidth      = 640
 
-	// The framebuffer shows a fixed part of the beam: lines DisplayTop to
-	// DisplayBottom and, horizontally, OutputWidth hires pixels starting at
-	// lores beam position OutputLeft. That is exactly the standard PAL
-	// display window (DIWSTRT $2C81, DIWSTOP $2CC1); screens are placed in
-	// it by their own DIW/DDF values, so overscan beyond it is cropped.
+	// The framebuffer shows a fixed part of the beam. By default that is
+	// exactly the standard PAL display window (DIWSTRT $2C81, DIWSTOP
+	// $2CC1): lines DisplayTop to DisplayBottom and OutputWidth hires
+	// columns starting at lores beam position OutputLeft. Screens are
+	// placed in it by their own DIW/DDF values; anything outside is cropped.
 	DisplayTop    = 44
 	DisplayBottom = DisplayTop + PALVisibleLines
 	OutputLeft    = 0x81
 	OutputWidth   = HiResWidth
+
+	// Overscan view (SetOverscan): 20 lores pixels more on each side and
+	// lines 28-311, about as much of the PAL picture as a monitor shows.
+	OverscanLeft  = OutputLeft - 20
+	OverscanWidth = OutputWidth + 80
+	OverscanTop   = 28
+	OverscanRows  = 284
+
+	// MaxOutputWidth sizes the per-line buffers for either view.
+	MaxOutputWidth = OverscanWidth
 )
 
 // NewVideo allocates a Video subsystem for the given Amiga.
 func NewVideo(a *Amiga) *Video {
 	v := &Video{
-		amiga:  a,
-		Width:  OutputWidth,
-		Height: PALVisibleLines,
-		Pixels: make([]byte, OutputWidth*PALVisibleLines*4),
+		amiga: a,
 	}
+	v.SetOverscan(false)
 	return v
+}
+
+// SetOverscan selects the standard view (640x256 from H $81, line 44) or
+// the overscan view (720x284 from H $6D, line 28). Interlace doubles the
+// rows in either.
+func (v *Video) SetOverscan(on bool) {
+	v.left, v.top, v.rows, v.Width = OutputLeft, DisplayTop, PALVisibleLines, OutputWidth
+	if on {
+		v.left, v.top, v.rows, v.Width = OverscanLeft, OverscanTop, OverscanRows, OverscanWidth
+	}
+	v.resize()
+}
+
+// resize allocates the framebuffer for the current view and interlace.
+func (v *Video) resize() {
+	v.Height = v.rows
+	if v.laced {
+		v.Height *= 2
+	}
+	v.Pixels = make([]byte, v.Width*v.Height*4)
+}
+
+// DisplaySize is the size to show the framebuffer at on the host: full
+// width, and two host rows per non-interlaced line so pixels keep the
+// Amiga's aspect ratio.
+func (v *Video) DisplaySize() (w, h int) {
+	return v.Width, 2 * v.rows
 }
 
 // UpdatePalette reads COLOR00-31 from custom registers and converts
@@ -121,11 +160,7 @@ func (v *Video) StartFrame() {
 	laced := v.amiga.Custom.ReadReg16(0x100)&0x0004 != 0
 	if laced != v.laced {
 		v.laced = laced
-		v.Height = PALVisibleLines
-		if laced {
-			v.Height *= 2
-		}
-		v.Pixels = make([]byte, OutputWidth*v.Height*4)
+		v.resize()
 	}
 }
 
@@ -133,7 +168,7 @@ func (v *Video) StartFrame() {
 // long frame (LOF=1) fills the even rows and the short frame the odd rows,
 // and the other field's rows are kept, weaving the two into one picture.
 func (v *Video) outputRow(vpos int) int {
-	y := vpos - DisplayTop
+	y := vpos - v.top
 	if !v.laced {
 		return y
 	}
@@ -222,7 +257,7 @@ func (v *Video) RenderLine(vpos int) {
 	}
 
 	fetch := v.bitplaneFetchLine(vpos)
-	draw := v.DisplayActive && vpos >= DisplayTop && vpos < DisplayBottom
+	draw := v.DisplayActive && vpos >= v.top && vpos < v.top+v.rows
 	if fetch && draw {
 		for p := 0; p < numPlanes; p++ {
 			v.amiga.ChipRAM.Read(int(v.bplpt[p]&0x7FFFF), v.planeBuf[p][:2*words])
@@ -274,7 +309,7 @@ func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
 		return
 	}
 	lores := 2*(hpos/CPUCyclesPerColorClock) + writeColumnOffset
-	v.changes = append(v.changes, regChange{col: 2 * (lores - OutputLeft), reg: reg, old: old, new: new})
+	v.changes = append(v.changes, regChange{col: 2 * (lores - v.left), reg: reg, old: old, new: new})
 }
 
 // drawLine composes one output row the way Denise does: playfield pixels
@@ -284,7 +319,7 @@ func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
 // effect from their column (see noteWrite).
 //
 // Horizontal positions are in hires pixels: output column X is beam
-// position 2*OutputLeft+X, and lores pixels are two columns wide.
+// position 2*v.left+X, and lores pixels are two columns wide.
 func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	c := v.amiga.Custom
 	bplcon0 := c.ReadReg16(0x100)
@@ -321,15 +356,15 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	// pixels in lores and 9 in hires (HRM: DIWSTRT = 2*DDFSTRT + 17 / + 9,
 	// so the standard $38/$3C both line up with DIWSTRT $81).
 	pf := playfieldLayout{planes: numPlanes, words: words, pixW: 2,
-		origin: 2*(2*ddfstrt+17) - 2*OutputLeft}
+		origin: 2*(2*ddfstrt+17) - 2*v.left}
 	if hires {
-		pf.pixW, pf.origin = 1, 2*(2*ddfstrt+9)-2*OutputLeft
+		pf.pixW, pf.origin = 1, 2*(2*ddfstrt+9)-2*v.left
 	}
 	v.fillPlayfield(pf, 0, bplcon1)
 
 	anySprite := false
 	if v.amiga.Sprites != nil && lineVisible {
-		anySprite = v.amiga.Sprites.lineBuffer(&v.sprCol, &v.sprPair, &v.sprPresent)
+		anySprite = v.amiga.Sprites.lineBuffer(&v.sprCol, &v.sprPair, &v.sprPresent, v.left, v.Width)
 	}
 
 	// Collisions without sprites depend only on the playfield bits and
@@ -344,18 +379,18 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 
 	pf2pri := bplcon2&0x0040 != 0
 	pf1p, pf2p := int(bplcon2&7), int(bplcon2>>3&7)
-	row := v.Pixels[v.outputRow(vpos)*OutputWidth*4:]
+	row := v.Pixels[v.outputRow(vpos)*v.Width*4:]
 	hold := v.lineColors[0] // HAM hold register
 	next := 0
-	nextCol := OutputWidth // column of the next pending change
+	nextCol := v.Width // column of the next pending change
 	if len(v.changes) > 0 {
 		nextCol = v.changes[0].col
 	}
-	for x := 0; x < OutputWidth; x++ {
+	for x := 0; x < v.Width; x++ {
 		for x >= nextCol {
 			ch := v.changes[next]
 			next++
-			nextCol = OutputWidth
+			nextCol = v.Width
 			if next < len(v.changes) {
 				nextCol = v.changes[next].col
 			}
@@ -374,7 +409,7 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 			}
 		}
 
-		lores := OutputLeft + x/2
+		lores := v.left + x/2
 		if !lineVisible || lores < win.hstart || lores >= win.hstop {
 			v.put(row, x, v.palette[0])
 			hold = v.lineColors[0]
@@ -447,12 +482,12 @@ func (v *Video) fillPlayfield(pf playfieldLayout, from int, bplcon1 uint16) {
 			delay = int(bplcon1 >> 4 & 0xF)
 		}
 		start := pf.origin + 2*delay // column of pixel 0
-		// Pixels whose columns lie in [from, OutputWidth).
+		// Pixels whose columns lie in [from, v.Width).
 		nMin := (from - start + pf.pixW - 1) / pf.pixW
 		if from-start < 0 {
 			nMin = 0
 		}
-		nMax := (OutputWidth - start + pf.pixW - 1) / pf.pixW
+		nMax := (v.Width - start + pf.pixW - 1) / pf.pixW
 		if nMax > pixels {
 			nMax = pixels
 		}
@@ -468,7 +503,7 @@ func (v *Video) fillPlayfield(pf playfieldLayout, from int, bplcon1 uint16) {
 			}
 			x := start + n*pf.pixW
 			v.pfIdx[x] |= bit
-			if pf.pixW == 2 && x+1 < OutputWidth {
+			if pf.pixW == 2 && x+1 < v.Width {
 				v.pfIdx[x+1] |= bit
 			}
 		}

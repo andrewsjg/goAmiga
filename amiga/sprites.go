@@ -52,7 +52,7 @@ func (s *Sprite) hstart() int {
 // SpriteEngine manages the 8 hardware sprites.
 type SpriteEngine struct {
 	sprites [8]Sprite
-	px      [8][OutputWidth]byte // per-sprite pixels of the current line
+	px      [8][MaxOutputWidth]byte // per-sprite pixels of the current line
 	amiga   *Amiga
 	buf     [2]byte
 }
@@ -212,7 +212,8 @@ func (se *SpriteEngine) FetchLine(vpos int) {
 
 // lineBuffer fills the current line's sprite pixels for the compositor:
 // col[x] is the palette index (16-31, 0 = transparent) and pair[x] the
-// sprite pair (0-3) shown at output column x, and present[x] has bit i set
+// sprite pair (0-3) shown at output column x (column 0 is lores beam
+// position left; width columns), and present[x] has bit i set
 // where sprite i has a non-transparent pixel (for collision detection).
 // Lower-numbered sprites are in front of higher ones. An odd sprite with
 // ATTACH (SPRxCTL bit 7) joins its even partner as one 15-colour sprite
@@ -220,25 +221,25 @@ func (se *SpriteEngine) FetchLine(vpos int) {
 //
 // Sprite HSTART is in lores beam pixels, the same units as DIWSTRT's
 // horizontal position; sprites are lores, two output columns per pixel.
-func (se *SpriteEngine) lineBuffer(col, pair, present *[OutputWidth]byte) bool {
+func (se *SpriteEngine) lineBuffer(col, pair, present *[MaxOutputWidth]byte, left, width int) bool {
 	var painted [8]bool
 	anyPainted := false
 	for i := range se.sprites {
-		painted[i] = se.paint(&se.sprites[i], &se.px[i])
+		painted[i] = se.paint(&se.sprites[i], &se.px[i], left, width)
 		anyPainted = anyPainted || painted[i]
 	}
 	if !anyPainted {
 		return false
 	}
-	*col = [OutputWidth]byte{}
-	*present = [OutputWidth]byte{}
+	*col = [MaxOutputWidth]byte{}
+	*present = [MaxOutputWidth]byte{}
 	for pr := 3; pr >= 0; pr-- {
 		ev, od := 2*pr, 2*pr+1
 		if !painted[ev] && !painted[od] {
 			continue
 		}
 		attached := se.sprites[od].ctl&0x80 != 0
-		for x := 0; x < OutputWidth; x++ {
+		for x := 0; x < width; x++ {
 			var e, o byte
 			if painted[ev] {
 				e = se.px[ev][x]
@@ -271,19 +272,19 @@ func (se *SpriteEngine) lineBuffer(col, pair, present *[OutputWidth]byte) bool {
 
 // paint draws sprite s's 2-bit pixels on the current line into bits,
 // reporting false (and leaving bits untouched) if it shows nothing.
-func (se *SpriteEngine) paint(s *Sprite, bits *[OutputWidth]byte) bool {
+func (se *SpriteEngine) paint(s *Sprite, bits *[MaxOutputWidth]byte, left, width int) bool {
 	if s.state != sprActive || s.data|s.datb == 0 {
 		return false
 	}
-	*bits = [OutputWidth]byte{}
-	x0 := 2 * (s.hstart() - OutputLeft)
+	*bits = [MaxOutputWidth]byte{}
+	x0 := 2 * (s.hstart() - left)
 	for i := 0; i < 16; i++ {
 		v := byte(s.data>>(15-i)&1 | s.datb>>(15-i)&1<<1)
 		if v == 0 {
 			continue
 		}
 		for _, x := range [2]int{x0 + 2*i, x0 + 2*i + 1} {
-			if x >= 0 && x < OutputWidth {
+			if x >= 0 && x < width {
 				bits[x] = v
 			}
 		}

@@ -14,8 +14,7 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    charged against the CPU/blitter; blit and disk data still land in chip
    RAM at the start of the transfer (only BBUSY and interrupt timing are
    real); no drive motor spin-up time.
-2. **Display.** Missing: overscan output (the framebuffer is the
-   standard 640×256/512 window; wider screens are cropped); BPLCON0 and
+2. **Display.** Missing: BPLCON0 and
    sprite register changes partway through a line; collisions are only
    detected on lines that are drawn (not in headless mode).
 3. **Audio.** Paula audio DMA is not implemented.
@@ -28,6 +27,29 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — Overscan view (`--overscan`)
+
+The framebuffer's view of the beam is now a per-`Video` setting instead of
+constants (`left`, `top`, `rows`, `Width`; `SetOverscan`):
+
+| View | Size | Beam area |
+|---|---|---|
+| Standard (default) | 640×256 | lores H `$81`–`$1C1`, lines 44–299 |
+| Overscan (`--overscan`) | 720×284 | lores H `$6D`–`$1D5`, lines 28–311 |
+
+Interlace doubles the rows in either. The host window follows the
+framebuffer: `Video.DisplaySize` (full width, two host rows per line)
+feeds Ebitengine's `Layout`, the initial window size, and the host-mouse
+scaling, which used fixed 640×512 constants. The sprite and line buffers
+are sized for the widest view (`MaxOutputWidth`).
+
+In overscan, Workbench's standard screen sits 40 columns in and 16 rows
+down, framed by the COLOR00 border (`TestOverscanScreenshot`, a
+`GOAMIGA_DIAG` test, writes `/tmp/workbench_overscan.png`). The standard
+view is still pixel-identical to before. `TestOverscanView` covers
+geometry, placement of playfield and sprites, a display window opened over
+the whole overscan area, and interlace. Full suite passes.
 
 ## 2026-09-25 — Mid-line register changes, interlace, collisions
 

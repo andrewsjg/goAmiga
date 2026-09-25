@@ -14,6 +14,10 @@ go run ./cmd/goamiga --rom Kick13.rom --disk "Workbench1.3.adf"
 go run ./cmd/goamiga --rom Kick13.rom --headless --cycles 10000000
 ```
 
+The window shows the standard PAL display area (640×256, doubled
+vertically). Add `--overscan` to see the full overscan area (720×284),
+for software that draws into the border.
+
 ## Testing
 
 Put `Kick13.rom` and the Workbench 1.3 ADFs in this directory, then:
