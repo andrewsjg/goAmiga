@@ -13,9 +13,7 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
 1. **Timing (remaining).** The CPU and beam now run at the correct PAL
    ratio, but there is no DMA cycle stealing (bitplane, Copper and blitter
    DMA never slow the CPU), blits complete instantly (busy time is capped
-   at 512 cycles), floppy DMA completes far faster than a real drive, and
-   every frame is 312 lines with LOF toggling even without interlace (real
-   PAL non-interlaced frames are long frames).
+   at 512 cycles), and floppy DMA completes far faster than a real drive.
 2. **Display.** Missing: DIWSTRT/DIWSTOP horizontal positioning,
    BPLCON1 scroll, BPLCON2 priorities, EHB, HAM, dual playfield,
    interlace field weaving, overscan, collision detection (CLXDAT),
@@ -30,6 +28,27 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — PAL long/short frames
+
+**Problem.** Every frame was 312 lines and LOF (VPOSR bit 15) flipped each
+VBLANK regardless of mode. A real PAL frame is 312.5 lines: non-interlaced,
+Agnus produces only long frames (313 lines, LOF=1); with BPLCON0 LACE set it
+alternates long and short (313/312) frames and LOF tells software which
+field is on screen. Software that checks LOF to pick a copper list saw
+the wrong parity every other frame. The end-of-line/VBLANK code was also
+copied three times (per-cycle, headless fast-idle, display fast-idle).
+
+**Fix.** One `nextLine()`/`startFrame()` pair in `amiga.go` handles every
+path. `startFrame` sets `lof = true` unless LACE is set, in which case it
+toggles; `linesThisFrame()` gives 313 or 312 from LOF, including for the
+STOP fast-idle skip-to-VBLANK computation. `VPOSW` writes set LOF, as
+graphics.library does when switching interlace. `LinesPerFrame` is now the
+long frame (313), so `CyclesPerFrame` = 142,102.
+
+**Tests.** `TestFrameLengthAndLOF` (both beam paths: 313 lines/LOF=1
+non-interlaced; alternating 313/312 with LOF matching when interlaced) and
+`TestVPOSWSetsLOF`. Full suite passes.
 
 ## 2026-09-25 — PAL beam timing
 

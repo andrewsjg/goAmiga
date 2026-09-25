@@ -239,6 +239,13 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		c.regs[0x096] = byte(oldDmacon >> 8)
 		c.regs[0x097] = byte(oldDmacon)
 
+	case 0x02A: // VPOSW: only LOF (bit 15) is honoured; the beam counters
+		// are not writable here. graphics.library sets LOF when it turns
+		// interlace on or off so the next field has the right parity.
+		if c.amiga != nil && n == 2 {
+			c.amiga.lof = p[0]&0x80 != 0
+		}
+
 	case 0x09A: // INTENA
 		val := uint16(p[0])<<8 | uint16(p[1])
 		if val&0x8000 != 0 {

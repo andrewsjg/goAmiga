@@ -34,7 +34,7 @@ func TestBeamLineAndFrameLength(t *testing.T) {
 	if a.vpos != 11 || a.hpos != 0 {
 		t.Fatalf("after 454 cycles: vpos=%d hpos=%d, want 11,0", a.vpos, a.hpos)
 	}
-	if CPUClocksPerLine != 454 || CyclesPerFrame != 454*312 {
+	if CPUClocksPerLine != 454 || CyclesPerFrame != 454*313 {
 		t.Fatalf("PAL timing: %d cycles/line, %d/frame", CPUClocksPerLine, CyclesPerFrame)
 	}
 }
@@ -86,5 +86,62 @@ func TestCopperThroughputPerLine(t *testing.T) {
 	want := CPUClocksPerLine / CopperCyclesPerInstr
 	if got < want-1 || got > want+1 {
 		t.Errorf("Copper executed %d MOVEs in one line, want ~%d", got, want)
+	}
+}
+
+// frameLines runs the beam from the start of a frame to the start of the
+// next and returns how many lines it had and the LOF flag seen during it.
+func frameLines(a *Amiga, fast bool) (lines int, lof bool) {
+	lof = a.lof
+	for {
+		if fast {
+			a.advanceBeamFast(CPUClocksPerLine)
+		} else {
+			a.advanceBeamPerCycle(CPUClocksPerLine)
+		}
+		lines++
+		if a.vpos == 0 {
+			return lines, lof
+		}
+	}
+}
+
+// Non-interlaced PAL frames are all long (313 lines, LOF=1); with LACE set
+// they alternate long/short so the two fields interleave.
+func TestFrameLengthAndLOF(t *testing.T) {
+	for _, fast := range []bool{false, true} {
+		a := createTestAmiga(t)
+		a.vpos, a.hpos, a.lof = 0, 0, true
+		for i := 0; i < 3; i++ {
+			if n, lof := frameLines(a, fast); n != 313 || !lof {
+				t.Fatalf("fast=%v non-interlaced frame %d: %d lines, LOF=%v; want 313, true", fast, i, n, lof)
+			}
+		}
+
+		a.Custom.WriteReg16(0x100, 0x9204) // hires, 1 plane, LACE
+		var got []int
+		for i := 0; i < 4; i++ {
+			n, lof := frameLines(a, fast)
+			if (n == 313) != lof {
+				t.Fatalf("fast=%v frame of %d lines had LOF=%v", fast, n, lof)
+			}
+			got = append(got, n)
+		}
+		if got[0] == got[1] || got[0] != got[2] || got[1] != got[3] {
+			t.Errorf("fast=%v interlaced frame lengths %v, want alternating 313/312", fast, got)
+		}
+	}
+}
+
+func TestVPOSWSetsLOF(t *testing.T) {
+	a := createTestAmiga(t)
+	a.lof = true
+	a.Custom.Write(0x02A, []byte{0x00, 0x00})
+	if a.lof {
+		t.Fatal("VPOSW $0000 left LOF set")
+	}
+	a.Custom.Write(0x02A, []byte{0x80, 0x00})
+	if !a.lof {
+		t.Fatal("VPOSW $8000 did not set LOF")
 	}
 }

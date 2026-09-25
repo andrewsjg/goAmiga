@@ -32,8 +32,9 @@ complete frame.
 
 Timing: the beam counts PAL colour clocks (3.546895 MHz); the CPU runs at
 twice that. A line is `ColorClocksPerLine = 227` colour clocks =
-`CPUClocksPerLine = 454` CPU cycles, and a frame is `LinesPerFrame = 312`
-lines. `a.hpos` is in CPU cycles; the chipset sees `hpos/2` (VHPOSR, and
+`CPUClocksPerLine = 454` CPU cycles. A frame is 313 lines when LOF is set
+(always, unless interlaced) and 312 when clear; with BPLCON0 LACE set,
+`startFrame()` toggles LOF each frame. `a.hpos` is in CPU cycles; the chipset sees `hpos/2` (VHPOSR, and
 the Copper via `beamHP()`). The Copper starts one instruction per
 `CopperCyclesPerInstr = 8` CPU cycles.
 

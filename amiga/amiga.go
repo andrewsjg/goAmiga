@@ -30,9 +30,14 @@ const (
 	// a.hpos is kept in CPU cycles; the chipset sees hpos/2 (VHPOSR, Copper).
 	ColorClocksPerLine = 227                                         // PAL line: 227 colour clocks = 64µs
 	CPUClocksPerLine   = ColorClocksPerLine * CPUCyclesPerColorClock // 454 CPU cycles per scanline
-	LinesPerFrame      = 312                                         // PAL: 312 scanlines (fixed; LOF still toggles for software)
-	VBlankLine         = 0                                           // VBLANK interrupt fires at line 0
-	CyclesPerFrame     = CPUClocksPerLine * LinesPerFrame            // 141648 CPU cycles per frame (~50 Hz)
+	// A PAL frame is 312.5 lines. Non-interlaced, every frame is a long
+	// frame (313 lines, LOF=1). With BPLCON0 LACE set, frames alternate
+	// long/short (313/312) so the two fields interleave.
+	LinesPerLongFrame  = 313
+	LinesPerShortFrame = 312
+	LinesPerFrame      = LinesPerLongFrame                // nominal (non-interlaced) frame
+	VBlankLine         = 0                                // VBLANK interrupt fires at line 0
+	CyclesPerFrame     = CPUClocksPerLine * LinesPerFrame // 142102 CPU cycles per frame (~50 Hz)
 
 	CPUCyclesPerColorClock = 2
 	// CopperCyclesPerInstr is the Copper's throughput: it fetches one word
@@ -65,7 +70,8 @@ type Amiga struct {
 	vpos   int // vertical position (0-311)
 	cycles uint64
 
-	// Long frame toggle (LOF) — flips each VBLANK for interlace/frame detection
+	// lof is the long-frame flag (VPOSR bit 15) for the current frame. It
+	// sets the frame length: 313 lines when true, 312 when false.
 	lof bool
 
 	// E clock divider: CIAs tick every 10 CPU cycles
@@ -106,6 +112,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	a := &Amiga{
 		logger:      logger,
 		debugWriter: os.Stderr,
+		lof:         true,
 	}
 
 	// Create memory devices
@@ -274,6 +281,7 @@ func (a *Amiga) Reset() error {
 
 	a.hpos = 0
 	a.vpos = 0
+	a.lof = true // non-interlaced frames are long
 	a.cycles = 0
 	a.cpuStopped = false
 	a.busErrorCount = 0
@@ -305,7 +313,7 @@ func (a *Amiga) Step() error {
 		// underflow or VBL) instead of ticking 4 cycles at a time.
 		skip := CyclesPerFrame // upper bound: one full frame
 		// Cycles until next VBL (line 0 wrap)
-		cyclesToVBL := (LinesPerFrame-a.vpos)*CPUClocksPerLine - a.hpos
+		cyclesToVBL := (a.linesThisFrame()-a.vpos)*CPUClocksPerLine - a.hpos
 		if cyclesToVBL > 0 && cyclesToVBL < skip {
 			skip = cyclesToVBL
 		}
@@ -455,6 +463,50 @@ func (a *Amiga) Run(maxCycles uint64) error {
 	return nil
 }
 
+// linesThisFrame is the length of the current frame: long frames have
+// 313 lines, short (interlace odd-field) frames 312.
+func (a *Amiga) linesThisFrame() int {
+	if a.lof {
+		return LinesPerLongFrame
+	}
+	return LinesPerShortFrame
+}
+
+// nextLine moves the beam to the start of the next scanline, starting a new
+// frame when it passes the last line. It reports whether a frame started.
+func (a *Amiga) nextLine() bool {
+	a.hpos = 0
+	a.vpos++
+	a.CIAB.TickTOD() // CIA-B TOD ← horizontal sync
+	if a.vpos < a.linesThisFrame() {
+		return false
+	}
+	a.startFrame()
+	return true
+}
+
+// startFrame handles vertical blank: beam to line 0, VERTB interrupt,
+// Copper restart from COP1LC, and a new video frame.
+func (a *Amiga) startFrame() {
+	a.vpos = 0
+	// Agnus toggles LOF each frame only in interlace; otherwise every frame
+	// is long.
+	if a.Custom.ReadReg16(0x100)&0x0004 != 0 { // BPLCON0 LACE
+		a.lof = !a.lof
+	} else {
+		a.lof = true
+	}
+	a.Custom.SetIntreq(1 << 5)
+	a.Copper.Restart(1)
+	a.CIAA.TickTOD() // CIA-A TOD ← vertical sync
+	if a.Video != nil {
+		a.Video.StartFrame()
+	}
+	if a.Keyboard != nil {
+		a.Keyboard.Tick()
+	}
+}
+
 // advanceBeamPerCycle advances the beam position one cycle at a time.
 // This is the accurate path used during normal CPU execution.
 func (a *Amiga) advanceBeamPerCycle(elapsed int) {
@@ -472,23 +524,7 @@ func (a *Amiga) advanceBeamPerCycle(elapsed int) {
 				a.Video.RenderLine(a.vpos)
 			}
 
-			a.hpos = 0
-			a.vpos++
-			a.CIAB.TickTOD() // CIA-B TOD ← horizontal sync
-			if a.vpos >= LinesPerFrame {
-				a.vpos = 0
-				a.lof = !a.lof
-				// VBLANK: fire VERTB interrupt, restart Copper, start new video frame
-				a.Custom.SetIntreq(1 << 5)
-				a.Copper.Restart(1)
-				a.CIAA.TickTOD() // CIA-A TOD ← vertical sync
-				if a.Video != nil {
-					a.Video.StartFrame()
-				}
-				if a.Keyboard != nil {
-					a.Keyboard.Tick()
-				}
-			}
+			a.nextLine()
 		}
 
 		// E clock divider: CIA ticks every 10 CPU cycles (~709KHz)
@@ -546,21 +582,7 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 			remaining -= lineRemain
 
 			if a.hpos >= CPUClocksPerLine {
-				a.hpos = 0
-				a.vpos++
-				a.CIAB.TickTOD() // CIA-B TOD ← horizontal sync
-				if a.vpos >= LinesPerFrame {
-					a.vpos = 0
-					a.lof = !a.lof
-					a.Custom.SetIntreq(1 << 5)
-					a.Copper.Restart(1)
-					a.CIAA.TickTOD() // CIA-A TOD ← vertical sync
-					if a.Video != nil {
-						a.Video.StartFrame()
-					}
-					if a.Keyboard != nil {
-						a.Keyboard.Tick()
-					}
+				if a.nextLine() {
 					dmacon = a.Custom.ReadReg16(0x096)
 					copperEnabled = dmacon&0x0280 == 0x0280
 				}
@@ -595,19 +617,7 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 			}
 			a.Video.RenderLine(a.vpos)
 
-			a.hpos = 0
-			a.vpos++
-			a.CIAB.TickTOD() // CIA-B TOD ← horizontal sync
-			if a.vpos >= LinesPerFrame {
-				a.vpos = 0
-				a.lof = !a.lof
-				a.Custom.SetIntreq(1 << 5)
-				a.Copper.Restart(1)
-				a.CIAA.TickTOD() // CIA-A TOD ← vertical sync
-				a.Video.StartFrame()
-				if a.Keyboard != nil {
-					a.Keyboard.Tick()
-				}
+			if a.nextLine() {
 				dmacon = a.Custom.ReadReg16(0x096)
 				copperEnabled = dmacon&0x0280 == 0x0280
 			}
