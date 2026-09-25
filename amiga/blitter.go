@@ -615,8 +615,21 @@ const (
 	blitStartupCycles      = 2 // colour clocks of pipeline startup
 )
 
-// blitDuration is how long a blit keeps BBUSY set, in CPU cycles, assuming
-// the blitter gets every DMA slot it wants (no bitplane contention yet).
+// hogsBus reports whether the running blit uses every bus slot (its cycle
+// pattern has no idle cycles), so the CPU only gets in by the blitter
+// yielding. Line mode leaves idle cycles.
+func (b *Blitter) hogsBus() bool {
+	if b.con1&0x0001 != 0 {
+		return false
+	}
+	use := (b.con0 >> 8) & 0xF
+	channels := int(use&1 + use>>1&1 + use>>2&1 + use>>3&1)
+	return channels == blitCyclesPerWord[use]
+}
+
+// blitDuration is how many CPU cycles of free bus slots a blit needs. It
+// takes longer in real time when bitplane or fixed DMA holds slots: the
+// Amiga only counts slots the blitter actually gets (Amiga.blitterSlots).
 func blitDuration(con0, con1 uint16, width, height int) int {
 	cck := height * width * blitCyclesPerWord[(con0>>8)&0xF]
 	if con1&0x0001 != 0 {

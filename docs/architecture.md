@@ -38,6 +38,12 @@ twice that. A line is `ColorClocksPerLine = 227` colour clocks =
 the Copper via `beamHP()`). The Copper starts one instruction per
 `CopperCyclesPerInstr = 8` CPU cycles.
 
+DMA contention (`dma.go`): CPU chip RAM/custom accesses are counted by a
+`chipBus` wrapper in the Mapper; after each instruction `chipBusWait` adds
+the cycles spent waiting for even slots held by bitplane DMA or the
+blitter. The blitter's busy time only counts down on slots bitplane,
+refresh and sprite DMA leave free (`blitterSlots`).
+
 ## Memory map
 
 Built by `wireMemoryMap(overlay)` on a `m68kmem.Mapper` in **OpenBus** mode

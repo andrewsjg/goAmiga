@@ -45,7 +45,8 @@ func TestTimingProfile(t *testing.T) {
 	frames := float64(a.cycles) / CyclesPerFrame
 	t.Logf("boot to workbench.task: %d steps, %d cycles, %.0f frames = %.1fs emulated, %.1fs host",
 		steps, a.cycles, frames, frames/50, host.Seconds())
-	t.Logf("  idle: %.0f%% of cycles spent in STOP", 100*float64(a.FastIdleSkips)/float64(a.cycles))
+	t.Logf("  idle: %.0f%% of cycles spent in STOP, %.1f%% waiting for DMA",
+		100*float64(a.FastIdleSkips)/float64(a.cycles), 100*float64(a.DMAWaitCycles)/float64(a.cycles))
 
 	// Throughput with rendering on, once Workbench is idle.
 	a.Video.DisplayActive = true

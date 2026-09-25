@@ -93,6 +93,12 @@ type Amiga struct {
 	debugIntCount int
 	debugWriter   io.Writer
 
+	// cpuChipAccesses counts CPU chip bus accesses since the last DMA
+	// contention charge (see chipBusWait). DMAWaitCycles totals the CPU
+	// cycles lost to DMA.
+	cpuChipAccesses int
+	DMAWaitCycles   uint64
+
 	// busErrorCount limits exception storms after freelist/memory collapse
 	// (otherwise the UI freezes on a white frame raising bus errors forever).
 	busErrorCount int
@@ -246,7 +252,7 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		a.Mapper.Map(a.ROM, 0x000000, ROMSize-1)
 		a.Mapper.Map(m68kmem.NewNop(), ROMSize, ChipRAMEnd)
 	} else {
-		a.Mapper.Map(a.ChipRAM, ChipRAMBase, ChipRAMEnd)
+		a.Mapper.Map(&chipBus{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMEnd)
 	}
 
 	// NOP for unmapped ranges (Kickstart probes memory by reading/writing)
@@ -255,7 +261,7 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 
 	a.Mapper.Map(a.CIAB, CIABBase, CIABEnd)
 	a.Mapper.Map(a.CIAA, CIAABase, CIAAEnd)
-	a.Mapper.Map(a.Custom, CustomBase, CustomEnd)
+	a.Mapper.Map(&chipBus{a.Custom, &a.cpuChipAccesses}, CustomBase, CustomEnd)
 
 	// NOP between custom and ROM
 	a.Mapper.Map(m68kmem.NewNop(), CustomEnd+1, ROMBase-1)
@@ -377,9 +383,22 @@ func (a *Amiga) Step() error {
 		elapsed = 4 // minimum 68000 instruction time
 	}
 
-	// Tick blitter / disk completion timers (deferred interrupts after data transfer)
+	// Wait for chip bus slots held by DMA. Accesses made while servicing an
+	// interrupt after the previous Step are charged here too.
+	if wait := a.chipBusWait(a.cpuChipAccesses); wait > 0 {
+		elapsed += wait
+		a.DMAWaitCycles += uint64(wait)
+	}
+	a.cpuChipAccesses = 0
+
+	// Tick blitter / disk completion timers (deferred interrupts after data
+	// transfer). The blitter only advances on slots other DMA leaves free.
 	if a.Blitter != nil {
-		a.Blitter.TickCycles(elapsed)
+		blitCycles := elapsed
+		if a.Blitter.busy {
+			blitCycles = a.blitterSlots(elapsed) * CPUCyclesPerColorClock
+		}
+		a.Blitter.TickCycles(blitCycles)
 	}
 	if a.Disk != nil {
 		a.Disk.TickCycles(elapsed)

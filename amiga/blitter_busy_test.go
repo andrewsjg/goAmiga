@@ -93,12 +93,16 @@ func TestStoppedCPUWakesForBlit(t *testing.T) {
 	a.Blitter.Execute(10<<6 | 10)
 	want := a.Blitter.completionCycles
 
+	// Fast-idle skips to the earliest the blit could end; refresh slots
+	// can push it a few cycles later, needing another short idle step.
 	start := a.cycles
-	if err := a.Step(); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 10 && a.Blitter.busy; i++ {
+		if err := a.Step(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got := int(a.cycles - start); got > want+4 {
-		t.Fatalf("fast-idle advanced %d cycles, blit ends after %d", got, want)
+	if got := int(a.cycles - start); got > want+CPUClocksPerLine {
+		t.Fatalf("fast-idle advanced %d cycles, blit ends after ~%d", got, want)
 	}
 	if a.Blitter.busy || a.Custom.ReadReg16(0x09C)&0x0040 == 0 {
 		t.Fatal("blit not complete / BLIT INTREQ not raised after idle step")

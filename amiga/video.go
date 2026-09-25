@@ -87,6 +87,32 @@ func (v *Video) StartFrame() {
 	v.SnapshotBitplanePointers()
 }
 
+// fetchWords is the number of words fetched per plane per line for the
+// given DDFSTRT/DDFSTOP.
+func fetchWords(hires bool, ddfstrt, ddfstop uint16) int {
+	if ddfstrt == 0 || ddfstop == 0 || ddfstop <= ddfstrt {
+		if hires {
+			return 40
+		}
+		return 20
+	}
+	// HRM: lores  DDFSTRT = DDFSTOP - 8*(words-1)  → words = (STOP-STRT)/8 + 1
+	//      hires DDFSTRT = DDFSTOP - 4*(words-2)  → words = (STOP-STRT)/4 + 2
+	if !hires {
+		return int((ddfstop-ddfstrt)/8) + 1
+	}
+	words := int((ddfstop-ddfstrt)/4) + 2
+	// Standard full-width hires copper (e.g. KS1.3 WB DDF $3C/$D0) is
+	// documented as 39 by the pure HRM identity, but Denise/fetch and
+	// graphics.library treat it as 40 words (80 bytes) with BPLMOD=0
+	// matching BitMap BytesPerRow=80. Using 39 shears the framebuffer
+	// by 2 bytes per line against drawn bitmaps.
+	if words == 39 {
+		words = 40
+	}
+	return words
+}
+
 // RenderLine renders a single scanline to the Pixels framebuffer.
 // vpos is the absolute vertical position (0-311).
 func (v *Video) RenderLine(vpos int) {
@@ -128,30 +154,7 @@ func (v *Video) RenderLine(vpos int) {
 		width = HiResWidth
 	}
 
-	wordsPerLine := 20
-	if hires {
-		wordsPerLine = 40
-	}
-
-	ddfstrt := v.amiga.Custom.ReadReg16(0x092)
-	ddfstop := v.amiga.Custom.ReadReg16(0x094)
-	if ddfstrt != 0 && ddfstop != 0 && ddfstop > ddfstrt {
-		// HRM: lores  DDFSTRT = DDFSTOP - 8*(words-1)  → words = (STOP-STRT)/8 + 1
-		//      hires DDFSTRT = DDFSTOP - 4*(words-2)  → words = (STOP-STRT)/4 + 2
-		if hires {
-			wordsPerLine = int((ddfstop-ddfstrt)/4) + 2
-			// Standard full-width hires copper (e.g. KS1.3 WB DDF $3C/$D0) is
-			// documented as 39 by the pure HRM identity, but Denise/fetch and
-			// graphics.library treat it as 40 words (80 bytes) with BPLMOD=0
-			// matching BitMap BytesPerRow=80. Using 39 shears the framebuffer
-			// by 2 bytes per line against drawn bitmaps.
-			if wordsPerLine == 39 {
-				wordsPerLine = 40
-			}
-		} else {
-			wordsPerLine = int((ddfstop-ddfstrt)/8) + 1
-		}
-	}
+	wordsPerLine := fetchWords(hires, v.amiga.Custom.ReadReg16(0x092), v.amiga.Custom.ReadReg16(0x094))
 
 	bytesPerLine := wordsPerLine * 2
 	if bytesPerLine > 80 {

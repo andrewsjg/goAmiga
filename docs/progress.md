@@ -10,10 +10,10 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
-1. **Timing (remaining).** The CPU and beam now run at the correct PAL
-   ratio, but there is no DMA cycle stealing (bitplane, Copper and blitter
-   DMA never slow the CPU, and bitplane DMA never slows the blitter), and
-   floppy DMA completes far faster than a real drive.
+1. **Timing (remaining).** Copper, audio and disk DMA slots are not
+   charged against the CPU/blitter; CIA accesses have no E-clock sync
+   delay; floppy DMA completes far faster than a real drive; blit data
+   still moves instantly at BLTSIZE (only BBUSY/IRQ timing is real).
 2. **Display.** Missing: DIWSTRT/DIWSTOP horizontal positioning,
    BPLCON1 scroll, BPLCON2 priorities, EHB, HAM, dual playfield,
    interlace field weaving, overscan, collision detection (CLXDAT),
@@ -28,6 +28,50 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — DMA cycle stealing
+
+**Problem.** Bitplane and blitter DMA never slowed the CPU, and bitplane
+DMA never slowed the blitter. On a real Amiga a 4-plane hires or 6-plane
+lores screen, or a running blit, costs the CPU a lot of chip bus time.
+
+**How the chip bus works** (HRM, "DMA time slot allocation"). One slot per
+colour clock, 227 per line. The 68000's bus cycle is 4 CPU cycles = 2
+colour clocks, and it uses only the even slots. Fixed DMA (refresh, disk,
+audio, sprites) sits on odd slots early in the line. Bitplanes fetch in
+units of 8 colour clocks (lores, order `- 4 6 2 - 3 5 1`) or 4 (hires,
+`4 2 3 1`), so only lores planes 5–6 and hires planes 3–4 land on even
+slots. The blitter takes any free slot. Unless BLTPRI ("nasty") is set, it
+gives the CPU a slot after refusing it for 3 cycles.
+
+**Fix** (`amiga/dma.go`).
+- `chipBus` wraps chip RAM and the custom registers in the CPU's Mapper
+  and counts CPU word accesses. DMA channels read chip RAM directly, so
+  they are not counted; ROM and CIA accesses never wait.
+- After each instruction `chipBusWait` places the accesses as back-to-back
+  bus cycles on even slots from the instruction's start beam position,
+  skipping slots held by bitplane DMA (`bitplaneFetch.uses`, same fetch
+  window/conditions as `Video.RenderLine`; the DDF word count is now the
+  shared `fetchWords`). The extra colour clocks are added to the step.
+- Blitter vs CPU: in nasty mode the first chip access waits for the blit;
+  otherwise a blit whose cycle pattern has no idle slot (`hogsBus`: AC,
+  AD, ACD, ABD, ABC, ABCD) costs 3 colour clocks per CPU access and the
+  blit loses that slot. Blits with idle slots leave the CPU alone.
+- Blitter vs bitplanes: the blit's remaining time only counts down on
+  colour clocks not used by bitplanes, refresh or (with SPREN) sprites
+  (`blitterSlots`).
+
+**Measured** (`TestTimingProfile`): boot to `workbench.task` 990 → 1,012
+frames; 0.3% of CPU cycles lost to DMA. Workbench 1.3 is hires 2-plane,
+which leaves the CPU's slots alone, so only blits cost anything. Host
+speed unchanged.
+
+**Tests.** `dma_test.go`: slot counts per mode, CPU waits for hires 4 /
+hires 2 / lores 6 planes, access counting (chip, custom, not ROM), blitter
+slots per line with/without sprites, blitter hogging and nasty mode.
+`TestStoppedCPUWakesForBlit` now allows a second short idle step, since
+refresh slots can push completion past the fast-idle lower bound. Full
+suite passes.
 
 ## 2026-09-25 — Real blitter busy time
 
