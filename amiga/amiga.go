@@ -683,6 +683,17 @@ func (a *Amiga) LoadDisk(path string) error {
 	return nil
 }
 
+// SwapDisk ejects the disk in DF0: and inserts the ADF at path once the
+// Amiga has noticed the drive is empty (see DiskDrive.SwapDisk). Writes to
+// the new disk are saved to path.
+func (a *Amiga) SwapDisk(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read ADF: %w", err)
+	}
+	return a.Disk.SwapDisk(data, path)
+}
+
 // LoadROM loads a Kickstart ROM from the given file path.
 func LoadROM(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)

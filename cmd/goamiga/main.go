@@ -4,13 +4,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/cavaliercoder/goAmiga/amiga"
 )
 
 func main() {
 	romPath := flag.String("rom", "", "Path to Kickstart ROM file")
-	diskPath := flag.String("disk", "", "Path to ADF floppy disk image")
+	var disks diskList
+	flag.Var(&disks, "disk", "ADF floppy image for DF0:; repeat to list more disks, F11 swaps to the next")
 	maxCycles := flag.Uint64("cycles", 0, "Maximum CPU cycles to execute (headless mode)")
 	headless := flag.Bool("headless", false, "Run without display window")
 	writeProtect := flag.Bool("write-protect", false, "Write-protect the floppy: the Amiga cannot change the ADF file")
@@ -19,7 +21,8 @@ func main() {
 	flag.Parse()
 
 	if *romPath == "" {
-		fmt.Fprintf(os.Stderr, "Usage: goamiga --rom <kickstart.rom> [--cycles N] [--headless] [-v]\n")
+		fmt.Fprintf(os.Stderr, "Usage: goamiga --rom <kickstart.rom> [--disk a.adf [--disk b.adf ...]] [flags]\n")
+		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
@@ -42,17 +45,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Load disk if specified
-	if *diskPath != "" {
-		if err := a.LoadDisk(*diskPath); err != nil {
+	// Load the first disk; the others are for F11 to swap in. Check them
+	// all now so a typo fails at startup, not at the swap.
+	a.Disk.WriteProtected = *writeProtect
+	for _, p := range disks {
+		if _, err := os.Stat(p); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: disk %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if len(disks) > 0 {
+		diskPath := disks[0]
+		if err := a.LoadDisk(diskPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading disk: %v\n", err)
 			os.Exit(1)
 		}
-		a.Disk.WriteProtected = *writeProtect
 		if *writeProtect {
-			fmt.Printf("Loaded disk: %s (write-protected)\n", *diskPath)
+			fmt.Printf("Loaded disk: %s (write-protected)\n", diskPath)
 		} else {
-			fmt.Printf("Loaded disk: %s (writes are saved to this file)\n", *diskPath)
+			fmt.Printf("Loaded disk: %s (writes are saved to this file)\n", diskPath)
+		}
+		if len(disks) > 1 {
+			fmt.Printf("F11 swaps DF0: to the next of %d disks; Shift+F11 ejects\n", len(disks))
 		}
 	}
 
@@ -82,8 +96,22 @@ func main() {
 	fmt.Println("Starting display (50fps PAL)...")
 	a.Video.SetOverscan(*overscan)
 	display := amiga.NewDisplay(a)
+	display.Disks = disks
+	if len(disks) > 0 {
+		display.DiskIndex = 0
+	}
 	if err := display.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Display error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// diskList collects repeated --disk flags.
+type diskList []string
+
+func (l *diskList) String() string { return strings.Join(*l, ",") }
+
+func (l *diskList) Set(v string) error {
+	*l = append(*l, v)
+	return nil
 }

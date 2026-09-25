@@ -19,7 +19,7 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    detected on lines that are drawn (not in headless mode).
 3. **Audio.** Paula audio DMA is not implemented.
 4. **Machine.** Chip RAM only (no `$C00000` slow RAM or fast RAM). One
-   floppy drive (DF0:), no disk swapping while running. 512KB ROMs are truncated to their upper half, so only
+   floppy drive (DF0:). 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
@@ -27,6 +27,37 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — Disk swapping (F11)
+
+**Usage.** `--disk` can be repeated. The first disk goes in at start, F11
+swaps DF0: to the next (wrapping), Shift+F11 ejects. The window title shows
+the disk in DF0:. Each listed file is checked at startup, and writes go to
+whichever file is in the drive.
+
+**Drive behaviour.** `DiskDrive.Eject` empties the drive and pulls
+/DSKCHANGE low. It stays low until the head steps with a disk present,
+which is how trackdisk detects changes: it polls by stepping the head.
+
+**Why a swap isn't instant.** The first version ejected and inserted in
+the same frame. AmigaDOS mounted the new volume but left the old one
+marked as still in the drive (`dl_Task` set), because trackdisk never saw
+the drive empty. A real swap always has a gap. `TestDiskSwapGapDiag`
+(GOAMIGA_DIAG) measured 0.4–1.1 s from eject to DOS taking the volume out,
+depending on where trackdisk's poll timer is. Rather than a fixed delay,
+`DiskDrive.SwapDisk` ejects, waits for a head step with the drive empty
+(trackdisk's poll), allows 0.5 s for that poll to finish, then inserts. If
+nothing polls within 3 s (software that doesn't use trackdisk), it
+inserts anyway. Fast-idle wakes for the pending insert. `Amiga.SwapDisk`
+loads the file and keeps its path for saving writes.
+
+**Tests.** `TestDiskSwap` boots Workbench and reads AmigaDOS's volume list
+(dos.library → RootNode → DosInfo → DeviceList). Eject takes
+`Workbench1.3` out of the drive. Inserting a copy renamed `SwapTest` (root
+block name and checksum patched) mounts it. `SwapDisk` to `SwapTwo`
+inserts after 38 frames, with `SwapTwo` in the drive and `SwapTest` out.
+`TestSwapDiskTiming` covers the poll shortcut, the 3 s fallback, and
+/DSKCHANGE staying low. Full suite passes.
 
 ## 2026-09-25 — Floppy writes
 

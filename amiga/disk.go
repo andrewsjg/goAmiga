@@ -41,6 +41,10 @@ type DiskDrive struct {
 	// SaveErr is the last error writing a track back to the image file.
 	SaveErr error
 
+	// A disk waiting to go in after SwapDisk ejected the old one, and the
+	// CPU cycles left before it does.
+	pending     *pendingDisk
+	pendingWait int
 	// Drive state
 	motor               bool
 	side                int // 0=lower, 1=upper
@@ -86,8 +90,62 @@ func (d *DiskDrive) InsertDisk(data []byte) error {
 	d.adf = data
 	d.path = ""
 	d.diskChange = true
+	d.pending = nil
 	return nil
 }
+
+// pendingDisk is an image queued by SwapDisk.
+type pendingDisk struct {
+	data []byte
+	path string
+}
+
+// Disk swap timing. Swapping instantly confuses AmigaDOS: trackdisk only
+// learns the drive is empty when it polls (steps the head and reads
+// /DSKCHANGE), and if the new disk is already in by then it never reports
+// the old one gone. So SwapDisk ejects, waits until the head is stepped
+// with the drive empty, lets that poll finish, then inserts. Software that
+// never polls gets the disk after swapMaxWait.
+const (
+	swapAfterPoll = 7_093_790 / 2 // 0.5 s after the empty-drive poll
+	swapMaxWait   = 7_093_790 * 3 // insert after 3 s regardless
+)
+
+// SwapDisk ejects the current disk and inserts data (from file path, or
+// "" for an image with no file) once the Amiga has noticed the drive is
+// empty.
+func (d *DiskDrive) SwapDisk(data []byte, path string) error {
+	if len(data) != ADFSize {
+		return fmt.Errorf("invalid ADF size: %d bytes (expected %d)", len(data), ADFSize)
+	}
+	d.Eject()
+	d.pending = &pendingDisk{data: data, path: path}
+	d.pendingWait = swapMaxWait
+	return nil
+}
+
+// Swapping reports whether a SwapDisk is waiting to insert its disk.
+func (d *DiskDrive) Swapping() bool { return d.pending != nil }
+
+// insertPending puts the disk queued by SwapDisk in the drive.
+func (d *DiskDrive) insertPending() {
+	p := d.pending
+	d.InsertDisk(p.data)
+	d.path = p.path
+}
+
+// Eject removes the disk. /DSKCHANGE goes low and stays low until the head
+// is stepped with a disk in the drive; trackdisk polls for that by
+// stepping, which is how it notices a swap. A DMA already running still
+// completes, as the controller does not know the disk has gone.
+func (d *DiskDrive) Eject() {
+	d.adf = nil
+	d.path = ""
+	d.diskChange = true
+}
+
+// Inserted reports whether a disk is in the drive.
+func (d *DiskDrive) Inserted() bool { return d.adf != nil }
 
 // HandleCIABWrite processes CIA-B PRB writes for drive control signals.
 // PRB bit layout: 7=/MTR, 6=/SEL3, 5=/SEL2, 4=/SEL1, 3=/SEL0, 2=/SIDE, 1=/DIR, 0=/STEP
@@ -132,6 +190,8 @@ func (d *DiskDrive) HandleCIABWrite(old, new byte) {
 		}
 		if d.adf != nil {
 			d.diskChange = false // stepping clears disk change only when disk is present
+		} else if d.pending != nil && d.pendingWait > swapAfterPoll {
+			d.pendingWait = swapAfterPoll // polled while empty: insert soon
 		}
 	}
 }
@@ -423,6 +483,12 @@ func (d *DiskDrive) TickCycles(cpuCycles int) {
 			d.amiga.Custom.SetIntreq(1 << 1) // DSKBLK
 		}
 	}
+	if d.pending != nil {
+		d.pendingWait -= cpuCycles
+		if d.pendingWait <= 0 {
+			d.insertPending()
+		}
+	}
 	// Index pulse once per revolution on CIA-B FLG.
 	if d.spinning() {
 		now := d.amiga.cycles
@@ -433,7 +499,8 @@ func (d *DiskDrive) TickCycles(cpuCycles int) {
 }
 
 // CyclesToNextEvent returns the CPU cycles until the next disk interrupt
-// source (sync, block done, or an index pulse CIA-B will signal), or -1.
+// source (sync, block done, an index pulse CIA-B will signal) or a pending
+// disk insertion, or -1.
 func (d *DiskDrive) CyclesToNextEvent() int {
 	next := -1
 	consider := func(c int) {
@@ -443,6 +510,9 @@ func (d *DiskDrive) CyclesToNextEvent() int {
 	}
 	consider(d.syncCycles)
 	consider(d.completionCycles)
+	if d.pending != nil {
+		consider(d.pendingWait)
+	}
 	if d.spinning() && d.amiga.CIAB.icrMask&0x10 != 0 {
 		consider(DiskRevolutionCycles - int(d.amiga.cycles%DiskRevolutionCycles))
 	}

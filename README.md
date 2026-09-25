@@ -14,6 +14,15 @@ go run ./cmd/goamiga --rom Kick13.rom --disk "Workbench1.3.adf"
 go run ./cmd/goamiga --rom Kick13.rom --headless --cycles 10000000
 ```
 
+Give `--disk` more than once to swap disks while running: F11 puts the
+next disk in DF0: (the Amiga sees the drive empty for about a second, as
+with a real swap), Shift+F11 ejects. The window title shows what's in the
+drive.
+
+```bash
+go run ./cmd/goamiga --rom Kick13.rom --disk wb13.adf --disk extras13.adf --disk blank.adf
+```
+
 The floppy is writable: anything the Amiga saves to DF0: is written back
 into the ADF file. Keep a copy of disks you care about, or pass
 `--write-protect`.

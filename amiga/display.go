@@ -3,6 +3,9 @@
 package amiga
 
 import (
+	"fmt"
+	"path/filepath"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
@@ -38,20 +41,30 @@ type Display struct {
 	// dies after ~seconds and the Amiga looks locked (CPU still idle-running).
 	framesSinceRecapture int
 	zeroMotionFrames     int
+
+	// Disks are the ADF files F11 cycles through; DiskIndex is the one in
+	// DF0: (-1 = none). Shift+F11 ejects.
+	Disks     []string
+	DiskIndex int
+
+	lastTitle string
 }
 
 // NewDisplay creates a new Ebitengine display for the given Amiga.
 func NewDisplay(a *Amiga) *Display {
 	return &Display{
-		amiga:    a,
-		screen:   ebiten.NewImage(LowResWidth, PALVisibleLines),
-		prevKeys: make(map[ebiten.Key]bool),
+		amiga:     a,
+		DiskIndex: -1,
+		screen:    ebiten.NewImage(LowResWidth, PALVisibleLines),
+		prevKeys:  make(map[ebiten.Key]bool),
 	}
 }
 
 // Update runs one PAL frame worth of CPU cycles.
 func (d *Display) Update() error {
 	d.pollMouseGrab()
+	d.pollDiskKeys()
+	d.updateTitle()
 	d.pollKeyboard()
 	d.pollMouse()
 	// Never tear down the window on a single-frame CPU fault. Step() already
@@ -106,10 +119,59 @@ func (d *Display) applyGrab(grab bool) {
 		// and once after a button release — never every frame (that freezes
 		// macOS).
 		ebiten.SetCursorMode(ebiten.CursorModeCaptured)
-		ebiten.SetWindowTitle("goAmiga — mouse trapped (Esc / F12 release)")
 	} else {
 		ebiten.SetCursorMode(ebiten.CursorModeVisible)
-		ebiten.SetWindowTitle("goAmiga — F12 or click to trap mouse")
+	}
+	d.updateTitle()
+}
+
+// pollDiskKeys handles F11 (swap DF0: to the next disk in Disks) and
+// Shift+F11 (eject).
+func (d *Display) pollDiskKeys() {
+	if !inpututil.IsKeyJustPressed(ebiten.KeyF11) {
+		return
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyShift) {
+		d.amiga.Disk.Eject()
+		d.DiskIndex = -1
+		fmt.Println("DF0: ejected")
+		return
+	}
+	if len(d.Disks) == 0 {
+		return
+	}
+	next := (d.DiskIndex + 1) % len(d.Disks)
+	if err := d.amiga.SwapDisk(d.Disks[next]); err != nil {
+		fmt.Printf("DF0: %v\n", err)
+		return
+	}
+	d.DiskIndex = next
+	fmt.Printf("DF0: %s\n", d.Disks[next])
+}
+
+// updateTitle shows the mouse state and the disk in DF0: in the title bar.
+func (d *Display) updateTitle() {
+	mouse := "F12 or click to trap mouse"
+	if d.mouseGrabbed {
+		mouse = "mouse trapped (Esc / F12 release)"
+	}
+	disk := "DF0: empty"
+	switch {
+	case d.amiga.Disk.Swapping() && d.DiskIndex >= 0:
+		disk = "DF0: inserting " + filepath.Base(d.Disks[d.DiskIndex])
+	case d.amiga.Disk.Inserted() && d.DiskIndex >= 0:
+		disk = "DF0: " + filepath.Base(d.Disks[d.DiskIndex])
+	case d.amiga.Disk.Inserted():
+		disk = "DF0: disk"
+	}
+	hint := ""
+	if len(d.Disks) > 1 {
+		hint = " (F11 next disk)"
+	}
+	title := fmt.Sprintf("goAmiga — %s%s — %s", disk, hint, mouse)
+	if title != d.lastTitle {
+		ebiten.SetWindowTitle(title)
+		d.lastTitle = title
 	}
 }
 
