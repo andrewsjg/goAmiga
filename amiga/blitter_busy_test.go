@@ -4,45 +4,40 @@ import (
 	"testing"
 )
 
-// WaitBlit-style polling must clear BBUSY within a small number of CPU cycles
-// even for large blits, or Workbench freezes during window drag.
-func TestBlitterBusyClearsQuickly(t *testing.T) {
-	a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
-	a.Custom = NewCustomChips(nil, a)
-	a.Blitter = NewBlitter(a)
+// BBUSY lasts as long as the real blit: HRM cycles per word by channel
+// combination, in colour clocks (2 CPU cycles each), plus pipeline startup.
+func TestBlitterBusyDuration(t *testing.T) {
+	cases := []struct {
+		name       string
+		con0, con1 uint16
+		size       uint16
+		want       int // CPU cycles
+	}{
+		{"ABCD 40x256", 0x0FF0, 0, 256<<6 | 40, (256*40*4 + 2) * 2},
+		{"D-only clear 40x256", 0x0100, 0, 256<<6 | 40, (256*40*2 + 2) * 2},
+		{"ACD 10x10", 0x0BCA, 0, 10<<6 | 10, (100*3 + 2) * 2},
+		{"line 100px", 0x0BCA, 0x0001, 100<<6 | 2, (100*4 + 2) * 2},
+	}
+	for _, c := range cases {
+		a := &Amiga{ChipRAM: newChipRAM(ChipRAMSize)}
+		a.Custom = NewCustomChips(nil, a)
+		a.Blitter = NewBlitter(a)
+		a.Blitter.con0, a.Blitter.con1 = c.con0, c.con1
+		a.Blitter.afwm, a.Blitter.alwm = 0xFFFF, 0xFFFF
+		a.Blitter.Execute(c.size)
 
-	// Full-plane style blit: height 256, width 40 words, all channels
-	a.Blitter.con0 = 0x0FF0 // USEA|USEB|USEC|USED, minterm copy
-	a.Blitter.con1 = 0
-	a.Blitter.afwm = 0xFFFF
-	a.Blitter.alwm = 0xFFFF
-	a.Blitter.Execute(256<<6 | 40) // h=256 w=40 → 10k words
-
-	if !a.Blitter.busy {
-		t.Fatal("expected busy after Execute")
+		cycles := 0
+		for a.Blitter.busy && cycles < 1<<20 {
+			a.Blitter.TickCycles(4)
+			cycles += 4
+		}
+		if cycles < c.want || cycles >= c.want+4 {
+			t.Errorf("%s: BBUSY cleared after %d cycles, want %d", c.name, cycles, c.want)
+		}
+		if a.Custom.ReadReg16(0x09C)&0x0040 == 0 {
+			t.Errorf("%s: no BLIT INTREQ at completion", c.name)
+		}
 	}
-	if a.Blitter.completionCycles > 512 {
-		t.Fatalf("completionCycles=%d, want <= 512 (capped)", a.Blitter.completionCycles)
-	}
-	// Uncapped would be 256*40*4*2 = 81920
-	if a.Blitter.completionCycles >= 81920 {
-		t.Fatalf("completionCycles not capped: %d", a.Blitter.completionCycles)
-	}
-
-	// Simulate WaitBlit: poll until free, 4 cycles per "instruction"
-	steps := 0
-	for a.Blitter.busy && steps < 5000 {
-		a.Blitter.TickCycles(4)
-		steps++
-	}
-	if a.Blitter.busy {
-		t.Fatalf("still busy after %d poll steps", steps)
-	}
-	// 512/4 = 128 steps max
-	if steps > 150 {
-		t.Fatalf("took %d poll steps to clear busy, want <= 150", steps)
-	}
-	t.Logf("large blit WaitBlit-equivalent cleared in %d steps (%d cycles)", steps, steps*4)
 }
 
 // Superseding a busy blit must not drop QBlit completions, and must not
@@ -85,5 +80,27 @@ func TestBlitterSupersedeDefersBlitIRQ(t *testing.T) {
 	}
 	if a.Blitter.pendingIRQs != 0 {
 		t.Fatalf("pendingIRQs=%d want 0 after delivery", a.Blitter.pendingIRQs)
+	}
+}
+
+// A CPU sitting in STOP waiting for the BLIT interrupt must not fast-idle
+// past the blit's completion (to the next VBLANK or CIA event).
+func TestStoppedCPUWakesForBlit(t *testing.T) {
+	a := createTestAmiga(t)
+	a.vpos, a.hpos = 100, 0
+	a.cpuStopped = true
+	a.Blitter.con0 = 0x0100 // D only
+	a.Blitter.Execute(10<<6 | 10)
+	want := a.Blitter.completionCycles
+
+	start := a.cycles
+	if err := a.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if got := int(a.cycles - start); got > want+4 {
+		t.Fatalf("fast-idle advanced %d cycles, blit ends after %d", got, want)
+	}
+	if a.Blitter.busy || a.Custom.ReadReg16(0x09C)&0x0040 == 0 {
+		t.Fatal("blit not complete / BLIT INTREQ not raised after idle step")
 	}
 }

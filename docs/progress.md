@@ -12,8 +12,8 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
 
 1. **Timing (remaining).** The CPU and beam now run at the correct PAL
    ratio, but there is no DMA cycle stealing (bitplane, Copper and blitter
-   DMA never slow the CPU), blits complete instantly (busy time is capped
-   at 512 cycles), and floppy DMA completes far faster than a real drive.
+   DMA never slow the CPU, and bitplane DMA never slows the blitter), and
+   floppy DMA completes far faster than a real drive.
 2. **Display.** Missing: DIWSTRT/DIWSTOP horizontal positioning,
    BPLCON1 scroll, BPLCON2 priorities, EHB, HAM, dual playfield,
    interlace field weaving, overscan, collision detection (CLXDAT),
@@ -28,6 +28,35 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — Real blitter busy time
+
+**Problem.** Blit data moves instantly (in `Execute`), and BBUSY then stayed
+set for `words × channels × 2` CPU cycles, capped at 512. A full-screen
+clear therefore "took" 512 cycles instead of ~41,000. The cap's comment said
+real timing stalled window drags; that was written while the
+descending-modulo bug was still corrupting memory, and does not reproduce.
+
+A second bug: when the CPU was in STOP, the fast-idle skip only looked at
+the next VBLANK and CIA timer events. A task sleeping on a blit or disk
+DMA interrupt overslept until one of those, often most of a frame.
+
+**Fix.**
+- `blitDuration()` in `blitter.go`: colour clocks per word from the HRM
+  cycle-sequence table, indexed by BLTCON0 USEA–D (2, 3 or 4), 4 per pixel
+  in line mode, plus 2 for pipeline startup; ×2 for CPU cycles. No cap.
+  Contention with bitplane DMA is not modelled yet.
+- Fast-idle `skip` is bounded by the blitter's and disk's remaining
+  completion cycles.
+
+**Measured** (`TestTimingProfile`): boot to `workbench.task` went from
+1,338 to 990 frames. With only the disk bound removed it is 1,044; with only
+the blitter bound removed, 1,312. The time was spent oversleeping blit
+interrupts.
+
+**Tests.** `TestBlitterBusyDuration` replaces `TestBlitterBusyClearsQuickly`
+(which asserted the cap); `TestStoppedCPUWakesForBlit`. Full suite passes,
+including the Workbench window-drag tests.
 
 ## 2026-09-25 — PAL long/short frames
 

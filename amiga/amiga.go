@@ -330,6 +330,13 @@ func (a *Amiga) Step() error {
 				skip = cpuCycles
 			}
 		}
+		// Wake in time to raise a pending blitter or disk interrupt.
+		if a.Blitter != nil && a.Blitter.busy && a.Blitter.completionCycles < skip {
+			skip = a.Blitter.completionCycles
+		}
+		if a.Disk != nil && a.Disk.completionCycles > 0 && a.Disk.completionCycles < skip {
+			skip = a.Disk.completionCycles
+		}
 		if skip < 4 {
 			skip = 4
 		}

@@ -556,7 +556,8 @@ func (b *Blitter) buildDeny() {
 }
 
 // Execute runs the blitter operation triggered by writing BLTSIZE.
-// Data transfer is immediate; BBUSY is deferred so WaitBlit sees a short busy.
+// Data transfer is immediate; BBUSY stays set for the blit's real duration
+// (blitDuration) and the BLIT interrupt is raised when it ends.
 //
 // BLIT INTREQ is never raised from inside Execute. Raising it here (or from a
 // supersede of a still-busy blit) re-enters the QBlit softint while the CPU is
@@ -601,38 +602,27 @@ func (b *Blitter) Execute(size uint16) {
 		b.executeBlit(size)
 	}
 
-	// Soft busy timing: full HRM H×W×ch×2 stalls drag (WaitBlit for 80k+
-	// cycles). Cap so WaitBlit returns promptly but still delays a few
-	// instructions after BLTSIZE (boot races).
-	channels := 0
-	if b.con0&0x0800 != 0 {
-		channels++
+	b.completionCycles = blitDuration(b.con0, b.con1, width, height)
+}
+
+// blitCyclesPerWord is the blitter's colour clocks per word for each
+// BLTCON0 USEx combination (index = USEA<<3|USEB<<2|USEC<<1|USED), from the
+// HRM blitter cycle sequence table.
+var blitCyclesPerWord = [16]int{2, 2, 2, 3, 3, 3, 3, 4, 2, 2, 2, 3, 3, 3, 3, 4}
+
+const (
+	blitLineCyclesPerPixel = 4 // colour clocks per pixel in line mode
+	blitStartupCycles      = 2 // colour clocks of pipeline startup
+)
+
+// blitDuration is how long a blit keeps BBUSY set, in CPU cycles, assuming
+// the blitter gets every DMA slot it wants (no bitplane contention yet).
+func blitDuration(con0, con1 uint16, width, height int) int {
+	cck := height * width * blitCyclesPerWord[(con0>>8)&0xF]
+	if con1&0x0001 != 0 {
+		cck = height * blitLineCyclesPerPixel
 	}
-	if b.con0&0x0400 != 0 {
-		channels++
-	}
-	if b.con0&0x0200 != 0 {
-		channels++
-	}
-	if b.con0&0x0100 != 0 {
-		channels++
-	}
-	if channels == 0 {
-		channels = 1
-	}
-	words := height * width
-	if b.con1&0x0001 != 0 {
-		words = height
-	}
-	blitCycles := words * channels * 2
-	if blitCycles < 8 {
-		blitCycles = 8
-	}
-	const maxBlitBusyCycles = 512
-	if blitCycles > maxBlitBusyCycles {
-		blitCycles = maxBlitBusyCycles
-	}
-	b.completionCycles = blitCycles
+	return (cck + blitStartupCycles) * CPUCyclesPerColorClock
 }
 
 // finish marks one blit complete: BBUSY clear + queue a BLIT INTREQ for
