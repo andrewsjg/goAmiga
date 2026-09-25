@@ -55,13 +55,10 @@ type bitplaneFetch struct {
 	start, end int // fetch window in colour clocks, [start, end)
 }
 
-// bitplaneDMA returns the bitplane fetch for line vpos. It uses the same
-// conditions as Video.RenderLine, which is where the fetch happens.
+// bitplaneDMA returns the bitplane fetch for line vpos, under the same
+// conditions as Video.RenderLine (bitplaneFetchLine).
 func (a *Amiga) bitplaneDMA(vpos int) bitplaneFetch {
-	if vpos < DisplayTop || vpos >= DisplayBottom {
-		return bitplaneFetch{}
-	}
-	if a.Custom.ReadReg16(0x096)&0x0300 != 0x0300 { // DMAEN + BPLEN
+	if a.Video == nil || !a.Video.bitplaneFetchLine(vpos) {
 		return bitplaneFetch{}
 	}
 	bplcon0 := a.Custom.ReadReg16(0x100)

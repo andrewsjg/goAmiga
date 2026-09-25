@@ -69,8 +69,8 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `custom.go` | Custom register file | Set/clear registers (DMACON, INTENA, INTREQ, ADKCON), interrupt priority → IPL, register dispatch to other components |
 | `copper.go` | Copper | MOVE / WAIT / SKIP, COPJMP1/2, run per scanline |
 | `blitter.go` | Blitter | Area mode (both directions, minterms, shifts, masks, fill) and line mode. Blits complete instantly at the BLTSIZE write; busy/interrupt are deferred |
-| `video.go` | Bitplane renderer | Per-scanline planar→RGBA using DDFSTRT/DDFSTOP, BPLxMOD, 32-colour palette |
-| `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes |
+| `video.go` | Bitplane DMA + Denise | Per-scanline fetch inside the vertical DIW; `drawLine` composes a fixed 640×256 view of the beam (hires columns from H `$81`, lines 44–300): DIW clipping, DDFSTRT placement, BPLCON1 scroll, dual playfield, EHB, HAM, BPLCON2 sprite priority |
+| `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes; `lineBuffer` gives per-column sprite colour and pair, with attached sprites |
 | `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard), CPU address decoding and E-clock access timing |
 | `disk.go` | DF0: | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), read DMA with WORDSYNC, DSKSYN/DSKBLK timing, index pulse. Read only |
 | `keyboard.go`, `mouse.go` | Input | Keyboard serial handshake via CIA-A; mouse counters in JOY0DAT, button on CIA-A PRA |

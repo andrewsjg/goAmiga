@@ -12,6 +12,8 @@ func dmaAmiga(t *testing.T, bplcon0, ddfstrt, ddfstop uint16) *Amiga {
 	a.Custom.WriteReg16(0x100, bplcon0)
 	a.Custom.WriteReg16(0x092, ddfstrt)
 	a.Custom.WriteReg16(0x094, ddfstop)
+	a.Custom.WriteReg16(0x08E, 0x2C81) // display window lines $2C-$12C
+	a.Custom.WriteReg16(0x090, 0x2CC1)
 	a.vpos, a.hpos = 100, 0
 	return a
 }

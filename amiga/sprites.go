@@ -209,72 +209,64 @@ func (se *SpriteEngine) FetchLine(vpos int) {
 	}
 }
 
-// RenderOnLine composites sprite pixels onto the framebuffer line.
-// pixels is the full RGBA buffer; lineOffset is the byte offset of this line.
-// width is the current display width (320 lores or 640 hires).
-func (se *SpriteEngine) RenderOnLine(pixels []byte, lineOffset, width int) {
-	hires := width > LowResWidth
-
-	// Bitplane pixels are written from FB column 0 = left edge of the display
-	// window (we do not honour horizontal DDF/DIW offsets in the playfield
-	// path). Sprite HSTART is in the same units as DIWSTRT's horizontal byte;
-	// Intuition parks the pointer at HSTART≈DIW_H when MouseX==0. Origin $40
-	// (raw colour-clock overscan) left the cursor stranded ~1/3 across a
-	// 640-wide screen at the software left clamp.
-	diwH := 0x81
-	if se.amiga != nil && se.amiga.Custom != nil {
-		if h := int(se.amiga.Custom.ReadReg16(0x08E) & 0xFF); h != 0 {
-			diwH = h
-		}
-	}
-
-	for i := range se.sprites {
-		s := &se.sprites[i]
-		if s.state != sprActive {
-			continue
-		}
-		if s.data == 0 && s.datb == 0 {
-			continue
-		}
-
-		// Lores pixel column relative to the playfield left edge.
-		x0 := s.hstart() - diwH
-		pixelW := 1
-		if hires {
-			// Hires FB has 2 pixels per lores/sprite coordinate.
-			x0 *= 2
-			pixelW = 2
-		}
-		if x0+16*pixelW <= 0 || x0 >= width {
-			continue
-		}
-
-		// Sprite colour pair: 0-1 → COLOR17-19, 2-3 → COLOR21-23, …
-		paletteBase := 16 + (i/2)*4
-
-		for bit := 0; bit < 16; bit++ {
-			shift := uint(15 - bit)
-			lo := (s.data >> shift) & 1
-			hi := (s.datb >> shift) & 1
-			colorIdx := hi<<1 | lo
-			if colorIdx == 0 {
-				continue // transparent
-			}
-
-			c := se.amiga.Video.palette[paletteBase+int(colorIdx)]
-			for p := 0; p < pixelW; p++ {
-				x := x0 + bit*pixelW + p
-				if x < 0 || x >= width {
-					continue
+// lineBuffer fills the current line's sprite pixels for the compositor:
+// col[x] is the palette index (16-31, 0 = transparent) and pair[x] the
+// sprite pair (0-3) at output column x. Lower-numbered sprites are in front
+// of higher ones. An odd sprite with ATTACH (SPRxCTL bit 7) joins its even
+// partner as one 15-colour sprite using COLOR16-31. It reports whether any
+// sprite pixel was drawn.
+//
+// Sprite HSTART is in lores beam pixels, the same units as DIWSTRT's
+// horizontal position; sprites are lores, two output columns per pixel.
+func (se *SpriteEngine) lineBuffer(col, pair *[OutputWidth]byte) bool {
+	*col = [OutputWidth]byte{}
+	any := false
+	for pr := 3; pr >= 0; pr-- {
+		even, odd := &se.sprites[2*pr], &se.sprites[2*pr+1]
+		if odd.ctl&0x80 != 0 {
+			var bits [OutputWidth]byte
+			se.paint(even, &bits, 0)
+			se.paint(odd, &bits, 2)
+			for x, b := range bits {
+				if b != 0 {
+					col[x], pair[x] = 16+b, byte(pr)
+					any = true
 				}
-				pixOff := lineOffset + x*4
-				if pixOff+3 < len(pixels) {
-					pixels[pixOff] = c[0]
-					pixels[pixOff+1] = c[1]
-					pixels[pixOff+2] = c[2]
-					pixels[pixOff+3] = c[3]
+			}
+			continue
+		}
+		for _, s := range []*Sprite{odd, even} { // even (lower) painted last, wins
+			var bits [OutputWidth]byte
+			if !se.paint(s, &bits, 0) {
+				continue
+			}
+			for x, b := range bits {
+				if b != 0 {
+					col[x], pair[x] = byte(16+4*pr)+b, byte(pr)
+					any = true
 				}
 			}
 		}
 	}
+	return any
+}
+
+// paint ORs sprite s's 2-bit pixels, shifted left by shift, into bits.
+func (se *SpriteEngine) paint(s *Sprite, bits *[OutputWidth]byte, shift uint) bool {
+	if s.state != sprActive || s.data|s.datb == 0 {
+		return false
+	}
+	x0 := 2 * (s.hstart() - OutputLeft)
+	for i := 0; i < 16; i++ {
+		v := byte(s.data>>(15-i)&1 | s.datb>>(15-i)&1<<1)
+		if v == 0 {
+			continue
+		}
+		for _, x := range [2]int{x0 + 2*i, x0 + 2*i + 1} {
+			if x >= 0 && x < OutputWidth {
+				bits[x] |= v << shift
+			}
+		}
+	}
+	return true
 }

@@ -10,21 +10,27 @@ func newTestAmigaSprites() *Amiga {
 	}
 	a.Custom = NewCustomChips(nil, a)
 	a.Video = NewVideo(a)
+	a.Video.DisplayActive = true
 	a.Sprites = NewSpriteEngine(a)
+	a.Custom.WriteReg16(0x08E, 0x2C81) // standard PAL display window
+	a.Custom.WriteReg16(0x090, 0x2CC1)
 	return a
+}
+
+// pixelAt returns the RGB of output column x on the first display line.
+func pixelAt(a *Amiga, x int) [3]byte {
+	o := x * 4
+	return [3]byte{a.Video.Pixels[o], a.Video.Pixels[o+1], a.Video.Pixels[o+2]}
 }
 
 func TestSpriteRendering(t *testing.T) {
 	a := newTestAmigaSprites()
-	// Playfield origin = DIWSTRT H (bitplanes start at FB x=0).
-	a.Custom.WriteReg16(0x08E, 0x2C81) // DIW H=$81
 	a.Custom.WriteReg16(0x180, 0x0000)
 	a.Custom.WriteReg16(0x1A2, 0x0F00) // COLOR17 = red
 
 	s := &a.Sprites.sprites[0]
 	s.state = sprActive
-	// hstart = 0x81+64 = 193 → lores FB x=64
-	// hstart = (pos_low<<1)|ctl0 → pos_low = 96 ($60), ctl bit0 = 1
+	// hstart = (pos_low<<1)|ctl0 = 193 = DIW left edge $81 + 64 lores pixels
 	s.pos = 0x0060
 	s.ctl = 0xFF01
 	s.data = 0x8000
@@ -33,24 +39,15 @@ func TestSpriteRendering(t *testing.T) {
 		t.Fatalf("hstart=%d, want 193", s.hstart())
 	}
 
-	a.Video.UpdatePalette()
-	pixels := make([]byte, LowResWidth*4)
-	for x := 0; x < LowResWidth; x++ {
-		pixels[x*4+3] = 0xFF
+	a.Video.RenderLine(DisplayTop)
+	// Lores sprite pixel 64 covers output (hires) columns 128-129.
+	for _, x := range []int{128, 129} {
+		if got := pixelAt(a, x); got != [3]byte{255, 0, 0} {
+			t.Errorf("sprite pixel at x=%d: got %v, want red", x, got)
+		}
 	}
-	a.Sprites.RenderOnLine(pixels, 0, LowResWidth)
-
-	x := 64
-	off := x * 4
-	if pixels[off] != 255 || pixels[off+1] != 0 || pixels[off+2] != 0 {
-		t.Errorf("sprite pixel at x=%d: got RGBA(%d,%d,%d), want red",
-			x, pixels[off], pixels[off+1], pixels[off+2])
-	}
-	x = 65
-	off = x * 4
-	if pixels[off] != 0 || pixels[off+1] != 0 || pixels[off+2] != 0 {
-		t.Errorf("non-sprite pixel at x=%d: got RGBA(%d,%d,%d), want black",
-			x, pixels[off], pixels[off+1], pixels[off+2])
+	if got := pixelAt(a, 130); got != [3]byte{0, 0, 0} {
+		t.Errorf("non-sprite pixel at x=130: got %v, want black", got)
 	}
 }
 
@@ -157,33 +154,5 @@ func TestSpriteDMANoAdvanceWhileWaiting(t *testing.T) {
 	if s.pos != 0 || s.ctl != 0 {
 		// May have loaded end words
 		t.Logf("end ctl pos=$%04X ctl=$%04X", s.pos, s.ctl)
-	}
-}
-
-func TestSpriteHiresRenderWidth(t *testing.T) {
-	a := newTestAmigaSprites()
-	a.Custom.WriteReg16(0x08E, 0x2C81) // DIW H=$81
-	a.Custom.WriteReg16(0x1A2, 0x0F00) // red
-	a.Video.UpdatePalette()
-
-	s := &a.Sprites.sprites[0]
-	s.state = sprActive
-	// hstart=193 → lores x=64 → hires x=128..129
-	s.pos = 0x0060
-	s.ctl = 0xFF01
-	s.data = 0x8000
-	s.datb = 0x0000
-
-	pixels := make([]byte, HiResWidth*4)
-	for x := 0; x < HiResWidth; x++ {
-		pixels[x*4+3] = 0xFF
-	}
-	a.Sprites.RenderOnLine(pixels, 0, HiResWidth)
-
-	for _, x := range []int{128, 129} {
-		off := x * 4
-		if pixels[off] != 255 || pixels[off+1] != 0 || pixels[off+2] != 0 {
-			t.Errorf("hires x=%d: got RGBA(%d,%d,%d), want red", x, pixels[off], pixels[off+1], pixels[off+2])
-		}
 	}
 }

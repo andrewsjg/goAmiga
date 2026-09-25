@@ -14,6 +14,12 @@ func newTestAmigaVideo() *Amiga {
 	a.Video.DisplayActive = true
 	// Enable bitplane DMA: DMAEN (bit 9) + BPLEN (bit 8) + SET (bit 15)
 	a.Custom.Write(0x096, []byte{0x83, 0x00})
+	// Standard PAL lores screen, as Kickstart sets up: display window
+	// $2C81-$2CC1 and data fetch $38-$D0 (20 words per plane per line).
+	a.Custom.WriteReg16(0x08E, 0x2C81)
+	a.Custom.WriteReg16(0x090, 0x2CC1)
+	a.Custom.WriteReg16(0x092, 0x0038)
+	a.Custom.WriteReg16(0x094, 0x00D0)
 	return a
 }
 
@@ -93,10 +99,11 @@ func TestRenderLine_SingleBitplane(t *testing.T) {
 
 	a.Video.RenderLine(DisplayTop)
 
-	// Check first 8 pixels: 1,0,1,0,1,0,1,0 ($AA = 10101010)
+	// Check first 8 pixels: 1,0,1,0,1,0,1,0 ($AA = 10101010). Lores
+	// pixel x covers output columns 2x and 2x+1.
 	expected := []byte{1, 0, 1, 0, 1, 0, 1, 0}
 	for x, exp := range expected {
-		off := x * 4
+		off := 2 * x * 4
 		var got byte
 		if a.Video.Pixels[off] == 255 { // white = color 1
 			got = 1
@@ -139,16 +146,16 @@ func TestRenderLine_TwoBitplanes(t *testing.T) {
 			a.Video.Pixels[off+2], a.Video.Pixels[off+3])
 	}
 
-	// Pixel 4: plane0=1, plane1=0 → color 1 (red)
-	off = 4 * 4
+	// Pixel 4 (output column 8): plane0=1, plane1=0 → color 1 (red)
+	off = 8 * 4
 	if a.Video.Pixels[off] != 255 { // red component
 		t.Errorf("pixel 4: expected color 1 (red), got RGBA(%d,%d,%d,%d)",
 			a.Video.Pixels[off], a.Video.Pixels[off+1],
 			a.Video.Pixels[off+2], a.Video.Pixels[off+3])
 	}
 
-	// Pixel 8: plane0=0, plane1=0 → color 0 (black)
-	off = 8 * 4
+	// Pixel 8 (output column 16): plane0=0, plane1=0 → color 0 (black)
+	off = 16 * 4
 	if a.Video.Pixels[off] != 0 || a.Video.Pixels[off+1] != 0 || a.Video.Pixels[off+2] != 0 {
 		t.Errorf("pixel 8: expected color 0 (black), got RGBA(%d,%d,%d,%d)",
 			a.Video.Pixels[off], a.Video.Pixels[off+1],

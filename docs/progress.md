@@ -14,10 +14,9 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    charged against the CPU/blitter; blit and disk data still land in chip
    RAM at the start of the transfer (only BBUSY and interrupt timing are
    real); no drive motor spin-up time.
-2. **Display.** Missing: DIWSTRT/DIWSTOP horizontal positioning,
-   BPLCON1 scroll, BPLCON2 priorities, EHB, HAM, dual playfield,
-   interlace field weaving, overscan, collision detection (CLXDAT),
-   changing registers partway through a line.
+2. **Display.** Missing: interlace field weaving, overscan output (the
+   framebuffer is the standard 640×256 window), collision detection
+   (CLXDAT), changing registers partway through a line.
 3. **Audio.** Paula audio DMA is not implemented.
 4. **Machine.** Chip RAM only (no `$C00000` slow RAM or fast RAM). Floppy is
    read-only DF0:. 512KB ROMs are truncated to their upper half, so only
@@ -28,6 +27,63 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — Denise compositor: DIW/DDF positioning, scroll, DPF, EHB, HAM, sprite priority
+
+**Problem.** `RenderLine` drew fetched bitplane words from the left edge of
+a framebuffer whose width followed the line's resolution (320 or 640). It
+ignored horizontal DIW and DDF placement, BPLCON1 scroll and BPLCON2
+priorities, and had no EHB, HAM or dual playfield. Sprites were painted
+over the finished RGBA line, always in front. Bitplane DMA ran on the fixed
+lines 44–300, not the vertical display window.
+
+**Design.**
+- The framebuffer is a fixed view of the beam: 640 hires columns starting
+  at lores beam position `OutputLeft = $81`, lines `DisplayTop`–
+  `DisplayBottom` (44–300). That is exactly the standard PAL display window,
+  so a standard screen looks as before (Workbench boot screenshot is
+  pixel-identical). Lores pixels are two columns wide. A screen is placed
+  inside the view by its own registers; anything beyond it is cropped
+  (overscan output is future work).
+- Per output column, `drawLine`:
+  - is COLOR00 outside DIWSTRT/DIWSTOP (stop H8 = 1, V8 = NOT V7);
+  - takes plane bits from the fetched words, with the first pixel at lores
+    `2*DDFSTRT + 17` (lores) or `+ 9` (hires), the HRM relationship that
+    puts the standard $38/$3C at DIWSTRT $81;
+  - delays odd planes by BPLCON1 PF1H and even planes by PF2H, in lores
+    pixels in both resolutions;
+  - maps the colour through dual playfield (PF1 = odd planes → COLOR00–07,
+    PF2 = even planes → COLOR08–15, PF2PRI), EHB (6 planes: bit 5 halves
+    COLOR[0–31]) or HAM (5/6 lores planes; the hold register restarts at
+    COLOR00 at the window's left edge);
+  - puts a sprite pixel in front only if every non-transparent playfield at
+    that pixel has a priority code (BPLCON2 PF1P/PF2P) above the sprite's
+    pair. PF1 is the odd planes and PF2 the even planes in single playfield
+    mode too. With Workbench's $24 all sprites are in front.
+- `SpriteEngine.lineBuffer` builds the line's sprite pixels (palette index
+  and pair). Lower-numbered sprites win. An odd sprite with ATTACH joins its
+  even partner as a 15-colour sprite (COLOR16–31). Sprites are not drawn
+  outside the display window (OCS has no border sprites).
+- Bitplane DMA (fetch, pointer advance, and the chip bus slots in
+  `dma.go`) now happens on lines inside the vertical display window
+  (`Video.bitplaneFetchLine`).
+
+**Unverified points.** The manual in the repo could not be read
+(no PDF tools; its fonts have no Unicode mapping). Two details come from
+memory of the HRM and other emulators, not the text: sprite priority in
+single playfield mode using both PF1P (odd planes) and PF2P (even
+planes); and scroll granularity of one lores pixel in hires.
+
+**Speed.** Idle Workbench with the display on: 1,490 → 1,171 fps (23×
+real time).
+
+**Tests.** `denise_test.go`: DIW clipping on both edges, DDFSTRT
+placement, hires pixel width, BPLCON1 per playfield, dual playfield both
+priorities, EHB, a HAM sequence (set/blue/red/green/set), sprite vs
+playfield priority codes, sprite number priority, attached sprites,
+vertical window gating the fetch. Existing video, sprite and DMA tests were
+updated to set a standard display window and to read lores pixels at
+doubled columns. Full suite passes.
 
 ## 2026-09-25 — Floppy rotation timing; STOP/interrupt CPU bug
 
