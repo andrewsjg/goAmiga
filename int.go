@@ -98,14 +98,15 @@ func (i Int) Add(v Int) Int {
 	sz := v.Size()
 	a := i.value & sizeFilter[sz]
 	b := v.value & sizeFilter[sz]
-	n := a + b
+	n64 := uint64(a) + uint64(b)
+	n := uint32(n64)
 
 	// keep uneffected bytes
 	i.value = i.value&sizeMask[sz] | n&sizeFilter[sz]
 
 	// set status flags
 	as, bs, ns := signBit(a, sz), signBit(b, sz), signBit(n, sz)
-	if n == 0 {
+	if n&sizeFilter[sz] == 0 {
 		i.flags |= StatusZero
 	}
 	if ns != 0 {
@@ -115,20 +116,41 @@ func (i Int) Add(v Int) Int {
 		// see Hacker's Delight pg. 2-13
 		i.flags |= StatusOverflow
 	}
-	if xor(xor(n, a), b) != 0 {
-		// given: c = (x + y) ⊕ x ⊕ y
+	if n64 > uint64(sizeFilter[sz]) {
 		i.flags |= StatusCarry
 	}
 
 	return i
 }
 
-// Sub returns the difference between two integers, similarly to Add.
+// Sub returns the difference between two integers with correct 68000 flag behavior.
 func (i Int) Sub(v Int) Int {
-	// given: x - y = x + ¬y + 1
-	i = i.Add(NewInt(1, i.Size()))
-	v.value = ^v.value
-	return i.Add(v)
+	sz := v.Size()
+	a := i.value & sizeFilter[sz]
+	b := v.value & sizeFilter[sz]
+	n := a - b
+
+	// keep unaffected bytes
+	i.value = i.value&sizeMask[sz] | n&sizeFilter[sz]
+
+	// set status flags
+	as, bs, ns := signBit(a, sz), signBit(b, sz), signBit(n, sz)
+	if n&sizeFilter[sz] == 0 {
+		i.flags |= StatusZero
+	}
+	if ns != 0 {
+		i.flags |= StatusNegative
+	}
+	// overflow: src and dst have different signs, and result sign != dst sign
+	if as != bs && as != ns {
+		i.flags |= StatusOverflow
+	}
+	// carry = borrow (unsigned source > unsigned destination)
+	if b > a {
+		i.flags |= StatusCarry
+	}
+
+	return i
 }
 
 // signBit returns only the sign bit for the given value of size sz.
@@ -136,8 +158,3 @@ func signBit(v uint32, sz int) uint32 {
 	return v & signMask[sz]
 }
 
-// xor returns a ⊕ b
-func xor(a, b uint32) uint32 {
-	// given: x ⊕ y = (x | y) - (x & y)
-	return (a | b) - (a & b)
-}

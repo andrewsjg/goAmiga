@@ -13,16 +13,28 @@ func NewROM(b []byte) Memory {
 }
 
 func (m *rom) Read(addr int, p []byte) (n int, err error) {
-	if addr < 0 || addr >= len(m.b) {
+	if addr < 0 {
 		return 0, AccessViolationError(uint32(addr))
 	}
+	// Open bus: reads at/past the end of ROM (e.g. long at $FFFFFF when
+	// freelist next is $FFFFFFFF) return $FF, matching unconnected data
+	// lines — not a host access violation that kills the emulator.
+	if addr >= len(m.b) {
+		for i := range p {
+			p[i] = 0xFF
+		}
+		return len(p), nil
+	}
 	n = copy(p, m.b[addr:])
-	return
+	for i := n; i < len(p); i++ {
+		p[i] = 0xFF
+	}
+	return len(p), nil
 }
 
-// Write always returns an AccessViolationError.
+// Write silently ignores writes (ROM is read-only).
 func (m *rom) Write(addr int, p []byte) (n int, err error) {
-	err = accessViolationError(addr)
+	n = len(p)
 	return
 }
 

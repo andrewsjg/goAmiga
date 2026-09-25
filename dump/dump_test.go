@@ -1,17 +1,46 @@
 package dump_test
 
 import (
+	"io"
 	"os"
 
+	m68k "github.com/cavaliercoder/go-m68k"
 	"github.com/cavaliercoder/go-m68k/dump"
-	. "github.com/cavaliercoder/go-m68k/m68ktest"
+	"github.com/cavaliercoder/go-m68k/sim"
+	"github.com/cavaliercoder/go-m68k/srec"
 )
 
-func ExampleProcessor() {
-	p := LoadFile(nil, "../testdata/test-sim.h68")
-	p.Run()
+func loadSim(path string) *sim.Simulator {
+	s, err := sim.New()
+	if err != nil {
+		panic(err)
+	}
+	s.Writer = io.Discard
+	s.Processor.SR = m68k.StatusSupervisor
 
-	dump.Processor(os.Stdout, p)
+	f, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	recs, err := srec.Read(f)
+	if err != nil {
+		panic(err)
+	}
+	for _, rec := range recs {
+		if rec.IsData() {
+			if _, err := s.Processor.M.Write(rec.Address(), rec.Data()); err != nil {
+				panic(err)
+			}
+		}
+	}
+	return s
+}
+
+func ExampleProcessor() {
+	s := loadSim("../testdata/test-sim.h68")
+	s.Processor.Run()
+	dump.Processor(os.Stdout, s.Processor)
 
 	// output:
 	// PC: 00001014 SR: 00002700
@@ -26,10 +55,9 @@ func ExampleProcessor() {
 }
 
 func ExampleMemory() {
-	p := LoadFile(nil, "../testdata/test-sim.h68")
-	p.Run()
-
-	dump.Memory(os.Stdout, p.M)
+	s := loadSim("../testdata/test-sim.h68")
+	s.Processor.Run()
+	dump.Memory(os.Stdout, s.Processor.M)
 
 	// output:
 	// *

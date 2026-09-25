@@ -3,10 +3,10 @@ package m68k
 import "fmt"
 
 // opMoveq implements MOVEQ (pg. 4-134)
-func opMoveq(c *Processor) (t *stepTrace) {
+func opMoveq(c *Processor) (t stepTrace) {
 	b := byte(c.op)
 	reg := c.op & 0x0E00 >> 9
-	t = &stepTrace{
+	t = stepTrace{
 		op:   "moveq",
 		addr: c.PC,
 		n:    1,

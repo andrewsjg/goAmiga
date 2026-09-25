@@ -20,7 +20,17 @@ func (c *stepTrace) String() string {
 	fmt.Fprintf(b, "%08X %s", c.addr, c.op)
 	if c.sz != noSize {
 		b.WriteByte('.')
-		b.WriteByte([]byte{'b', 'w', 'l'}[c.sz])
+		// SizeByte/Word/Long are 0/1/2; illegal encodings must not panic.
+		switch c.sz {
+		case SizeByte:
+			b.WriteByte('b')
+		case SizeWord:
+			b.WriteByte('w')
+		case SizeLong:
+			b.WriteByte('l')
+		default:
+			fmt.Fprintf(b, "?%d", c.sz)
+		}
 	}
 	operands := c.dst
 	if c.dst == "" {

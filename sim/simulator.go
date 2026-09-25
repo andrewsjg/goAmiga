@@ -38,8 +38,9 @@ type Simulator struct {
 // New returns a new simulator with default configuration.
 func New() (s *Simulator, err error) {
 	p := &m68k.Processor{
-		PC: 0x1000,
-		M:  &m68kmem.Decoder{M: m68kmem.NewRAM(0x10000)}, // 64KB
+		PC:         0x1000,
+		M:          &m68kmem.Decoder{M: m68kmem.NewRAM(0x10000)}, // 64KB
+		HaltOnZero: true,
 	}
 	s = &Simulator{
 		Processor: p,

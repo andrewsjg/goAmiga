@@ -32,8 +32,10 @@ func (t *testLogWriter) Write(p []byte) (n int, err error) {
 func NewProcessor(t *testing.T) *m68k.Processor {
 	p := &m68k.Processor{
 		PC:          0x1000,
+		SR:          m68k.StatusSupervisor, // supervisor mode for privileged instructions (STOP, etc.)
 		M:           &m68kmem.Decoder{M: m68kmem.NewRAM(0x40000)}, // 256KB
 		TraceWriter: &testLogWriter{t},
+		HaltOnZero:  true,
 	}
 	return p
 }

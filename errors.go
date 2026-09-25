@@ -26,3 +26,9 @@ func newTraceableError(addr uint32, op uint16, err error) error {
 func (e *traceableError) Error() string {
 	return fmt.Sprintf("%s (Op: 0x%04X, PC: 0x%X)", e.Err.Error(), e.Opcode, e.Addr)
 }
+
+// Unwrap allows errors.Is / errors.As to see the underlying fault
+// (e.g. m68kmem access violation).
+func (e *traceableError) Unwrap() error {
+	return e.Err
+}

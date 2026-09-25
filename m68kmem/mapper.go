@@ -58,27 +58,49 @@ func (mm *Mapper) Read(addr int, p []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
+	// Block reads for device correctness (custom regs need word access).
+	// Unmapped / device errors → open bus (0), never host access violation.
+	// (Smashed freelist next=$FFFFFFFF used to kill the UI with
+	// "access violation: 0xFFFFFF" at AllocMem.)
 	m := mm.mappings
 	for i := addr; i < addr+len(p); {
 		if m == nil {
-			return 0, accessViolationError(addr)
+			for j := i - addr; j < len(p); j++ {
+				p[j] = 0
+			}
+			return len(p), nil
 		}
+		found := false
 		for m != nil {
 			if m.start <= i && m.end >= i {
 				var nn int
 				nn, err = m.m.Read(i-m.start, p[i-addr:])
 				if err != nil {
-					return
+					for j := i - addr; j < len(p); j++ {
+						p[j] = 0
+					}
+					return len(p), nil
+				}
+				if nn <= 0 {
+					p[i-addr] = 0
+					nn = 1
 				}
 				n += nn
 				i += nn
 				m = m.next
+				found = true
 				break
 			}
 			m = m.next
 		}
+		if !found {
+			p[i-addr] = 0
+			n++
+			i++
+			m = mm.mappings
+		}
 	}
-	return
+	return n, nil
 }
 
 func (mm *Mapper) Write(addr int, p []byte) (n int, err error) {
@@ -93,7 +115,8 @@ func (mm *Mapper) Write(addr int, p []byte) (n int, err error) {
 			return
 		}
 	}
-	return 0, accessViolationError(addr)
+	// Unmapped write: ignore (do not fault the host).
+	return len(p), nil
 }
 
 // Reset calls Reset on all mapped Memory devices. Mappings are preserved.

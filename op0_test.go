@@ -73,7 +73,9 @@ func TestOri(t *testing.T) {
 	p.D[3] = 0x2222
 	p.D[4] = 0x22222222
 	AssertRun(t, p)
-	AssertStatusRegister(t, p, 0x1F)
+	// ORI to data registers affects N, Z, clears V, C; X unaffected.
+	// X=1 survives from ORI.B #$FF,CCR. Last ORI.L #$11111111,D4 -> $33333333: N=0,Z=0,V=0,C=0.
+	AssertStatusRegister(t, p, m68k.StatusSupervisor|m68k.StatusExtend)
 	AssertDataRegister(t, p, 1, 0xFFFFFFFF)
 	AssertDataRegister(t, p, 2, 0x33)
 	AssertDataRegister(t, p, 3, 0x3333)

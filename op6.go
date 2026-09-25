@@ -1,13 +1,16 @@
 package m68k
 
-import "fmt"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
 // opBcc implements:
 // - BRA
 // - BSR
 // - Bcc (4-25)
-func opBcc(c *Processor) (t *stepTrace) {
-	t = &stepTrace{
+func opBcc(c *Processor) (t stepTrace) {
+	t = stepTrace{
 		addr: c.PC,
 		sz:   noSize,
 		n:    1,
@@ -17,7 +20,7 @@ func opBcc(c *Processor) (t *stepTrace) {
 	cc := c.op & 0x0F00 >> 8
 	t.op = []string{
 		"bra", // bra
-		"bsr", // bsr (this should never happen)
+		"bsr", // bsr
 		"bhi", // high
 		"bls", // low or same
 		"bcc", // (hi) carry clear
@@ -59,6 +62,17 @@ func opBcc(c *Processor) (t *stepTrace) {
 		return
 	}
 	t.src = fmt.Sprintf("($%X,PC)", disp)
+
+	// BSR: push return address, then always branch
+	if cc == 1 {
+		c.A[7] -= 4
+		binary.BigEndian.PutUint32(c.buf[:4], c.PC)
+		if _, t.err = c.M.Write(int(c.A[7]), c.buf[:4]); t.err != nil {
+			return
+		}
+		c.PC = uint32(int32(t.addr+2) + disp)
+		return
+	}
 
 	// branch
 	if !testCond(c, cc) {

@@ -16,7 +16,7 @@ func TestAbcd(t *testing.T) {
 		p.D[0], p.D[1] = 0x09, 0x09
 		AssertRun(t, p)
 		AssertDataRegister(t, p, 0, 0x18)
-		AssertStatusRegister(t, p, 0)
+		AssertStatusRegister(t, p, m68k.StatusSupervisor)
 	})
 
 	t.Run("WithExtend", func(t *testing.T) {
@@ -27,7 +27,7 @@ func TestAbcd(t *testing.T) {
 		p.D[0], p.D[1] = 0x09, 0x09
 		AssertRun(t, p)
 		AssertDataRegister(t, p, 0, 0x19)
-		AssertStatusRegister(t, p, 0)
+		AssertStatusRegister(t, p, m68k.StatusSupervisor)
 	})
 
 	t.Run("WithInvalidInput", func(t *testing.T) {
@@ -37,7 +37,7 @@ func TestAbcd(t *testing.T) {
 		p.D[0], p.D[1] = 0xFF, 0xFF
 		AssertRun(t, p)
 		AssertDataRegister(t, p, 0, 0x64)
-		AssertStatusRegister(t, p, 0x11)
+		AssertStatusRegister(t, p, m68k.StatusSupervisor|0x11)
 	})
 
 	t.Run("WithInvalidInputAndExtend", func(t *testing.T) {
@@ -48,6 +48,6 @@ func TestAbcd(t *testing.T) {
 		p.D[0], p.D[1] = 0xFF, 0xFF
 		AssertRun(t, p)
 		AssertDataRegister(t, p, 0, 0x65)
-		AssertStatusRegister(t, p, 0x11)
+		AssertStatusRegister(t, p, m68k.StatusSupervisor|0x11)
 	})
 }

@@ -25,6 +25,14 @@ const (
 	StatusExtend                       // X
 
 	StatusMask = 0xA71F // Section 1.3.2
+
+	// SR upper byte (supervisor byte)
+	StatusIPL0       = uint32(0x0100) // Interrupt Priority Level bit 0
+	StatusIPL1       = uint32(0x0200) // Interrupt Priority Level bit 1
+	StatusIPL2       = uint32(0x0400) // Interrupt Priority Level bit 2
+	StatusIPLMask    = uint32(0x0700) // All IPL bits
+	StatusSupervisor = uint32(0x2000) // Supervisor/User mode
+	StatusTrace      = uint32(0x8000) // Trace mode
 )
 
 // Comparison conditions.
@@ -94,6 +102,28 @@ type Processor struct {
 	// TraceWriter is nil, no logging is performed.
 	TraceWriter io.Writer
 
+	// DebugExceptions, when true, prints to stdout whenever an exception fires
+	// in user mode (useful for debugging privilege violations and mode switches).
+	DebugExceptions bool
+
+	SSP uint32 // Supervisor Stack Pointer (saved when entering user mode)
+	USP uint32 // User Stack Pointer (saved when entering supervisor mode)
+
+	pendingIPL uint32 // pending interrupt priority level (0-7)
+
+	// ResetHandler is called when the RESET instruction executes.
+	// It should reset external peripherals (not the CPU itself).
+	ResetHandler func()
+
+	// HaltOnZero, when true, causes the processor to stop when it encounters
+	// opcode $0000 (ORI.B #0,D0). This is useful for simple test programs that
+	// run off the end of their code into zeroed memory.
+	HaltOnZero bool
+
+	// LastCycles holds the cycle count of the most recently executed instruction.
+	// Minimum is 4 for the fastest 68000 instructions.
+	LastCycles int
+
 	buf      [64]byte         // general purpose buffer
 	op       uint16           // current opcode
 	runState RunState         // current state
@@ -119,13 +149,89 @@ func (c *Processor) RegisterTrapHandler(vector int, f TrapHandler) error {
 
 // Reset resets all processor and memory state.
 func (c *Processor) Reset() {
-	// TODO: this seems important: https://stackoverflow.com/a/38244832/5809680
+	m := c.M
+	tw := c.TraceWriter
+	h := c.handlers
+	rh := c.ResetHandler
+
 	*c = Processor{
-		M:           c.M,
-		TraceWriter: c.TraceWriter,
-		handlers:    c.handlers,
+		M:            m,
+		TraceWriter:  tw,
+		handlers:     h,
+		ResetHandler: rh,
 	}
 	c.M.Reset()
+}
+
+// ResetWithVectors performs a 68000 hardware reset: reads SSP from $000000 and
+// PC from $000004, enters supervisor mode with interrupts fully masked.
+func (c *Processor) ResetWithVectors() error {
+	m := c.M
+	tw := c.TraceWriter
+	h := c.handlers
+	rh := c.ResetHandler
+
+	*c = Processor{
+		M:            m,
+		TraceWriter:  tw,
+		handlers:     h,
+		ResetHandler: rh,
+	}
+	c.M.Reset()
+
+	// Enter supervisor mode with interrupts masked
+	c.SR = StatusSupervisor | StatusIPLMask
+
+	// Read initial SSP from vector 0 ($000000)
+	ssp, err := c.M.Long(0x000000)
+	if err != nil {
+		return err
+	}
+	c.A[7] = ssp
+	c.SSP = ssp
+
+	// Read initial PC from vector 1 ($000004)
+	pc, err := c.M.Long(0x000004)
+	if err != nil {
+		return err
+	}
+	c.PC = pc
+
+	return nil
+}
+
+// SetSupervisor switches to supervisor mode, saving USP and loading SSP.
+func (c *Processor) SetSupervisor(super bool) {
+	wasSupervisor := c.SR&StatusSupervisor != 0
+	if super == wasSupervisor {
+		return
+	}
+	if super {
+		// entering supervisor: save USP, load SSP
+		c.USP = c.A[7]
+		c.A[7] = c.SSP
+		c.SR |= StatusSupervisor
+	} else {
+		// entering user: save SSP, load USP
+		c.SSP = c.A[7]
+		c.A[7] = c.USP
+		c.SR &= ^StatusSupervisor
+	}
+}
+
+// IsSupervisor returns true if the CPU is in supervisor mode.
+func (c *Processor) IsSupervisor() bool {
+	return c.SR&StatusSupervisor != 0
+}
+
+// IPL returns the current interrupt priority mask from SR.
+func (c *Processor) IPL() uint32 {
+	return (c.SR & StatusIPLMask) >> 8
+}
+
+// PendingIPL returns the pending interrupt priority level (0 = none).
+func (c *Processor) PendingIPL() uint32 {
+	return c.pendingIPL
 }
 
 // Run executes any program loaded into memory, starting from the program
@@ -154,11 +260,7 @@ func (c *Processor) Step() (err error) {
 		return
 	}
 	c.op = uint16(c.buf[0])<<8 + uint16(c.buf[1])
-	if c.op == 0 {
-		// 0x0000 is a valid instruction (ori.b #$0,D0), but is commonly found when
-		// a program fails to terminate gracefully and we start reading zeroed
-		// memory. Since this instruction has no practical use, for now, we treat it
-		// as an indicator that a program has finished and stop the processor.
+	if c.op == 0 && c.HaltOnZero {
 		c.runState = RunStateStopped
 		return
 	}
@@ -166,16 +268,64 @@ func (c *Processor) Step() (err error) {
 	// dispatch opcode to function
 	fn := dispatch(c.op)
 	if fn == nil {
-		err = newTraceableError(c.PC, c.op, errBadOpcode)
+		// Check for Line A and Line F emulator traps
+		group := c.op >> 12
+		if group == 0xA {
+			if c.TraceWriter != nil {
+				fmt.Fprintf(c.TraceWriter, "%08X Line-A trap $%04X (vec %d)\n", c.PC, c.op, VecLine1010)
+			}
+			c.PC += 2
+			c.LastCycles = 34 // exception processing
+			err = c.RaiseException(VecLine1010)
+			return
+		}
+		if group == 0xF {
+			if c.TraceWriter != nil {
+				fmt.Fprintf(c.TraceWriter, "%08X Line-F trap $%04X (vec %d)\n", c.PC, c.op, VecLine1111)
+			}
+			c.PC += 2
+			c.LastCycles = 34 // exception processing
+			err = c.RaiseException(VecLine1111)
+			return
+		}
+		// Unrecognized opcode → illegal instruction exception
+		if c.TraceWriter != nil {
+			fmt.Fprintf(c.TraceWriter, "%08X ILLEGAL opcode $%04X\n", c.PC, c.op)
+		}
+		c.PC += 2
+		c.LastCycles = 34 // exception processing
+		err = c.RaiseException(VecIllegal)
 		return
 	}
 	t := fn(c)
 
-	// BUG: trace data might be corrupted by an execution error.
-	c.trace(t)
-	if t.err != nil {
-		err = newTraceableError(t.addr, c.op, t.err)
+	// Store cycle count for external consumers (minimum 4 for any 68000 instruction)
+	c.LastCycles = t.n
+	if c.LastCycles < 4 {
+		c.LastCycles = 4
 	}
+
+	// Only format and write trace when tracing is enabled
+	if c.TraceWriter != nil {
+		tp := &t
+		fmt.Fprintln(c.TraceWriter, tp.String())
+	}
+	if t.err != nil {
+		// Illegal operand sizes and bad addresses are illegal instruction exceptions
+		if t.err == errBadOpSize || t.err == errBadAddress {
+			if c.TraceWriter != nil {
+				fmt.Fprintf(c.TraceWriter, "  -> ILLEGAL: %v at $%08X op=$%04X\n", t.err, t.addr, c.op)
+			}
+			c.PC = t.addr + 2
+			err = c.RaiseException(VecIllegal)
+			return
+		}
+		err = newTraceableError(t.addr, c.op, t.err)
+		return
+	}
+
+	// check for pending interrupts after each instruction
+	err = c.CheckInterrupts()
 	return
 }
 
@@ -209,20 +359,44 @@ func (c *Processor) trace(v ...interface{}) {
 // testCode returns true if the given condition code is true for the current
 // processor state.
 func testCond(c *Processor, cc uint16) bool {
+	n := c.SR&StatusNegative != 0
+	z := c.SR&StatusZero != 0
+	v := c.SR&StatusOverflow != 0
+	carry := c.SR&StatusCarry != 0
+
 	switch cc {
 	case CondTrue:
 		return true
-
 	case CondFalse:
 		return false
-
+	case CondHigh:
+		return !carry && !z
+	case CondLowOrSame:
+		return carry || z
+	case CondCarryClear:
+		return !carry
+	case CondCarrySet:
+		return carry
 	case CondNotEqual:
-		return c.SR&StatusZero == 0
-
+		return !z
 	case CondEqual:
-		return c.SR&StatusZero != 0
-
-		// TODO: implement all evaluation of all condition codes
+		return z
+	case CondOverflowClean:
+		return !v
+	case CondOverflowSet:
+		return v
+	case CondPlus:
+		return !n
+	case CondMinus:
+		return n
+	case CondGreaterOrEqual:
+		return n == v
+	case CondLessThan:
+		return n != v
+	case CondGreaterThan:
+		return !z && (n == v)
+	case CondLessOrEqual:
+		return z || (n != v)
 	}
 	return false
 }
@@ -308,20 +482,28 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 		b, err = c.M.Byte(addr)
 		opr = fmt.Sprintf("($%X,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		b, err = c.M.Byte(int(addr))
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
 				return
 			}
 			c.PC += 2
-			b, err = c.M.Byte(int(addr))
+			b, err = c.M.Byte(int(int16(addr)))
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
@@ -333,6 +515,25 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 			c.PC += 4
 			b, err = c.M.Byte(int(addr))
 			opr = fmt.Sprintf("$%X", addr)
+
+		case 0x02: // program counter with displacement
+			var d int16
+			d, err = c.M.Sword(int(c.PC))
+			if err != nil {
+				return
+			}
+			addr := int(int32(c.PC) + int32(d))
+			c.PC += 2
+			b, err = c.M.Byte(addr)
+			opr = fmt.Sprintf("($%X,PC)", d)
+
+		case 0x03: // program counter with index
+			var addr uint32
+			addr, opr, err = c.decodeBriefExt(c.PC, "PC")
+			if err != nil {
+				return
+			}
+			b, err = c.M.Byte(int(addr))
 
 		case 0x04: // immediate byte
 			var n uint16
@@ -387,20 +588,28 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 		n, err = c.M.Word(addr)
 		opr = fmt.Sprintf("($%X,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		n, err = c.M.Word(int(addr))
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
 				return
 			}
 			c.PC += 2
-			n, err = c.M.Word(int(addr))
+			n, err = c.M.Word(int(int16(addr)))
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
@@ -412,6 +621,25 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 			c.PC += 4
 			n, err = c.M.Word(int(addr))
 			opr = fmt.Sprintf("$%X", addr)
+
+		case 0x02: // program counter with displacement
+			var d int16
+			d, err = c.M.Sword(int(c.PC))
+			if err != nil {
+				return
+			}
+			addr := int(int32(c.PC) + int32(d))
+			c.PC += 2
+			n, err = c.M.Word(addr)
+			opr = fmt.Sprintf("($%X,PC)", d)
+
+		case 0x03: // program counter with index
+			var addr uint32
+			addr, opr, err = c.decodeBriefExt(c.PC, "PC")
+			if err != nil {
+				return
+			}
+			n, err = c.M.Word(int(addr))
 
 		case 0x04: // immediate word
 			n, err = c.M.Word(int(c.PC))
@@ -464,20 +692,28 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 		n, err = c.M.Long(addr)
 		opr = fmt.Sprintf("($%X,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		n, err = c.M.Long(int(addr))
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
 				return
 			}
 			c.PC += 2
-			n, err = c.M.Long(int(addr))
+			n, err = c.M.Long(int(int16(addr)))
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
@@ -489,6 +725,25 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 			c.PC += 4
 			n, err = c.M.Long(int(addr))
 			opr = fmt.Sprintf("$%X", addr)
+
+		case 0x02: // program counter with displacement
+			var d int16
+			d, err = c.M.Sword(int(c.PC))
+			if err != nil {
+				return
+			}
+			addr := int(int32(c.PC) + int32(d))
+			c.PC += 2
+			n, err = c.M.Long(addr)
+			opr = fmt.Sprintf("($%X,PC)", d)
+
+		case 0x03: // program counter with index
+			var addr uint32
+			addr, opr, err = c.decodeBriefExt(c.PC, "PC")
+			if err != nil {
+				return
+			}
+			n, err = c.M.Long(int(addr))
 
 		case 0x04: // immediate long
 			n, err = c.M.Long(int(c.PC))
@@ -514,11 +769,11 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 
 	case 0x03: // memory address with post-increment
 		_, err = c.M.Read(int(c.A[reg]), b)
-		c.A[reg] += 4
+		c.A[reg] += uint32(len(b))
 		opr = fmt.Sprintf("(A%d)+", reg)
 
 	case 0x04: // memory address with pre-decrement
-		c.A[reg] -= 4
+		c.A[reg] -= uint32(len(b))
 		_, err = c.M.Read(int(c.A[reg]), b)
 		opr = fmt.Sprintf("-(A%d)", reg)
 
@@ -533,20 +788,28 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 		_, err = c.M.Read(addr, b)
 		opr = fmt.Sprintf("($%X,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		_, err = c.M.Read(int(addr), b)
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
 				return
 			}
 			c.PC += 2
-			_, err = c.M.Read(int(addr), b)
+			_, err = c.M.Read(int(int16(addr)), b)
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
@@ -558,6 +821,26 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 			c.PC += 4
 			_, err = c.M.Read(int(addr), b)
 			opr = fmt.Sprintf("$%X", addr)
+
+		case 0x02: // program counter with displacement
+			// Used by MOVEM.L (d16,PC),regs and similar multi-byte reads.
+			var d int16
+			d, err = c.M.Sword(int(c.PC))
+			if err != nil {
+				return
+			}
+			addr := int(int32(c.PC) + int32(d))
+			c.PC += 2
+			_, err = c.M.Read(addr, b)
+			opr = fmt.Sprintf("($%X,PC)", d)
+
+		case 0x03: // program counter with index
+			var addr uint32
+			addr, opr, err = c.decodeBriefExt(c.PC, "PC")
+			if err != nil {
+				return
+			}
+			_, err = c.M.Read(int(addr), b)
 		}
 	}
 	return
@@ -687,20 +970,28 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 		_, err = c.M.Write(int(addr), []byte{b})
 		opr = fmt.Sprintf("(%d,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		_, err = c.M.Write(int(addr), []byte{b})
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
 				return
 			}
 			c.PC += 2
-			_, err = c.M.Write(int(addr), []byte{b})
+			_, err = c.M.Write(int(int16(addr)), []byte{b})
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
@@ -762,13 +1053,22 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 		_, err = c.M.Write(addr, c.buf[:2])
 		opr = fmt.Sprintf("(%d,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		binary.BigEndian.PutUint16(c.buf[:2], v)
+		_, err = c.M.Write(int(addr), c.buf[:2])
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
@@ -776,7 +1076,7 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 			}
 			c.PC += 2
 			binary.BigEndian.PutUint16(c.buf[:2], v)
-			_, err = c.M.Write(int(addr), c.buf[:2])
+			_, err = c.M.Write(int(int16(addr)), c.buf[:2])
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
@@ -839,13 +1139,22 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 		_, err = c.M.Write(addr, c.buf[:4])
 		opr = fmt.Sprintf("(%d,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		binary.BigEndian.PutUint32(c.buf[:4], v)
+		_, err = c.M.Write(int(addr), c.buf[:4])
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
@@ -853,7 +1162,7 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 			}
 			c.PC += 2
 			binary.BigEndian.PutUint32(c.buf[:4], v)
-			_, err = c.M.Write(int(addr), c.buf[:4])
+			_, err = c.M.Write(int(int16(addr)), c.buf[:4])
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
@@ -885,11 +1194,11 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 
 	case 0x03: // memory address with post-increment
 		_, err = c.M.Write(int(c.A[reg]), b)
-		c.A[reg] += 4
+		c.A[reg] += uint32(len(b))
 		opr = fmt.Sprintf("(A%d)+", reg)
 
 	case 0x04: // memory address with pre-decrement
-		c.A[reg] -= 4
+		c.A[reg] -= uint32(len(b))
 		_, err = c.M.Write(int(c.A[reg]), b)
 		opr = fmt.Sprintf("-(A%d)", reg)
 
@@ -904,20 +1213,28 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 		_, err = c.M.Write(addr, b)
 		opr = fmt.Sprintf("(%d,A%d)", d, reg)
 
+	case 0x06: // address register indirect with index
+		var addr uint32
+		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		if err != nil {
+			return
+		}
+		_, err = c.M.Write(int(addr), b)
+
 	case 0x07: // other
 		switch reg {
 		default:
 			err = errBadAddress
 			return
 
-		case 0x00: // absolute word
+		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
 			addr, err = c.M.Word(int(c.PC))
 			if err != nil {
 				return
 			}
 			c.PC += 2
-			_, err = c.M.Write(int(addr), b)
+			_, err = c.M.Write(int(int16(addr)), b)
 			opr = fmt.Sprintf("$%X", addr)
 
 		case 0x01: // absolute long
