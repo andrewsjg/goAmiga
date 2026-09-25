@@ -1,5 +1,9 @@
 package m68kmem
 
+import (
+	"io"
+)
+
 type ram struct {
 	b []byte
 }
@@ -15,30 +19,23 @@ func NewRAM(size uint32) Memory {
 }
 
 func (m *ram) Read(addr int, p []byte) (n int, err error) {
-	// Completely out of range: open bus (zeros), never a host access violation.
-	// Smashed SP / freelist walks used to kill exception setup mid-frame and
-	// leave Guru #00000000.00000000.
 	if addr < 0 || addr >= len(m.b) {
-		for i := range p {
-			p[i] = 0
-		}
-		return len(p), nil
+		return 0, accessViolationError(addr)
 	}
-	// Partial at end of RAM: return only bytes present so Mapper can continue
-	// into the next mapped device for the remainder.
 	n = copy(p, m.b[addr:])
-	return n, nil
+	return
 }
 
 func (m *ram) Write(addr int, p []byte) (n int, err error) {
-	// Completely out of range: ignore (same as unmapped).
 	if addr < 0 || addr >= len(m.b) {
-		return len(p), nil
+		return 0, accessViolationError(addr)
 	}
-	// Partial at end: write what fits, report full length so exception stack
-	// pushes never abort RaiseException mid-way with ShortWrite.
-	copy(m.b[addr:], p)
-	return len(p), nil
+	n = copy(m.b[addr:], p)
+	// TODO: raise exception vector instead of returning errors?
+	if n < len(p) {
+		return n, io.ErrShortWrite
+	}
+	return
 }
 
 // Reset resets all memory pages to zero.

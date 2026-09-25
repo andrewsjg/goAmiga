@@ -8,6 +8,13 @@ import (
 // devices using a memory address, mapped into its addressable range.
 type Mapper struct {
 	mappings *mapping
+
+	// OpenBus models a real bus with nothing driving unmapped addresses:
+	// reads of unmapped (or faulting) addresses return zero and writes to
+	// them are ignored, instead of returning an access violation. Machines
+	// such as the Amiga need this — software routinely probes or strays
+	// into unmapped space and the hardware never faults.
+	OpenBus bool
 }
 
 type mapping struct {
@@ -58,47 +65,30 @@ func (mm *Mapper) Read(addr int, p []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	// Block reads for device correctness (custom regs need word access).
-	// Unmapped / device errors → open bus (0), never host access violation.
-	// (Smashed freelist next=$FFFFFFFF used to kill the UI with
-	// "access violation: 0xFFFFFF" at AllocMem.)
-	m := mm.mappings
-	for i := addr; i < addr+len(p); {
+	// A read may span several devices (and, in OpenBus mode, gaps between
+	// them), so walk the range, handing each device the part it covers.
+	for n < len(p) {
+		i := (addr + n) & int(MaxAddress) // 24-bit bus wraps
+		m := mm.find(i)
 		if m == nil {
-			for j := i - addr; j < len(p); j++ {
-				p[j] = 0
+			if !mm.OpenBus {
+				return n, accessViolationError(i)
 			}
-			return len(p), nil
+			n += mm.float(p[n:], mm.gap(i))
+			continue
 		}
-		found := false
-		for m != nil {
-			if m.start <= i && m.end >= i {
-				var nn int
-				nn, err = m.m.Read(i-m.start, p[i-addr:])
-				if err != nil {
-					for j := i - addr; j < len(p); j++ {
-						p[j] = 0
-					}
-					return len(p), nil
+		span := min(len(p)-n, m.end-i+1)
+		nn, derr := m.m.Read(i-m.start, p[n:n+span])
+		if derr != nil || nn <= 0 {
+			if !mm.OpenBus {
+				if derr == nil {
+					derr = accessViolationError(i)
 				}
-				if nn <= 0 {
-					p[i-addr] = 0
-					nn = 1
-				}
-				n += nn
-				i += nn
-				m = m.next
-				found = true
-				break
+				return n, derr
 			}
-			m = m.next
+			nn = mm.float(p[n:n+span], span)
 		}
-		if !found {
-			p[i-addr] = 0
-			n++
-			i++
-			m = mm.mappings
-		}
+		n += nn
 	}
 	return n, nil
 }
@@ -108,15 +98,62 @@ func (mm *Mapper) Write(addr int, p []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
+	for n < len(p) {
+		i := (addr + n) & int(MaxAddress) // 24-bit bus wraps
+		m := mm.find(i)
+		if m == nil {
+			if !mm.OpenBus {
+				return n, accessViolationError(i)
+			}
+			n += min(len(p)-n, mm.gap(i)) // unmapped: write is lost
+			continue
+		}
+		span := min(len(p)-n, m.end-i+1)
+		nn, derr := m.m.Write(i-m.start, p[n:n+span])
+		if derr != nil || nn <= 0 {
+			if !mm.OpenBus {
+				if derr == nil {
+					derr = accessViolationError(i)
+				}
+				return n, derr
+			}
+			nn = span // e.g. write to ROM: ignored
+		}
+		n += nn
+	}
+	return n, nil
+}
+
+// find returns the mapping containing addr, or nil.
+func (mm *Mapper) find(addr int) *mapping {
 	for m := mm.mappings; m != nil; m = m.next {
 		if m.start <= addr && m.end >= addr {
-			addr -= m.start
-			n, err = m.m.Write(addr, p)
-			return
+			return m
 		}
 	}
-	// Unmapped write: ignore (do not fault the host).
-	return len(p), nil
+	return nil
+}
+
+// gap returns the number of unmapped bytes from addr up to the next mapping.
+func (mm *Mapper) gap(addr int) int {
+	for m := mm.mappings; m != nil; m = m.next {
+		if m.start > addr {
+			return m.start - addr
+		}
+	}
+	return int(MaxAddress) + 1 - addr
+}
+
+// float fills up to max bytes of p with the open-bus value and returns the
+// number of bytes filled.
+func (mm *Mapper) float(p []byte, max int) int {
+	if max > len(p) {
+		max = len(p)
+	}
+	for j := 0; j < max; j++ {
+		p[j] = 0
+	}
+	return max
 }
 
 // Reset calls Reset on all mapped Memory devices. Mappings are preserved.
