@@ -14,6 +14,10 @@ go run ./cmd/goamiga --rom Kick13.rom --disk "Workbench1.3.adf"
 go run ./cmd/goamiga --rom Kick13.rom --headless --cycles 10000000
 ```
 
+The floppy is writable: anything the Amiga saves to DF0: is written back
+into the ADF file. Keep a copy of disks you care about, or pass
+`--write-protect`.
+
 The window shows the standard PAL display area (640×256, doubled
 vertically). Add `--overscan` to see the full overscan area (720×284),
 for software that draws into the border.

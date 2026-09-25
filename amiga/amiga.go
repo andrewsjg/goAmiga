@@ -667,13 +667,20 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 	}
 }
 
-// LoadDisk loads an ADF disk image into the floppy drive (DF0:).
+// LoadDisk loads an ADF disk image into the floppy drive (DF0:). Unless
+// the drive is write-protected, sectors the Amiga writes are saved back to
+// the file.
 func (a *Amiga) LoadDisk(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read ADF: %w", err)
 	}
-	return a.Disk.InsertDisk(data)
+	if err := a.Disk.InsertDisk(data); err != nil {
+		return err
+	}
+	// Tracks the Amiga writes are saved back to this file.
+	a.Disk.path = path
+	return nil
 }
 
 // LoadROM loads a Kickstart ROM from the given file path.

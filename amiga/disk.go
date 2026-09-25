@@ -3,6 +3,7 @@ package amiga
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
 )
 
 const (
@@ -25,7 +26,20 @@ type DiskDrive struct {
 	amiga *Amiga
 
 	// Disk image
-	adf []byte // 901120 bytes (nil = no disk)
+	adf  []byte // 901120 bytes (nil = no disk)
+	path string // file the image came from; written tracks are saved there
+
+	// WriteProtected makes the drive report the disk as write-protected
+	// and ignore write DMA, like the tab on a real disk.
+	WriteProtected bool
+
+	// Write statistics: sectors committed to the image, and sectors in
+	// write DMA that were dropped (bad checksum or format) or whose header
+	// named a different track than the head was on.
+	SectorsWritten, BadSectorWrites, TrackMismatches int
+
+	// SaveErr is the last error writing a track back to the image file.
+	SaveErr error
 
 	// Drive state
 	motor               bool
@@ -70,6 +84,7 @@ func (d *DiskDrive) InsertDisk(data []byte) error {
 		return fmt.Errorf("invalid ADF size: %d bytes (expected %d)", len(data), ADFSize)
 	}
 	d.adf = data
+	d.path = ""
 	d.diskChange = true
 	return nil
 }
@@ -143,7 +158,7 @@ func (d *DiskDrive) ReadStatus(regVal byte) byte {
 		if d.cylinder == 0 {
 			val &^= 0x10 // /DSKTRACK0 = low
 		}
-		if d.adf != nil {
+		if d.adf != nil && d.WriteProtected {
 			val &^= 0x08 // /DSKPROT = low (write protected)
 		}
 		if d.adf == nil || d.diskChange {
@@ -228,7 +243,13 @@ func (d *DiskDrive) startDMA() {
 	isWrite := d.dsklen&0x4000 != 0
 
 	if isWrite {
-		// Write DMA not implemented (read-only disk)
+		// Writes start at the head position without waiting for a sync
+		// word, and take one word time per word. A write-protected drive
+		// ignores the data but the DMA still runs to completion.
+		if !d.WriteProtected {
+			d.writeTrack(wordCount)
+		}
+		d.completionCycles = wordCount * DiskCyclesPerWord
 		return
 	}
 
@@ -270,6 +291,106 @@ func (d *DiskDrive) startDMA() {
 		d.amiga.ChipRAM.Write(int(d.dskpt)+2*i, buf)
 	}
 	d.completionCycles = (wait + wordCount) * DiskCyclesPerWord
+}
+
+// writeTrack decodes the MFM sectors in a write DMA buffer of words words
+// at DSKPT and stores them in the image on the track under the head, then
+// saves that track to the image file if there is one.
+func (d *DiskDrive) writeTrack(words int) {
+	buf := make([]byte, 2*words)
+	for i := 0; i < len(buf); i += 2 {
+		d.amiga.ChipRAM.Read(int(d.dskpt)+i, buf[i:i+2])
+	}
+	track := d.cylinder*2 + d.side
+	n := 0
+	for _, sec := range decodeMFMSectors(buf) {
+		if !sec.ok || sec.sector >= SectorsPerTrack {
+			d.BadSectorWrites++
+			continue
+		}
+		if sec.track != track {
+			d.TrackMismatches++
+		}
+		copy(d.adf[track*TrackSize+sec.sector*BytesPerSector:], sec.data[:])
+		n++
+	}
+	d.SectorsWritten += n
+	if n > 0 && d.path != "" {
+		d.SaveErr = d.saveTrack(track)
+		if d.SaveErr != nil {
+			fmt.Fprintf(os.Stderr, "goamiga: saving track %d to %s: %v\n", track, d.path, d.SaveErr)
+		}
+	}
+}
+
+// saveTrack writes one track of the image back to its file.
+func (d *DiskDrive) saveTrack(track int) error {
+	f, err := os.OpenFile(d.path, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteAt(d.adf[track*TrackSize:(track+1)*TrackSize], int64(track*TrackSize))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// mfmSector is one AmigaDOS sector decoded from MFM.
+type mfmSector struct {
+	track, sector int
+	data          [BytesPerSector]byte
+	ok            bool // format byte $FF and both checksums match
+}
+
+// AmigaDOS sector layout after the sync words, in bytes: info (odd, even
+// longs), 16-byte label (odd block, even block), header checksum, data
+// checksum, then 512 data bytes as 128 odd longs followed by 128 even longs.
+const (
+	mfmSectorInfo    = 0
+	mfmSectorHdrSum  = 40
+	mfmSectorDataSum = 48
+	mfmSectorData    = 56
+	mfmSectorLen     = mfmSectorData + 2*BytesPerSector // 1080
+)
+
+// decodeMFMSectors finds every sector in an MFM stream (a run of $4489
+// sync words followed by a sector) and decodes it.
+func decodeMFMSectors(mfm []byte) []mfmSector {
+	word := func(i int) uint16 { return binary.BigEndian.Uint16(mfm[i:]) }
+	var out []mfmSector
+	for i := 0; i+2 <= len(mfm); i += 2 {
+		if word(i) != 0x4489 {
+			continue
+		}
+		j := i
+		for j+2 <= len(mfm) && word(j) == 0x4489 {
+			j += 2
+		}
+		if j+mfmSectorLen > len(mfm) {
+			break
+		}
+		long := func(off int) uint32 { return binary.BigEndian.Uint32(mfm[j+off:]) }
+		pair := func(off, stride int) uint32 { return mfmDecodeLong(long(off), long(off+stride)) }
+
+		info := pair(mfmSectorInfo, 4)
+		sec := mfmSector{track: int(info >> 16 & 0xFF), sector: int(info >> 8 & 0xFF)}
+		hdrOK := computeMFMChecksum(mfm[j:j+mfmSectorHdrSum]) == pair(mfmSectorHdrSum, 4)
+		data := mfm[j+mfmSectorData : j+mfmSectorLen]
+		dataOK := computeMFMChecksum(data) == pair(mfmSectorDataSum, 4)
+		for k := 0; k < BytesPerSector/4; k++ {
+			binary.BigEndian.PutUint32(sec.data[4*k:], pair(mfmSectorData+4*k, BytesPerSector))
+		}
+		sec.ok = info>>24 == 0xFF && hdrOK && dataOK
+		out = append(out, sec)
+		i = j + mfmSectorLen - 2
+	}
+	return out
+}
+
+// mfmDecodeLong joins the odd-bit and even-bit MFM longs of one data long.
+func mfmDecodeLong(odd, even uint32) uint32 {
+	return (odd&0x55555555)<<1 | even&0x55555555
 }
 
 // headWord is the index of the MFM word under the head; word 0 is at the

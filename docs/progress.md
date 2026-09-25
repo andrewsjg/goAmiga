@@ -18,8 +18,8 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    sprite register changes partway through a line; collisions are only
    detected on lines that are drawn (not in headless mode).
 3. **Audio.** Paula audio DMA is not implemented.
-4. **Machine.** Chip RAM only (no `$C00000` slow RAM or fast RAM). Floppy is
-   read-only DF0:. 512KB ROMs are truncated to their upper half, so only
+4. **Machine.** Chip RAM only (no `$C00000` slow RAM or fast RAM). One
+   floppy drive (DF0:), no disk swapping while running. 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
@@ -27,6 +27,43 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — Floppy writes
+
+**Before.** The drive always reported the disk as write-protected and
+ignored write DMA, so AmigaDOS refused to write.
+
+**Now.**
+- Write DMA (DSKLEN bit 14) starts at the head position without waiting
+  for sync and takes one word time (227 CPU cycles) per word, then raises
+  DSKBLK.
+- `writeTrack` reads the DMA buffer from chip RAM and decodes every
+  sector in it (`decodeMFMSectors`): a run of `$4489` syncs, then info
+  (odd/even longs), label, header checksum, data checksum, and 512 bytes as
+  128 odd longs then 128 even longs. A sector is committed only if its
+  format byte is `$FF` and both checksums match. It goes on the physical
+  track under the head. `BadSectorWrites` and `TrackMismatches` count
+  anything else. Kickstart's trackdisk writes a whole track per DMA, but
+  decoding by sync word handles any number of sectors.
+- **Saving:** a disk loaded from a file (`Amiga.LoadDisk`, i.e. `--disk`)
+  has each written track saved straight back into that file with
+  `WriteAt`. `--write-protect` (`DiskDrive.WriteProtected`) reports the
+  disk as protected (/DSKPROT low) and ignores the data; the DMA still
+  completes, as on a real drive. Images inserted from memory
+  (`InsertDisk`, which all tests use) are never saved anywhere.
+- A plain Workbench boot and idle writes nothing (checked in
+  `TestTimingProfile`), so an ADF changes only when something on the
+  Amiga saves.
+
+**Tests.** `disk_write_test.go`: encode→write round trip of a whole track,
+a corrupt sector rejected, write protection (status bit and ignored data),
+saving only the written track back to a file.
+`TestAmigaDOSWritesFile` patches the first `echo` of the in-memory
+`s/startup-sequence` to `echo >df0:written "goAmiga write test"` (fixing
+the OFS block checksum), boots, and reads the file back from the image by
+walking the root directory's hash chains. It checks every block's
+checksum. Boot wrote 66 sectors (6 tracks), none bad. Full suite passes;
+boot timing unchanged.
 
 ## 2026-09-25 — Overscan view (`--overscan`)
 

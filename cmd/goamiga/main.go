@@ -13,6 +13,7 @@ func main() {
 	diskPath := flag.String("disk", "", "Path to ADF floppy disk image")
 	maxCycles := flag.Uint64("cycles", 0, "Maximum CPU cycles to execute (headless mode)")
 	headless := flag.Bool("headless", false, "Run without display window")
+	writeProtect := flag.Bool("write-protect", false, "Write-protect the floppy: the Amiga cannot change the ADF file")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	flag.Parse()
@@ -47,7 +48,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error loading disk: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Loaded disk: %s\n", *diskPath)
+		a.Disk.WriteProtected = *writeProtect
+		if *writeProtect {
+			fmt.Printf("Loaded disk: %s (write-protected)\n", *diskPath)
+		} else {
+			fmt.Printf("Loaded disk: %s (writes are saved to this file)\n", *diskPath)
+		}
 	}
 
 	// Reset

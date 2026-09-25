@@ -50,6 +50,7 @@ func TestTimingProfile(t *testing.T) {
 		100*float64(a.CIAWaitCycles)/float64(a.cycles))
 
 	// Throughput with rendering on, once Workbench is idle.
+	defer func() { t.Logf("  disk: %d sectors written during boot and idle", a.Disk.SectorsWritten) }()
 	a.Video.DisplayActive = true
 	for range 100 {
 		_ = a.RunFrame()

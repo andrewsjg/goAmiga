@@ -72,7 +72,7 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `video.go` | Bitplane DMA + Denise | Per-scanline fetch inside the vertical DIW; `drawLine` composes a view of the beam — standard 640×256 (hires columns from H `$81`, lines 44–299) or overscan 720×284 (`SetOverscan`, `--overscan`): DIW clipping, DDFSTRT placement, BPLCON1 scroll, dual playfield, EHB, HAM, BPLCON2 sprite priority, collisions (CLXDAT), mid-line COLOR/BPLCON1/BPLCON2 writes (`noteWrite`), interlace (640×512, fields woven by LOF) |
 | `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes; `lineBuffer` gives per-column sprite colour and pair, with attached sprites |
 | `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard), CPU address decoding and E-clock access timing |
-| `disk.go` | DF0: | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), read DMA with WORDSYNC, DSKSYN/DSKBLK timing, index pulse. Read only |
+| `disk.go` | DF0: | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), read DMA with WORDSYNC, DSKSYN/DSKBLK timing, index pulse; write DMA decoded back to ADF sectors and saved to the `--disk` file (`--write-protect` to prevent) |
 | `keyboard.go`, `mouse.go` | Input | Keyboard serial handshake via CIA-A; mouse counters in JOY0DAT, button on CIA-A PRA |
 | `display.go`, `keyboard_ebiten.go` | Host window | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
 | `flood.go` | HLE patch | Intercepts KS1.3 `graphics.library` Flood at `$FC5AD0` and fills natively (a workaround — see `progress.md`) |
