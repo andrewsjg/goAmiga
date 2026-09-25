@@ -80,6 +80,12 @@ func (c *Processor) RaiseException(vector int) error {
 //
 // When newIPL == 0 the behaviour is identical to a plain RaiseException.
 func (c *Processor) raiseInterruptException(vector int, newIPL uint32) error {
+	// Any exception ends the STOP state. This matters when STOP lowers the
+	// mask below an already-pending interrupt: CheckInterrupts takes it at
+	// the end of the same Step, and the processor must then run the handler
+	// rather than report itself stopped with PC at the handler entry.
+	c.runState = RunStateRunning
+
 	// Save current SR (before any modification — this is what gets pushed to stack)
 	oldSR := uint16(c.SR & 0xFFFF)
 
