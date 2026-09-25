@@ -30,9 +30,12 @@ directive in `go.mod`).
 `RunFrame()` steps until the next VBLANK so the display always presents a
 complete frame.
 
-Timing constants: `CPUClocksPerLine = 114`, `LinesPerFrame = 312`.
-**Known issue:** a real PAL line is ~454 CPU cycles, so the CPU currently
-gets about a quarter of its real time per frame. See `progress.md`.
+Timing: the beam counts PAL colour clocks (3.546895 MHz); the CPU runs at
+twice that. A line is `ColorClocksPerLine = 227` colour clocks =
+`CPUClocksPerLine = 454` CPU cycles, and a frame is `LinesPerFrame = 312`
+lines. `a.hpos` is in CPU cycles; the chipset sees `hpos/2` (VHPOSR, and
+the Copper via `beamHP()`). The Copper starts one instruction per
+`CopperCyclesPerInstr = 8` CPU cycles.
 
 ## Memory map
 

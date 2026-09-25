@@ -75,6 +75,12 @@ func TestWorkbenchBoots(t *testing.T) {
 		t.Logf("title fragment: %q", title)
 	}
 
+	// BPLCON0 is rewritten by the Copper every frame (planes are switched
+	// off below the display window), so sample it in the middle of the display.
+	// Advance the beam directly: a STOP'd CPU's Step() skips whole lines.
+	for a.vpos != 150 {
+		a.advanceBeamPerCycle(1)
+	}
 	bplcon0 := a.Custom.ReadReg16(0x100)
 	planes := (bplcon0 >> 12) & 7
 	hires := bplcon0&0x8000 != 0
@@ -82,7 +88,7 @@ func TestWorkbenchBoots(t *testing.T) {
 		t.Errorf("expected ≥2 bitplanes, BPLCON0=$%04X", bplcon0)
 	}
 	if !hires {
-		t.Logf("note: hires bit clear at sample time BPLCON0=$%04X (may be mid-frame)", bplcon0)
+		t.Errorf("expected a hires Workbench screen, BPLCON0=$%04X", bplcon0)
 	}
 	t.Logf("BPLCON0=$%04X planes=%d hires=%v COLOR00=$%04X DMACON=$%04X",
 		bplcon0, planes, hires, a.Custom.ReadReg16(0x180), a.Custom.ReadReg16(0x096))

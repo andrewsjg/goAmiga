@@ -105,14 +105,14 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 				p[2] = byte(c.amiga.vpos) // V7:V0
 			}
 			if len(p) > 3 {
-				p[3] = byte(c.amiga.hpos) // H8:H1
+				p[3] = byte(c.amiga.hpos / CPUCyclesPerColorClock) // H8:H1
 			}
 		}
 	case 0x006: // VHPOSR - V7-V0 (bits 15-8), H8-H1 (bits 7-0)
 		if c.amiga != nil {
 			p[0] = byte(c.amiga.vpos)
 			if len(p) > 1 {
-				p[1] = byte(c.amiga.hpos)
+				p[1] = byte(c.amiga.hpos / CPUCyclesPerColorClock)
 			}
 		}
 	case 0x00A: // JOY0DAT - mouse/joystick 0 data

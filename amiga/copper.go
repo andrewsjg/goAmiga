@@ -49,18 +49,25 @@ func (c *Copper) Restart(which int) {
 	}
 }
 
+// beamHP converts the beam tracker's hpos (CPU cycles) to the value the
+// Copper compares against WAIT/SKIP HP fields. The instruction holds beam
+// bits H8-H2 (colour clocks with bit 0 dropped); waitHP/HM store them
+// shifted down by one, so the beam is shifted the same way.
+func beamHP(hpos int) uint16 {
+	return uint16(hpos/CPUCyclesPerColorClock) >> 1
+}
+
 // waitMet reports whether the current beam position satisfies the copper wait.
 func (c *Copper) waitMet(hpos, vpos int) bool {
-	copperHP := hpos * 2
 	vp := uint16(vpos) & c.waitVM
-	hp := uint16(copperHP) & c.waitHM
+	hp := beamHP(hpos) & c.waitHM
 	wantVP := c.waitVP & c.waitVM
 	return vp > wantVP || (vp == wantVP && hp >= c.waitHP)
 }
 
 // StepLine processes Copper instructions for one complete scanline.
-// The real Copper can process up to ~28 instructions per line (one per 4 CPU
-// cycles). When waiting, we check once whether the wait condition can be
+// The real Copper can start one instruction every CopperCyclesPerInstr CPU
+// cycles (up to ~56 per line). When waiting, we check once whether the wait condition can be
 // satisfied this line; if not, we skip entirely.
 //
 // Important: a WAIT whose position is already reached must not freeze the rest
@@ -82,8 +89,8 @@ func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
 			return // vpos too early — no chance this line
 		}
 		if vp == wantVP {
-			// Might satisfy if hpos advances far enough (Copper HP = 2× CPU)
-			hp := uint16((hposEnd-1)*2) & c.waitHM
+			// Might satisfy if hpos advances far enough this line
+			hp := beamHP(hposEnd-1) & c.waitHM
 			if hp < c.waitHP {
 				return // won't reach required hpos this line
 			}
@@ -91,16 +98,13 @@ func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
 		// vp > waitVP or vp == waitVP && hposEnd might reach waitHP:
 		// fall through to per-slot processing to handle the exact transition
 	}
-	// Per-slot processing (up to 28 slots per line)
-	maxSlots := (hposEnd - hposStart + 3) / 4
+	// Per-slot processing: one instruction per Copper DMA slot
+	maxSlots := (hposEnd - hposStart + CopperCyclesPerInstr - 1) / CopperCyclesPerInstr
 	if maxSlots < 1 {
 		maxSlots = 1
 	}
-	if maxSlots > 28 {
-		maxSlots = 28
-	}
 	for slot := 0; slot < maxSlots; slot++ {
-		hpos := hposStart + slot*4
+		hpos := hposStart + slot*CopperCyclesPerInstr
 		if hpos >= hposEnd {
 			hpos = hposEnd - 1
 		}
@@ -141,9 +145,8 @@ func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
 // from chip RAM every other DMA cycle (effectively every 4 CPU cycles for
 // a complete instruction). For simplicity, we execute one instruction per call.
 //
-// hpos is in CPU color-clock-ish units from the beam tracker (0..CPUClocksPerLine).
-// The Copper compares horizontal position in lores pixel clocks (~2 per CPU
-// cycle, 0..227), so we scale by 2 before comparing.
+// hpos is the beam tracker's position in CPU cycles (0..CPUClocksPerLine);
+// see beamHP for the conversion to Copper horizontal positions.
 func (c *Copper) Step(hpos, vpos int) {
 	// Skip execution if PC is zero or points to the low-memory system area
 	// (vectors, ExecBase jump table). Valid copper lists are always allocated
@@ -154,12 +157,10 @@ func (c *Copper) Step(hpos, vpos int) {
 		return
 	}
 
-	copperHP := hpos * 2 // CPU clocks → Copper horizontal pos
-
 	// If waiting, check beam position
 	if c.wait {
 		vp := uint16(vpos) & c.waitVM
-		hp := uint16(copperHP) & c.waitHM
+		hp := beamHP(hpos) & c.waitHM
 		// Mask the compare value the same way the beam is masked (HRM).
 		wantVP := c.waitVP & c.waitVM
 		if vp > wantVP || (vp == wantVP && hp >= c.waitHP) {
@@ -236,7 +237,7 @@ func (c *Copper) Step(hpos, vpos int) {
 		skipHM := (ir2 & 0xFE) >> 1
 
 		vp := uint16(vpos) & skipVM
-		hp := uint16(copperHP) & skipHM
+		hp := beamHP(hpos) & skipHM
 		wantVP := skipVP & skipVM
 		if vp > wantVP || (vp == wantVP && hp >= skipHP) {
 			c.pc += 4 // skip next instruction

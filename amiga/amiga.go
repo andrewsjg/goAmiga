@@ -25,11 +25,20 @@ const (
 	ROMBase     = 0xFC0000
 	ROMEnd      = 0xFFFFFF
 
-	// PAL timing constants
-	CPUClocksPerLine = 114                              // ~114 CPU clocks per scanline at 7.09MHz
-	LinesPerFrame    = 312                              // PAL: 312 scanlines (fixed; LOF still toggles for software)
-	VBlankLine       = 0                                // VBLANK interrupt fires at line 0
-	CyclesPerFrame   = CPUClocksPerLine * LinesPerFrame // 35568 CPU clocks per frame
+	// PAL timing. The beam counts colour clocks (3.546895 MHz); the 68000
+	// runs at twice that (7.09379 MHz), so one colour clock = 2 CPU cycles.
+	// a.hpos is kept in CPU cycles; the chipset sees hpos/2 (VHPOSR, Copper).
+	ColorClocksPerLine = 227                                         // PAL line: 227 colour clocks = 64µs
+	CPUClocksPerLine   = ColorClocksPerLine * CPUCyclesPerColorClock // 454 CPU cycles per scanline
+	LinesPerFrame      = 312                                         // PAL: 312 scanlines (fixed; LOF still toggles for software)
+	VBlankLine         = 0                                           // VBLANK interrupt fires at line 0
+	CyclesPerFrame     = CPUClocksPerLine * LinesPerFrame            // 141648 CPU cycles per frame (~50 Hz)
+
+	CPUCyclesPerColorClock = 2
+	// CopperCyclesPerInstr is the Copper's throughput: it fetches one word
+	// every other colour clock and each instruction is two words, so it
+	// starts at most one instruction every 4 colour clocks (8 CPU cycles).
+	CopperCyclesPerInstr = 8
 )
 
 // Amiga represents a complete Amiga 500 system.
@@ -490,10 +499,12 @@ func (a *Amiga) advanceBeamPerCycle(elapsed int) {
 			a.CIAB.Tick()
 		}
 
-		// Copper step (if DMA enabled: DMACON bits 9=DMAEN and 7=COPEN)
-		dmacon := a.Custom.ReadReg16(0x096)
-		if dmacon&0x0280 == 0x0280 {
-			a.Copper.Step(a.hpos, a.vpos)
+		// Copper step on its DMA slots (DMACON bits 9=DMAEN and 7=COPEN)
+		if a.hpos%CopperCyclesPerInstr == 0 {
+			dmacon := a.Custom.ReadReg16(0x096)
+			if dmacon&0x0280 == 0x0280 {
+				a.Copper.Step(a.hpos, a.vpos)
+			}
 		}
 	}
 }

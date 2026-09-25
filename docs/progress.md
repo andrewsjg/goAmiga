@@ -10,10 +10,12 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
-1. **Beam/CPU timing.** `CPUClocksPerLine = 114` but a PAL line is ~454
-   68000 cycles (7.09 MHz ÷ 15,625 lines/s), so the CPU runs at about a
-   quarter speed relative to video. There is no DMA cycle stealing, and
-   blits complete instantly.
+1. **Timing (remaining).** The CPU and beam now run at the correct PAL
+   ratio, but there is no DMA cycle stealing (bitplane, Copper and blitter
+   DMA never slow the CPU), blits complete instantly (busy time is capped
+   at 512 cycles), floppy DMA completes far faster than a real drive, and
+   every frame is 312 lines with LOF toggling even without interlace (real
+   PAL non-interlaced frames are long frames).
 2. **Display.** Missing: DIWSTRT/DIWSTOP horizontal positioning,
    BPLCON1 scroll, BPLCON2 priorities, EHB, HAM, dual playfield,
    interlace field weaving, overscan, collision detection (CLXDAT),
@@ -28,6 +30,44 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — PAL beam timing
+
+**Problem.** `CPUClocksPerLine` was 114, but a PAL scanline is 227 colour
+clocks = 454 68000 cycles (the CPU clock is exactly twice the colour clock).
+Because instruction timings are real 68000 cycle counts, the CPU got a
+quarter of its real time per frame: effectively a 1.8 MHz Amiga. Reading the
+code also turned up three related bugs:
+
+- The Copper compared WAIT/SKIP horizontal positions against `hpos*2`
+  while the instruction's HP field holds beam bits H8–H2, so horizontal
+  waits fired at half the requested position.
+- `VHPOSR` returned the CPU-cycle counter instead of colour clocks.
+- The per-cycle beam path ran one Copper instruction per CPU cycle; the
+  real Copper manages one per 4 colour clocks (8 CPU cycles), ~56 per line.
+
+**Fix.** `ColorClocksPerLine = 227`, `CPUClocksPerLine = 454`
+(`CyclesPerFrame = 141,648`). `a.hpos` stays in CPU cycles and is halved
+wherever the chipset sees it (`VHPOSR`, `beamHP()` in the Copper). The
+Copper runs only on its DMA slots (`CopperCyclesPerInstr = 8`) in both
+the per-cycle and per-line paths.
+
+**Measured** with `GOAMIGA_DIAG=1 go test -run TestTimingProfile -v ./amiga/`:
+
+| | Before | After |
+|---|---|---|
+| Boot to `workbench.task` | 4,330 frames (86.6 s emulated) | 1,338 frames (26.8 s emulated) |
+| Host time for that boot | 1.7 s | 1.6 s |
+| Idle Workbench, display on | 32× real time, CPU busy 12% | 32× real time, CPU busy 3% |
+
+A busy CPU runs at ~3.5× real speed on the host, so the full-speed CPU
+still fits comfortably in real time.
+
+**Tests.** New `beam_timing_test.go` (line length, VHPOSR units, WAIT
+horizontal position, Copper throughput per line). `TestWorkbenchBoots`
+sampled BPLCON0 at an arbitrary beam position and caught the Copper's
+below-display "planes off" value; it now samples at line 150 and also
+asserts a hires screen. Full suite passes.
 
 ## 2026-09-25 — Housekeeping
 
