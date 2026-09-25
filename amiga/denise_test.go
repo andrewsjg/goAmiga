@@ -255,3 +255,138 @@ func TestVerticalWindowGatesFetch(t *testing.T) {
 		t.Errorf("pointer after first window line = $%X, want $1028", a.Video.bplpt[0])
 	}
 }
+
+// A colour written mid-line changes the picture from that beam position;
+// the rest of the line and the next line use the new value.
+func TestMidLineColourChange(t *testing.T) {
+	a := deniseAmiga(t, 0x0200)
+	a.hpos = 0
+	setColors(a, 0x00F)
+	// Copper MOVE COLOR00 at colour clock $60: lores H 2*$60+1 = $C1,
+	// output column 2*($C1-$81) = 128.
+	a.Custom.copperHpos = 2 * 0x60
+	a.Custom.Write(0x180, []byte{0x0F, 0x00})
+	a.Custom.copperHpos = -1
+	a.Video.RenderLine(DisplayTop)
+	if got := rgbAt(a, 127); got != 0x00F {
+		t.Errorf("column 127 = $%03X, want old colour $00F", got)
+	}
+	if got := rgbAt(a, 128); got != 0xF00 {
+		t.Errorf("column 128 = $%03X, want new colour $F00", got)
+	}
+	a.Video.RenderLine(DisplayTop)
+	if got := rgbAt(a, 0); got != 0xF00 {
+		t.Errorf("next line column 0 = $%03X, want $F00", got)
+	}
+}
+
+// A real Copper list: WAIT for mid-line, then MOVE COLOR00 — the classic
+// Copper colour split — run through the beam.
+func TestCopperColourSplit(t *testing.T) {
+	a := startCopper(t, []uint16{
+		0x6461, 0xFFFE, // WAIT line $64, colour clock $60
+		0x0180, 0x0F00, // MOVE COLOR00 = red
+		0x6501, 0xFFFE, // WAIT line $65
+		0x0180, 0x000F, // MOVE COLOR00 = blue
+		0xFFFF, 0xFFFE,
+	}, 0x64)
+	a.Video.DisplayActive = true
+	a.Custom.WriteReg16(0x08E, 0x2C81)
+	a.Custom.WriteReg16(0x090, 0x2CC1)
+	a.Custom.WriteReg16(0x180, 0x0FFF)
+	a.advanceBeamPerCycle(2 * CPUClocksPerLine)
+
+	row := func(vpos, x int) uint16 { return rgbAt(a, (vpos-DisplayTop)*OutputWidth+x) }
+	if got := row(0x64, 100); got != 0xFFF {
+		t.Errorf("line $64 before the split = $%03X, want $FFF", got)
+	}
+	if got := row(0x64, 200); got != 0xF00 {
+		t.Errorf("line $64 after the split = $%03X, want $F00", got)
+	}
+	// Line $65: red from the left edge until the second MOVE at its start
+	// (colour clock ~4, left of the output), so blue across the output.
+	if got := row(0x65, 0); got != 0x00F {
+		t.Errorf("line $65 column 0 = $%03X, want $00F", got)
+	}
+}
+
+// With LACE, the framebuffer is 512 rows and the long and short fields
+// fill the even and odd rows.
+func TestInterlaceWeavesFields(t *testing.T) {
+	a := deniseAmiga(t, 0x0204) // no planes, LACE
+	a.Video.StartFrame()
+	if a.Video.Height != 512 || len(a.Video.Pixels) != OutputWidth*512*4 {
+		t.Fatalf("interlaced framebuffer %dx%d", a.Video.Width, a.Video.Height)
+	}
+	row := func(y int) uint16 { return rgbAt(a, y*OutputWidth) }
+
+	a.lof = true
+	setColors(a, 0xF00)
+	a.Video.RenderLine(DisplayTop + 1)
+	a.lof = false
+	setColors(a, 0x0F0)
+	a.Video.RenderLine(DisplayTop + 1)
+	if row(2) != 0xF00 || row(3) != 0x0F0 {
+		t.Errorf("rows 2,3 = $%03X,$%03X; want long field $F00 then short $0F0", row(2), row(3))
+	}
+
+	a.Custom.WriteReg16(0x100, 0x0200)
+	a.Video.StartFrame()
+	if a.Video.Height != 256 {
+		t.Errorf("non-interlaced height %d, want 256", a.Video.Height)
+	}
+}
+
+func TestCollisionBits(t *testing.T) {
+	const s0, s1, s2, s3, s5 = 1 << 0, 1 << 1, 1 << 2, 1 << 3, 1 << 5
+	for _, c := range []struct {
+		name    string
+		clxcon  uint16
+		idx     int
+		present byte
+		want    uint16
+	}{
+		// No planes enabled: both playfields always match.
+		{"no planes enabled", 0x0000, 0, 0, 0x0001},
+		{"sprite 0, all match", 0x0000, 0, s0, 0x0001 | 1<<1 | 1<<5},
+		// Enable plane 1 matching 1: PF1 needs plane 1 set.
+		{"PF1 miss", 0x0041, 0, s0, 1<<5 | 0x0000},
+		{"PF1 hit", 0x0041, 1, s0, 0x0001 | 1<<1 | 1<<5},
+		// Odd sprites count only with ENSP.
+		{"sprite 1 without ENSP", 0x0FFF, 0, s1, 0},
+		{"sprite 1 with ENSP1", 0x1FFF, 0x3F, s1, 0x0001 | 1<<1 | 1<<5},
+		// Pair vs pair.
+		{"pairs 0 and 1", 0x0FFF, 0, s0 | s2, 1 << 9},
+		{"pairs 1 and 2", 0x0FFF, 0, s3 | s5, 0},
+		{"pairs 1 and 2 with ENSP", 0xFFFF, 0, s3 | s5, 1 << 12},
+	} {
+		if got := collisions(c.clxcon, c.idx, c.present); got != c.want {
+			t.Errorf("%s: CLXDAT bits $%04X, want $%04X", c.name, got, c.want)
+		}
+	}
+}
+
+// A sprite over a playfield pixel sets CLXDAT; reading it clears it.
+func TestCLXDATSpritePlayfield(t *testing.T) {
+	a := deniseAmiga(t, 0x1200, []byte{0xFF})
+	a.Custom.WriteReg16(0x098, 0x0041) // plane 1 must be 1
+	read := func() uint16 {
+		b := make([]byte, 2)
+		a.Custom.Read(0x00E, b)
+		return uint16(b[0])<<8 | uint16(b[1])
+	}
+	setSprite(a, 0, 40, 0x8000, 0, false) // over a transparent pixel
+	a.Video.RenderLine(DisplayTop)
+	if got := read(); got&(1<<1) != 0 {
+		t.Errorf("sprite over empty playfield: CLXDAT $%04X has PF1-sprite bit", got)
+	}
+	setSprite(a, 0, 2, 0x8000, 0, false) // over playfield pixel 2
+	a.Video.bplpt[0] = 0x1000
+	a.Video.RenderLine(DisplayTop)
+	if got := read(); got&(1<<1) == 0 {
+		t.Errorf("sprite over playfield: CLXDAT $%04X, want bit 1", got)
+	}
+	if got := read(); got != 0x8000 {
+		t.Errorf("CLXDAT after read = $%04X, want cleared ($8000)", got)
+	}
+}

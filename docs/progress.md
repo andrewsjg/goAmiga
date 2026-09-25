@@ -14,9 +14,10 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    charged against the CPU/blitter; blit and disk data still land in chip
    RAM at the start of the transfer (only BBUSY and interrupt timing are
    real); no drive motor spin-up time.
-2. **Display.** Missing: interlace field weaving, overscan output (the
-   framebuffer is the standard 640×256 window), collision detection
-   (CLXDAT), changing registers partway through a line.
+2. **Display.** Missing: overscan output (the framebuffer is the
+   standard 640×256/512 window; wider screens are cropped); BPLCON0 and
+   sprite register changes partway through a line; collisions are only
+   detected on lines that are drawn (not in headless mode).
 3. **Audio.** Paula audio DMA is not implemented.
 4. **Machine.** Chip RAM only (no `$C00000` slow RAM or fast RAM). Floppy is
    read-only DF0:. 512KB ROMs are truncated to their upper half, so only
@@ -27,6 +28,48 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — Mid-line register changes, interlace, collisions
+
+**Mid-line changes.** Copper colour bars and splits change COLOR registers
+partway along a line, but the renderer drew each line with the values at
+its end. Now writes to COLOR00–31, BPLCON1 and BPLCON2 during a line are
+recorded with their beam position (`Video.noteWrite`, called from
+`CustomChips.Write`). The Copper passes its own slot position
+(`CustomChips.copperHpos`), since in the per-line fast path the beam
+tracker is still at the start of the line; CPU writes use the beam at the
+start of the instruction. `drawLine` rewinds those writes to get the
+line's starting values and replays each one from its column. A write at
+colour clock c takes effect at lores H `2c + 1`, the same offset as
+bitplane data (DDFSTRT $38 finishes its first fetch at colour clock $40
+and shows its first pixel at H $81). The exact Denise latency is not
+verified against hardware. A BPLCON1 change refills the playfield from its
+column.
+
+**Interlace.** When BPLCON0 LACE is set at VBLANK the framebuffer becomes
+640×512 (`Video.laced`, `outputRow`). The long field (LOF=1) fills even
+rows and the short field odd rows. Each field's rows stay until
+overwritten, so the two weave. The host display already rescales to the
+framebuffer size.
+
+**Collisions.** `collisions()` computes CLXDAT bits per pixel from CLXCON
+(ENBP/MVBP on odd planes = PF1 and even planes = PF2; even sprites always,
+odd sprites with ENSP). CLXDAT reads return the accumulated bits with bit
+15 set, then clear. `SpriteEngine.lineBuffer` now paints each sprite
+separately so every sprite's presence per column is known.
+
+**Speed.** The per-column loop now takes playfield indices from
+`fillPlayfield`, which expands the fetched words once per line and skips
+empty bytes. Register-derived values are recomputed only when a change
+applies, and sprite-free collision bits come from a table cached per
+CLXCON. Idle Workbench with display: 1,423 fps (28.5× real time); it was
+1,490 before the compositor and 823 before this tuning.
+`BenchmarkDrawLine` (dense data, worst case) is about 4–5 µs per line.
+
+**Tests.** `TestMidLineColourChange` (exact column), `TestCopperColourSplit`
+(a WAIT/MOVE Copper list through the beam), `TestInterlaceWeavesFields`,
+`TestCollisionBits`, `TestCLXDATSpritePlayfield`. Workbench boot
+screenshot still pixel-identical to the old renderer. Full suite passes.
 
 ## 2026-09-25 — Denise compositor: DIW/DDF positioning, scroll, DPF, EHB, HAM, sprite priority
 

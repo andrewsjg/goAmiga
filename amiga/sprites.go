@@ -52,6 +52,7 @@ func (s *Sprite) hstart() int {
 // SpriteEngine manages the 8 hardware sprites.
 type SpriteEngine struct {
 	sprites [8]Sprite
+	px      [8][OutputWidth]byte // per-sprite pixels of the current line
 	amiga   *Amiga
 	buf     [2]byte
 }
@@ -211,51 +212,70 @@ func (se *SpriteEngine) FetchLine(vpos int) {
 
 // lineBuffer fills the current line's sprite pixels for the compositor:
 // col[x] is the palette index (16-31, 0 = transparent) and pair[x] the
-// sprite pair (0-3) at output column x. Lower-numbered sprites are in front
-// of higher ones. An odd sprite with ATTACH (SPRxCTL bit 7) joins its even
-// partner as one 15-colour sprite using COLOR16-31. It reports whether any
-// sprite pixel was drawn.
+// sprite pair (0-3) shown at output column x, and present[x] has bit i set
+// where sprite i has a non-transparent pixel (for collision detection).
+// Lower-numbered sprites are in front of higher ones. An odd sprite with
+// ATTACH (SPRxCTL bit 7) joins its even partner as one 15-colour sprite
+// using COLOR16-31. It reports whether any sprite pixel was drawn.
 //
 // Sprite HSTART is in lores beam pixels, the same units as DIWSTRT's
 // horizontal position; sprites are lores, two output columns per pixel.
-func (se *SpriteEngine) lineBuffer(col, pair *[OutputWidth]byte) bool {
+func (se *SpriteEngine) lineBuffer(col, pair, present *[OutputWidth]byte) bool {
+	var painted [8]bool
+	anyPainted := false
+	for i := range se.sprites {
+		painted[i] = se.paint(&se.sprites[i], &se.px[i])
+		anyPainted = anyPainted || painted[i]
+	}
+	if !anyPainted {
+		return false
+	}
 	*col = [OutputWidth]byte{}
-	any := false
+	*present = [OutputWidth]byte{}
 	for pr := 3; pr >= 0; pr-- {
-		even, odd := &se.sprites[2*pr], &se.sprites[2*pr+1]
-		if odd.ctl&0x80 != 0 {
-			var bits [OutputWidth]byte
-			se.paint(even, &bits, 0)
-			se.paint(odd, &bits, 2)
-			for x, b := range bits {
-				if b != 0 {
-					col[x], pair[x] = 16+b, byte(pr)
-					any = true
-				}
-			}
+		ev, od := 2*pr, 2*pr+1
+		if !painted[ev] && !painted[od] {
 			continue
 		}
-		for _, s := range []*Sprite{odd, even} { // even (lower) painted last, wins
-			var bits [OutputWidth]byte
-			if !se.paint(s, &bits, 0) {
+		attached := se.sprites[od].ctl&0x80 != 0
+		for x := 0; x < OutputWidth; x++ {
+			var e, o byte
+			if painted[ev] {
+				e = se.px[ev][x]
+			}
+			if painted[od] {
+				o = se.px[od][x]
+			}
+			if e|o == 0 {
 				continue
 			}
-			for x, b := range bits {
-				if b != 0 {
-					col[x], pair[x] = byte(16+4*pr)+b, byte(pr)
-					any = true
-				}
+			if e != 0 {
+				present[x] |= 1 << ev
 			}
+			if o != 0 {
+				present[x] |= 1 << od
+			}
+			switch {
+			case attached:
+				col[x] = 16 + (o<<2 | e)
+			case e != 0:
+				col[x] = byte(16+4*pr) + e
+			default:
+				col[x] = byte(16+4*pr) + o
+			}
+			pair[x] = byte(pr)
 		}
 	}
-	return any
+	return true
 }
 
-// paint ORs sprite s's 2-bit pixels, shifted left by shift, into bits.
-func (se *SpriteEngine) paint(s *Sprite, bits *[OutputWidth]byte, shift uint) bool {
+// paint draws sprite s's 2-bit pixels on the current line into bits,
+// reporting false (and leaving bits untouched) if it shows nothing.
+func (se *SpriteEngine) paint(s *Sprite, bits *[OutputWidth]byte) bool {
 	if s.state != sprActive || s.data|s.datb == 0 {
 		return false
 	}
+	*bits = [OutputWidth]byte{}
 	x0 := 2 * (s.hstart() - OutputLeft)
 	for i := 0; i < 16; i++ {
 		v := byte(s.data>>(15-i)&1 | s.datb>>(15-i)&1<<1)
@@ -264,7 +284,7 @@ func (se *SpriteEngine) paint(s *Sprite, bits *[OutputWidth]byte, shift uint) bo
 		}
 		for _, x := range [2]int{x0 + 2*i, x0 + 2*i + 1} {
 			if x >= 0 && x < OutputWidth {
-				bits[x] |= v << shift
+				bits[x] = v
 			}
 		}
 	}

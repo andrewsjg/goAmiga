@@ -205,7 +205,9 @@ func (c *Copper) Step(hpos, vpos int) {
 		// Write via the Memory interface to trigger side effects
 		c.buf[0] = byte(ir2 >> 8)
 		c.buf[1] = byte(ir2)
+		c.amiga.Custom.copperHpos = hpos
 		c.amiga.Custom.Write(regOffset, c.buf[:2])
+		c.amiga.Custom.copperHpos = -1
 
 	} else if ir2&1 == 0 {
 		// WAIT: wait until beam reaches position

@@ -57,13 +57,19 @@ type CustomChips struct {
 	logger io.Writer
 
 	amiga *Amiga // back-reference for interrupt/DMA coordination
+
+	// copperHpos is the beam position (CPU cycles) of the Copper MOVE being
+	// written, or -1 for CPU writes (which use the beam at the start of
+	// the instruction).
+	copperHpos int
 }
 
 // NewCustomChips creates a new custom chip register set.
 func NewCustomChips(logger io.Writer, a *Amiga) *CustomChips {
 	return &CustomChips{
-		logger: logger,
-		amiga:  a,
+		logger:     logger,
+		amiga:      a,
+		copperHpos: -1,
 	}
 }
 
@@ -82,6 +88,14 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 		// Set bit 14 (BBUSY) when blitter is actively running
 		if c.amiga != nil && c.amiga.Blitter != nil && c.amiga.Blitter.busy {
 			p[0] |= 0x40
+		}
+	case 0x00E: // CLXDAT: read clears
+		if c.amiga != nil && c.amiga.Video != nil {
+			val := c.amiga.Video.ReadCLXDAT()
+			p[0] = byte(val >> 8)
+			if len(p) > 1 {
+				p[1] = byte(val)
+			}
 		}
 	case 0x01C: // INTENAR
 		copy(p, c.regs[0x09A:0x09C])
@@ -207,6 +221,13 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 	case 0x096, 0x09A, 0x09C, 0x09E: // DMACON, INTENA, INTREQ, ADKCON — set/clear registers
 		// handled in switch below — skip raw copy so set/clear logic works correctly
 	default:
+		if n == 2 && c.amiga != nil && c.amiga.Video != nil && deniseLineReg(offset) {
+			hpos := c.copperHpos
+			if hpos < 0 {
+				hpos = c.amiga.hpos
+			}
+			c.amiga.Video.noteWrite(offset, c.ReadReg16(offset), uint16(p[0])<<8|uint16(p[1]), hpos)
+		}
 		copy(c.regs[offset:offset+n], p[:n])
 	}
 
