@@ -11,8 +11,9 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
 **Not yet implemented / known gaps** (roughly in planned order):
 
 1. **Timing (remaining).** Copper, audio and disk DMA slots are not
-   charged against the CPU/blitter; floppy DMA completes far faster than a real drive; blit data
-   still moves instantly at BLTSIZE (only BBUSY/IRQ timing is real).
+   charged against the CPU/blitter; blit and disk data still land in chip
+   RAM at the start of the transfer (only BBUSY and interrupt timing are
+   real); no drive motor spin-up time.
 2. **Display.** Missing: DIWSTRT/DIWSTOP horizontal positioning,
    BPLCON1 scroll, BPLCON2 priorities, EHB, HAM, dual playfield,
    interlace field weaving, overscan, collision detection (CLXDAT),
@@ -27,6 +28,77 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — Floppy rotation timing; STOP/interrupt CPU bug
+
+**Floppy timing.** Disk DMA copied from the track's first sync word and
+completed at 2 CPU cycles per word, with DSKSYN and DSKBLK both at the end.
+A DD drive spins at 300 RPM with 2 µs MFM bit cells: 6,250 words per
+revolution, one word every 32 µs = exactly 227 CPU cycles (two per
+scanline).
+
+- The encoded MFM track is padded with `$AAAA` gap to 6,250 words
+  (11 sectors fill 5,984).
+- The head position is `(cycles / 227) mod 6250`; word 0 is the index.
+- A transfer starts at the word under the head. With WORDSYNC it waits for
+  the next sync word, and DSKSYN fires when that word passes the head.
+  Reads wrap around the track. DSKBLK fires after the last word. A
+  WORDSYNC read on a track with no sync word never starts, as on hardware
+  (it used to "complete" after 64 cycles).
+- The index pulse sets CIA-B /FLAG (ICR bit 4) once per revolution while
+  the selected drive spins. Fast-idle wakes for sync, block-done and (when
+  enabled) index events (`DiskDrive.CyclesToNextEvent`).
+
+KS 1.3's trackdisk reads 7,358 words (about 1.2 revolutions) without
+WORDSYNC and finds the sectors in the buffer, so each track read takes
+~12 frames. Boot does 133 track reads of 61 distinct tracks.
+
+**The 18-minute stall.** The first profile after this change booted in
+1,124 emulated seconds. `TestDiskTimingDiag` (new, logs every disk DMA)
+showed normal reads, then 53,624 idle frames between two of them with the
+motor on. 53,624 × 313 lines ≈ 2²⁴: one wrap of CIA-B's 24-bit TOD counter,
+which counts scanlines. A state dump in the gap showed:
+
+- CIA-B: only the TOD ALARM interrupt enabled, alarm `$000000`, counter
+  already past it. Nothing else could raise a level-6 interrupt.
+- CPU: `cpuStopped` set, SR `$2300`, PC `$FC0D14`, the entry of the
+  level-3 interrupt handler.
+
+A CPU that is "stopped" with its PC at a handler entry and the mask raised
+to that handler's level had already taken the interrupt. In go-m68k,
+`Step` calls `CheckInterrupts` after every instruction, including STOP.
+When STOP lowered the mask below an already-pending interrupt, the
+interrupt was taken in that same step, but the run state stayed
+`Stopped`. The Amiga then idled, waiting for a level above 3, while the
+level-3 handler never ran. The next VERTB (level 3) could not wake it.
+Only the TOD alarm wrapping around did.
+
+On a 68000, any exception ends STOP. Fixed in go-m68k
+(`raiseInterruptException` sets the run state to running), with
+`TestStopWithPendingInterrupt`. This bug predates the floppy work. It
+needs an interrupt to become pending in exactly the instructions before a
+STOP, and the new disk timing made that happen in this boot.
+
+**Result.** Boot to `workbench.task`: 1,013 → 2,584 frames (51.7 s
+emulated, in line with a real A500 booting 1.3 from floppy); host time
+unchanged at 1.7 s.
+
+**Tests.** `disk_timing_test.go`: track length and revolution time,
+DSKSYN/DSKBLK timing from a known head position, wrap-around read,
+no-sync read never starts, index pulse only from a selected, spinning
+drive. `TestDiskDMA` now ticks the actual completion time. Full suites
+pass (goAmiga and go-m68k).
+
+## 2026-09-25 — CIA address decoding
+
+The CIAs were mapped as two 4 KB blocks answering at every address. On
+the Amiga they share `$BF0000–$BFFFFF`, partially decoded: CIA-A is
+selected by A12 low and drives the odd byte (D7–D0), CIA-B by A13 low
+and drives the even byte (D15–D8), and A11–A8 pick the register. A new
+`ciaSpace` device does this for the CPU's view. A byte lane neither chip
+drives reads as open bus (0), writes to it are dropped, and a word access
+at `$BFC000` reaches both chips. Emulator code still calls
+`CIA.Read`/`Write` directly with any offset. `TestCIAAddressDecoding`.
 
 ## 2026-09-25 — CIA E-clock access timing and 8520 fixes
 
@@ -63,9 +135,7 @@ without the 8520 fixes, so KS 1.3 does not use those paths.
 all 10 values across the 10 phases. `cia_test.go` covers one-shot restart,
 INMODE and the ICR mask. Full suite passes.
 
-**Still simplified.** CIA-A answers on odd and CIA-B on even addresses
-only; the emulator decodes both parities for both chips and puts a word
-read's value in the high byte. There is no 2-cycle start delay on timers.
+**Still simplified.** There is no 2-cycle start delay on timers.
 The serial port only models keyboard input.
 
 ## 2026-09-25 — DMA cycle stealing

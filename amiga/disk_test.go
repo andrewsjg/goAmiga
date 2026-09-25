@@ -185,8 +185,8 @@ func TestDiskDMATransfer(t *testing.T) {
 		t.Error("expected non-zero data in ChipRAM after DMA transfer")
 	}
 
-	// Completion interrupts are deferred — advance the timer
-	d.TickCycles(100*2 + 64)
+	// Completion interrupts are deferred until the words have passed the head
+	d.TickCycles(d.completionCycles)
 
 	// Check DSKBLK interrupt was fired (INTREQ bit 1)
 	intreq := a.Custom.ReadReg16(0x09C)

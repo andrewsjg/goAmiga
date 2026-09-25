@@ -55,8 +55,7 @@ faults on the Amiga bus).
 | Range | Device |
 |---|---|
 | `$000000-$07FFFF` | Chip RAM (`chipram.go`; addresses wrap at 512KB like Agnus). ROM while the CIA-A OVL bit is set at reset |
-| `$BFD000-$BFDFFF` | CIA-B (registers on even addresses; disk control, TOD = scanline counter) |
-| `$BFE000-$BFEFFF` | CIA-A (registers on odd addresses; OVL, LED, disk status, keyboard serial, mouse button, TOD = frame counter) |
+| `$BF0000-$BFFFFF` | Both CIAs, partially decoded (`ciaSpace`): CIA-A when A12 is low, odd bytes (`$BFE001`: OVL, LED, disk status, keyboard serial, mouse button, TOD = frame counter); CIA-B when A13 is low, even bytes (`$BFD000`: disk control, index pulse on /FLAG, TOD = scanline counter) |
 | `$DFF000-$DFFFFF` | Custom chip registers (`custom.go`) |
 | `$FC0000-$FFFFFF` | Kickstart ROM (256KB) |
 
@@ -72,8 +71,8 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `blitter.go` | Blitter | Area mode (both directions, minterms, shifts, masks, fill) and line mode. Blits complete instantly at the BLTSIZE write; busy/interrupt are deferred |
 | `video.go` | Bitplane renderer | Per-scanline planar→RGBA using DDFSTRT/DDFSTOP, BPLxMOD, 32-colour palette |
 | `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes |
-| `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard) |
-| `disk.go` | DF0: | ADF → AmigaDOS MFM track encoding, read DMA, WORDSYNC, DSKBLK. Read only |
+| `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard), CPU address decoding and E-clock access timing |
+| `disk.go` | DF0: | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), read DMA with WORDSYNC, DSKSYN/DSKBLK timing, index pulse. Read only |
 | `keyboard.go`, `mouse.go` | Input | Keyboard serial handshake via CIA-A; mouse counters in JOY0DAT, button on CIA-A PRA |
 | `display.go`, `keyboard_ebiten.go` | Host window | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
 | `flood.go` | HLE patch | Intercepts KS1.3 `graphics.library` Flood at `$FC5AD0` and fills natively (a workaround — see `progress.md`) |

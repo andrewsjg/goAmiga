@@ -398,6 +398,13 @@ func (c *CIA) TickTOD() {
 	c.bumpTOD()
 }
 
+// SetFLG signals a falling edge on the /FLAG pin (ICR bit 4). CIA-B's
+// /FLAG is the floppy index pulse.
+func (c *CIA) SetFLG() {
+	c.icrData |= 0x10
+	c.fireIfPending()
+}
+
 // SetSDR writes the serial data register and fires SP interrupt (ICR bit 3).
 func (c *CIA) SetSDR(val byte) {
 	c.regs[CIARegSDR] = val
@@ -488,6 +495,52 @@ func (c *CIA) TimerACounter() uint16 { return c.timerACounter }
 func (c *CIA) TimerALatch() uint16   { return c.timerALatch }
 func (c *CIA) TimerBCounter() uint16 { return c.timerBCounter }
 func (c *CIA) TimerBLatch() uint16   { return c.timerBLatch }
+
+// ciaSpace is the CPU's view of the CIAs: $BF0000-$BFFFFF, partially
+// decoded. CIA-A is selected when A12 is low and drives the odd byte
+// (D7-D0); CIA-B is selected when A13 is low and drives the even byte
+// (D15-D8). A11-A8 select the register. So $BFE001 is CIA-A, $BFD000 is
+// CIA-B, a word access at $BFC000 reaches both, and a byte lane neither
+// chip drives floats (reads 0, like the rest of the open bus).
+type ciaSpace struct {
+	ciaA, ciaB *CIA
+}
+
+// chip returns the CIA driving byte address addr, or nil.
+func (s *ciaSpace) chip(addr int) *CIA {
+	if addr&1 != 0 {
+		if addr&0x1000 == 0 {
+			return s.ciaA
+		}
+	} else if addr&0x2000 == 0 {
+		return s.ciaB
+	}
+	return nil
+}
+
+func (s *ciaSpace) Read(addr int, p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+		if c := s.chip(addr + i); c != nil {
+			c.Read(addr+i, p[i:i+1])
+		}
+	}
+	return len(p), nil
+}
+
+func (s *ciaSpace) Write(addr int, p []byte) (int, error) {
+	for i := range p {
+		if c := s.chip(addr + i); c != nil {
+			c.Write(addr+i, p[i:i+1])
+		}
+	}
+	return len(p), nil
+}
+
+func (s *ciaSpace) Reset() error {
+	s.ciaA.Reset()
+	return s.ciaB.Reset()
+}
 
 // E clock timing. The CIAs sit on the 68000's synchronous (6800-style) bus:
 // the E clock is the CPU clock divided by 10 (6 cycles low, 4 high), and a

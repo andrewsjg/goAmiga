@@ -70,3 +70,43 @@ func TestCIAICRMaskBits(t *testing.T) {
 		t.Errorf("ICR mask = $%02X, want $1F", c.icrMask)
 	}
 }
+
+// The CPU sees CIA-A on odd bytes (A12 low) and CIA-B on even bytes (A13
+// low) anywhere in $BF0000-$BFFFFF.
+func TestCIAAddressDecoding(t *testing.T) {
+	a := createTestAmiga(t)
+	a.wireMemoryMap(false)
+	a.CIAA.regs[CIARegDDRB] = 0xA5
+	a.CIAB.regs[CIARegDDRB] = 0x5A
+	rd := func(addr, n int) []byte {
+		b := make([]byte, n)
+		a.CPU.M.Read(addr, b)
+		return b
+	}
+	for _, c := range []struct {
+		addr int
+		want []byte
+	}{
+		{0xBFE301, []byte{0xA5}},       // CIA-A DDRB
+		{0xBFD300, []byte{0x5A}},       // CIA-B DDRB
+		{0xBFD301, []byte{0x00}},       // A12 high: CIA-A not selected
+		{0xBFE300, []byte{0x00}},       // A13 high: CIA-B not selected
+		{0xBFE300, []byte{0x00, 0xA5}}, // word: CIA-A on the low byte only
+		{0xBFC300, []byte{0x5A, 0xA5}}, // word hitting both chips
+		{0xBF0301, []byte{0xA5}},       // partial decode mirror
+	} {
+		if got := rd(c.addr, len(c.want)); string(got) != string(c.want) {
+			t.Errorf("read $%06X x%d = % X, want % X", c.addr, len(c.want), got, c.want)
+		}
+	}
+
+	a.CPU.M.Write(0xBFE300, []byte{0x11}) // even byte, A13 high: nobody
+	if a.CIAA.regs[CIARegDDRB] != 0xA5 || a.CIAB.regs[CIARegDDRB] != 0x5A {
+		t.Error("write to an undriven byte lane reached a CIA")
+	}
+	a.CPU.M.Write(0xBFC300, []byte{0x12, 0x34})
+	if a.CIAB.regs[CIARegDDRB] != 0x12 || a.CIAA.regs[CIARegDDRB] != 0x34 {
+		t.Errorf("word write at $BFC300: CIA-B $%02X, CIA-A $%02X; want $12, $34",
+			a.CIAB.regs[CIARegDDRB], a.CIAA.regs[CIARegDDRB])
+	}
+}

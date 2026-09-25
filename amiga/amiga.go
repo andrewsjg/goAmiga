@@ -14,16 +14,18 @@ const (
 	ROMSize     = 256 * 1024 // 256KB Kickstart ROM
 
 	// Memory map addresses
-	ChipRAMBase = 0x000000
-	ChipRAMEnd  = 0x07FFFF
-	CIABBase    = 0xBFD000
-	CIABEnd     = 0xBFDFFF
-	CIAABase    = 0xBFE000
-	CIAAEnd     = 0xBFEFFF
-	CustomBase  = 0xDFF000
-	CustomEnd   = 0xDFFFFF
-	ROMBase     = 0xFC0000
-	ROMEnd      = 0xFFFFFF
+	ChipRAMBase  = 0x000000
+	ChipRAMEnd   = 0x07FFFF
+	CIASpaceBase = 0xBF0000 // both CIAs, partially decoded (see ciaSpace)
+	CIASpaceEnd  = 0xBFFFFF
+	CIABBase     = 0xBFD000
+	CIABEnd      = 0xBFDFFF
+	CIAABase     = 0xBFE000
+	CIAAEnd      = 0xBFEFFF
+	CustomBase   = 0xDFF000
+	CustomEnd    = 0xDFFFFF
+	ROMBase      = 0xFC0000
+	ROMEnd       = 0xFFFFFF
 
 	// PAL timing. The beam counts colour clocks (3.546895 MHz); the 68000
 	// runs at twice that (7.09379 MHz), so one colour clock = 2 CPU cycles.
@@ -261,11 +263,10 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	}
 
 	// NOP for unmapped ranges (Kickstart probes memory by reading/writing)
-	a.Mapper.Map(m68kmem.NewNop(), ChipRAMEnd+1, CIABBase-1)
-	a.Mapper.Map(m68kmem.NewNop(), CIAAEnd+1, CustomBase-1)
+	a.Mapper.Map(m68kmem.NewNop(), ChipRAMEnd+1, CIASpaceBase-1)
+	a.Mapper.Map(m68kmem.NewNop(), CIASpaceEnd+1, CustomBase-1)
 
-	a.Mapper.Map(&busCounter{a.CIAB, &a.cpuCIAAccesses}, CIABBase, CIABEnd)
-	a.Mapper.Map(&busCounter{a.CIAA, &a.cpuCIAAccesses}, CIAABase, CIAAEnd)
+	a.Mapper.Map(&busCounter{&ciaSpace{a.CIAA, a.CIAB}, &a.cpuCIAAccesses}, CIASpaceBase, CIASpaceEnd)
 	a.Mapper.Map(&busCounter{a.Custom, &a.cpuChipAccesses}, CustomBase, CustomEnd)
 
 	// NOP between custom and ROM
@@ -345,8 +346,10 @@ func (a *Amiga) Step() error {
 		if a.Blitter != nil && a.Blitter.busy && a.Blitter.completionCycles < skip {
 			skip = a.Blitter.completionCycles
 		}
-		if a.Disk != nil && a.Disk.completionCycles > 0 && a.Disk.completionCycles < skip {
-			skip = a.Disk.completionCycles
+		if a.Disk != nil {
+			if c := a.Disk.CyclesToNextEvent(); c > 0 && c < skip {
+				skip = c
+			}
 		}
 		if skip < 4 {
 			skip = 4

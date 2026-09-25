@@ -11,6 +11,13 @@ const (
 	BytesPerSector  = 512
 	TracksPerDisk   = 160                              // 80 cylinders * 2 sides
 	TrackSize       = SectorsPerTrack * BytesPerSector // 5632 bytes raw data per track
+
+	// A DD drive spins at 300 RPM (200 ms per revolution) with 2 µs MFM
+	// bit cells: 100,000 cells = 6,250 words per track, one word every
+	// 32 µs = 227 CPU cycles (two per scanline).
+	DiskCyclesPerWord    = 227
+	MFMTrackWords        = 6250
+	DiskRevolutionCycles = DiskCyclesPerWord * MFMTrackWords // 1,418,750
 )
 
 // DiskDrive emulates an Amiga 3.5" floppy disk drive (DF0:).
@@ -42,9 +49,10 @@ type DiskDrive struct {
 	// Status
 	wordequal bool // set when sync word found during DMA
 
-	// Deferred DMA completion: data is transferred immediately (like the
-	// blitter), but DSKBLK/DSKSYN interrupts fire after a delay so the CPU
-	// can finish the post-DSKLEN setup code before the interrupt is taken.
+	// DMA timing: data is transferred immediately (like the blitter), but
+	// DSKSYN fires when the sync word passes the head (syncCycles, 0 = none
+	// pending) and DSKBLK when the last word has (completionCycles).
+	syncCycles       int
 	completionCycles int
 }
 
@@ -224,67 +232,100 @@ func (d *DiskDrive) startDMA() {
 		return
 	}
 
-	// Calculate track index
 	track := d.cylinder*2 + d.side
-
-	// Encode track to MFM
-	mfmTrack := d.encodeMFMTrack(track)
-	if mfmTrack == nil {
+	mfm := d.encodeMFMTrack(track)
+	if mfm == nil {
 		return
 	}
+	word := func(i int) uint16 {
+		i = i % MFMTrackWords * 2
+		return uint16(mfm[i])<<8 | uint16(mfm[i+1])
+	}
 
-	// Scan for sync word
-	syncOff := -1
-	for i := 0; i < len(mfmTrack)-1; i += 2 {
-		w := uint16(mfmTrack[i])<<8 | uint16(mfmTrack[i+1])
-		if w == d.dsksync {
-			syncOff = i + 2 // start copying after the sync word
-			d.wordequal = true
-			break
+	// The transfer starts at whatever word is under the head now. With
+	// WORDSYNC (ADKCON bit 10) it waits for the next sync word and starts
+	// with the word after it; if the track has none, it never starts.
+	pos := d.headWord()
+	wait := 0
+	if d.adkcon&0x0400 != 0 {
+		wait = -1
+		for k := 0; k < MFMTrackWords; k++ {
+			if word(pos+k) == d.dsksync {
+				wait = k + 1
+				break
+			}
 		}
+		if wait < 0 {
+			return
+		}
+		d.wordequal = true
+		d.syncCycles = wait * DiskCyclesPerWord
 	}
 
-	if syncOff < 0 {
-		// No sync found — still schedule a completion so software unblocks
-		d.completionCycles = 64
-		return
+	// Copy words to chip RAM, wrapping around the track.
+	buf := make([]byte, 2)
+	for i := 0; i < wordCount; i++ {
+		w := word(pos + wait + i)
+		buf[0], buf[1] = byte(w>>8), byte(w)
+		d.amiga.ChipRAM.Write(int(d.dskpt)+2*i, buf)
 	}
-
-	// WORDSYNC mode (ADKCON bit 10): wait for sync before transferring
-	if d.adkcon&0x0400 == 0 {
-		// If WORDSYNC not enabled, start from beginning of MFM buffer
-		syncOff = 0
-	}
-
-	// Copy words to ChipRAM
-	byteCount := wordCount * 2
-	dst := d.dskpt
-	for i := 0; i < byteCount && syncOff+i < len(mfmTrack); i++ {
-		buf := []byte{mfmTrack[syncOff+i]}
-		d.amiga.ChipRAM.Write(int(dst), buf)
-		dst++
-	}
-
-	// Defer interrupts: ~2 CPU cycles per word (one DMA slot), min 64.
-	// Instant DSKBLK during the DSKLEN write races the post-setup code.
-	cycles := wordCount * 2
-	if cycles < 64 {
-		cycles = 64
-	}
-	d.completionCycles = cycles
+	d.completionCycles = (wait + wordCount) * DiskCyclesPerWord
 }
 
-// TickCycles advances deferred disk DMA completion. Called from Amiga.Step().
+// headWord is the index of the MFM word under the head; word 0 is at the
+// index hole. The disk is taken to spin continuously.
+func (d *DiskDrive) headWord() int {
+	return int(d.amiga.cycles / DiskCyclesPerWord % MFMTrackWords)
+}
+
+// spinning reports whether the drive is feeding the disk signals (index,
+// data) to the controller: selected, motor on, disk in.
+func (d *DiskDrive) spinning() bool {
+	return d.selected && d.motor && d.adf != nil
+}
+
+// TickCycles advances disk DMA timing and the index pulse. Called from
+// Amiga.Step() before the beam moves, so d.amiga.cycles is the start of
+// the elapsed period.
 func (d *DiskDrive) TickCycles(cpuCycles int) {
-	if d.completionCycles <= 0 {
-		return
+	if d.syncCycles > 0 {
+		d.syncCycles -= cpuCycles
+		if d.syncCycles <= 0 {
+			d.syncCycles = 0
+			d.amiga.Custom.SetIntreq(1 << 12) // DSKSYN
+		}
 	}
-	d.completionCycles -= cpuCycles
-	if d.completionCycles <= 0 {
-		d.completionCycles = 0
-		d.amiga.Custom.SetIntreq(1 << 12) // DSKSYN
-		d.amiga.Custom.SetIntreq(1 << 1)  // DSKBLK
+	if d.completionCycles > 0 {
+		d.completionCycles -= cpuCycles
+		if d.completionCycles <= 0 {
+			d.completionCycles = 0
+			d.amiga.Custom.SetIntreq(1 << 1) // DSKBLK
+		}
 	}
+	// Index pulse once per revolution on CIA-B FLG.
+	if d.spinning() {
+		now := d.amiga.cycles
+		if (now+uint64(cpuCycles))/DiskRevolutionCycles != now/DiskRevolutionCycles {
+			d.amiga.CIAB.SetFLG()
+		}
+	}
+}
+
+// CyclesToNextEvent returns the CPU cycles until the next disk interrupt
+// source (sync, block done, or an index pulse CIA-B will signal), or -1.
+func (d *DiskDrive) CyclesToNextEvent() int {
+	next := -1
+	consider := func(c int) {
+		if c > 0 && (next < 0 || c < next) {
+			next = c
+		}
+	}
+	consider(d.syncCycles)
+	consider(d.completionCycles)
+	if d.spinning() && d.amiga.CIAB.icrMask&0x10 != 0 {
+		consider(DiskRevolutionCycles - int(d.amiga.cycles%DiskRevolutionCycles))
+	}
+	return next
 }
 
 // encodeMFMTrack encodes one raw track from ADF into AmigaDOS MFM format.
@@ -359,6 +400,10 @@ func (d *DiskDrive) encodeMFMTrack(track int) []byte {
 		mfm = append(mfm, dataBlock...)
 	}
 
+	// Gap to the end of the revolution (11 sectors fill 5,984 words).
+	for len(mfm) < MFMTrackWords*2 {
+		mfm = appendWord(mfm, 0xAAAA)
+	}
 	return mfm
 }
 
