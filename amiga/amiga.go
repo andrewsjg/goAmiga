@@ -99,6 +99,11 @@ type Amiga struct {
 	cpuChipAccesses int
 	DMAWaitCycles   uint64
 
+	// cpuCIAAccesses counts CPU CIA accesses in the current step;
+	// CIAWaitCycles totals the extra cycles spent syncing to the E clock.
+	cpuCIAAccesses int
+	CIAWaitCycles  uint64
+
 	// busErrorCount limits exception storms after freelist/memory collapse
 	// (otherwise the UI freezes on a white frame raising bus errors forever).
 	busErrorCount int
@@ -252,16 +257,16 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		a.Mapper.Map(a.ROM, 0x000000, ROMSize-1)
 		a.Mapper.Map(m68kmem.NewNop(), ROMSize, ChipRAMEnd)
 	} else {
-		a.Mapper.Map(&chipBus{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMEnd)
+		a.Mapper.Map(&busCounter{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMEnd)
 	}
 
 	// NOP for unmapped ranges (Kickstart probes memory by reading/writing)
 	a.Mapper.Map(m68kmem.NewNop(), ChipRAMEnd+1, CIABBase-1)
 	a.Mapper.Map(m68kmem.NewNop(), CIAAEnd+1, CustomBase-1)
 
-	a.Mapper.Map(a.CIAB, CIABBase, CIABEnd)
-	a.Mapper.Map(a.CIAA, CIAABase, CIAAEnd)
-	a.Mapper.Map(&chipBus{a.Custom, &a.cpuChipAccesses}, CustomBase, CustomEnd)
+	a.Mapper.Map(&busCounter{a.CIAB, &a.cpuCIAAccesses}, CIABBase, CIABEnd)
+	a.Mapper.Map(&busCounter{a.CIAA, &a.cpuCIAAccesses}, CIAABase, CIAAEnd)
+	a.Mapper.Map(&busCounter{a.Custom, &a.cpuChipAccesses}, CustomBase, CustomEnd)
 
 	// NOP between custom and ROM
 	a.Mapper.Map(m68kmem.NewNop(), CustomEnd+1, ROMBase-1)
@@ -390,6 +395,14 @@ func (a *Amiga) Step() error {
 		a.DMAWaitCycles += uint64(wait)
 	}
 	a.cpuChipAccesses = 0
+
+	// CIA accesses are synchronised to the E clock.
+	if a.cpuCIAAccesses > 0 {
+		wait := a.ciaAccessWait(a.cpuCIAAccesses, elapsed)
+		elapsed += wait
+		a.CIAWaitCycles += uint64(wait)
+		a.cpuCIAAccesses = 0
+	}
 
 	// Tick blitter / disk completion timers (deferred interrupts after data
 	// transfer). The blitter only advances on slots other DMA leaves free.

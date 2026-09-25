@@ -39,10 +39,12 @@ the Copper via `beamHP()`). The Copper starts one instruction per
 `CopperCyclesPerInstr = 8` CPU cycles.
 
 DMA contention (`dma.go`): CPU chip RAM/custom accesses are counted by a
-`chipBus` wrapper in the Mapper; after each instruction `chipBusWait` adds
+`busCounter` wrapper in the Mapper; after each instruction `chipBusWait` adds
 the cycles spent waiting for even slots held by bitplane DMA or the
 blitter. The blitter's busy time only counts down on slots bitplane,
-refresh and sprite DMA leave free (`blitterSlots`).
+refresh and sprite DMA leave free (`blitterSlots`). CIA accesses are
+counted the same way and synchronised to the E clock (`ciaAccessWait` in
+`cia.go`): 10-19 CPU cycles each, depending on `eClockCounter`.
 
 ## Memory map
 

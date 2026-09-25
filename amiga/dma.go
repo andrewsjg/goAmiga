@@ -15,28 +15,29 @@ import "github.com/cavaliercoder/go-m68k/m68kmem"
 // Modelled: bitplane DMA against CPU and blitter; fixed refresh and sprite
 // slots against the blitter; blitter against CPU (nasty mode, and the
 // "CPU gets every 4th cycle" rule when the blit uses every slot).
-// Not modelled: Copper DMA (it mostly sits in WAIT), audio and disk slots,
-// CIA E-clock synchronisation.
+// Not modelled: Copper DMA (it mostly sits in WAIT), audio and disk slots.
+// CIA accesses are timed separately (ciaAccessWait).
 
-// chipBus counts the CPU's chip bus accesses (one per word) to chip RAM and
-// custom registers. It sits between the CPU's Mapper and those devices; DMA
-// channels read chip RAM directly and are not counted.
-type chipBus struct {
+// busCounter counts the CPU's accesses (one per word) to a device. It sits
+// between the CPU's Mapper and chip RAM, the custom registers and the CIAs;
+// DMA channels and emulator code call those devices directly and are not
+// counted.
+type busCounter struct {
 	m        m68kmem.Memory
 	accesses *int
 }
 
-func (c *chipBus) Read(addr int, p []byte) (int, error) {
+func (c *busCounter) Read(addr int, p []byte) (int, error) {
 	*c.accesses += (len(p) + 1) / 2
 	return c.m.Read(addr, p)
 }
 
-func (c *chipBus) Write(addr int, p []byte) (int, error) {
+func (c *busCounter) Write(addr int, p []byte) (int, error) {
 	*c.accesses += (len(p) + 1) / 2
 	return c.m.Write(addr, p)
 }
 
-func (c *chipBus) Reset() error { return c.m.Reset() }
+func (c *busCounter) Reset() error { return c.m.Reset() }
 
 // Bitplane fetch order within one fetch unit (HRM "DMA time slot
 // allocation"); 0 is a slot bitplanes leave free. A plane uses its slot only

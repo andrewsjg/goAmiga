@@ -173,34 +173,21 @@ func (c *CIA) Write(addr int, p []byte) (int, error) {
 	case CIARegICR:
 		// Writing ICR: bit 7 = set/clear, bits 0-4 = mask bits
 		if val&0x80 != 0 {
-			c.icrMask |= val & 0x7F
+			c.icrMask |= val & 0x1F
 		} else {
-			c.icrMask &^= val & 0x7F
+			c.icrMask &^= val & 0x1F
 		}
 
 	case CIARegTALO:
 		c.timerALatch = (c.timerALatch & 0xFF00) | uint16(val)
 	case CIARegTAHI:
 		c.timerALatch = (c.timerALatch & 0x00FF) | uint16(val)<<8
-		// If timer is stopped, load latch into counter
-		if c.regs[CIARegCRA]&0x01 == 0 {
-			c.timerACounter = c.timerALatch
-			// MOS 8520: writing TAHI while stopped in one-shot mode re-arms the timer
-			if c.regs[CIARegCRA]&0x08 != 0 {
-				c.regs[CIARegCRA] |= 0x01
-			}
-		}
+		c.timerACounter, c.regs[CIARegCRA] = timerHIWritten(c.timerACounter, c.timerALatch, c.regs[CIARegCRA])
 	case CIARegTBLO:
 		c.timerBLatch = (c.timerBLatch & 0xFF00) | uint16(val)
 	case CIARegTBHI:
 		c.timerBLatch = (c.timerBLatch & 0x00FF) | uint16(val)<<8
-		if c.regs[CIARegCRB]&0x01 == 0 {
-			c.timerBCounter = c.timerBLatch
-			// MOS 8520: writing TBHI while stopped in one-shot mode re-arms the timer
-			if c.regs[CIARegCRB]&0x08 != 0 {
-				c.regs[CIARegCRB] |= 0x01
-			}
-		}
+		c.timerBCounter, c.regs[CIARegCRB] = timerHIWritten(c.timerBCounter, c.timerBLatch, c.regs[CIARegCRB])
 	case CIARegTODLO:
 		// CRB bit 7 selects whether TOD writes load the alarm or the counter.
 		// Writing TODLO also restarts a counter halted by a TODHI write.
@@ -273,6 +260,20 @@ func (c *CIA) Write(addr int, p []byte) (int, error) {
 	return n, nil
 }
 
+// timerHIWritten applies a write to a timer's high byte (8520 datasheet):
+// a stopped timer loads the latch into the counter; in one-shot mode the
+// write also loads the counter and starts the timer, even if it is running.
+// It returns the new counter and control register.
+func timerHIWritten(counter, latch uint16, cr byte) (uint16, byte) {
+	if cr&0x08 != 0 { // RUNMODE one-shot
+		return latch, cr | 0x01
+	}
+	if cr&0x01 == 0 {
+		return latch, cr
+	}
+	return counter, cr
+}
+
 func (c *CIA) Reset() error {
 	c.regs = [16]byte{}
 	c.timerALatch = 0xFFFF
@@ -314,15 +315,19 @@ func (c *CIA) Tick() {
 		}
 	}
 
-	// Timer B: CRB bit 0 = start, bit 6 selects source (0=E clock, 1=Timer A underflow)
+	// Timer B: CRB bit 0 = start, bits 6-5 (INMODE) select the source:
+	// 00 E clock, 01 CNT pin, 10 Timer A underflows, 11 Timer A underflows
+	// while CNT is high. CNT is idle (high, no edges) on both Amiga CIAs as
+	// far as the emulator is concerned, so 01 never counts and 11 = 10.
 	if c.regs[CIARegCRB]&0x01 != 0 {
-		countPulse := false
-		if c.regs[CIARegCRB]&0x40 != 0 {
-			// Count Timer A underflows
-			countPulse = timerAUnderflow
-		} else {
-			// Count E clock
+		var countPulse bool
+		switch c.regs[CIARegCRB] & 0x60 {
+		case 0x00:
 			countPulse = true
+		case 0x20:
+			countPulse = false
+		default:
+			countPulse = timerAUnderflow
 		}
 		if countPulse {
 			if c.timerBCounter == 0 {
@@ -443,7 +448,7 @@ func (c *CIA) ETicksToNextEvent() int {
 
 	// Timer B: running if CRB bit 0 set
 	if c.regs[CIARegCRB]&0x01 != 0 {
-		if c.regs[CIARegCRB]&0x40 == 0 {
+		if c.regs[CIARegCRB]&0x60 == 0 {
 			// Timer B counting E-clock directly
 			ticks := int(c.timerBCounter) + 1
 			if min < 0 || ticks < min {
@@ -483,3 +488,31 @@ func (c *CIA) TimerACounter() uint16 { return c.timerACounter }
 func (c *CIA) TimerALatch() uint16   { return c.timerALatch }
 func (c *CIA) TimerBCounter() uint16 { return c.timerBCounter }
 func (c *CIA) TimerBLatch() uint16   { return c.timerBLatch }
+
+// E clock timing. The CIAs sit on the 68000's synchronous (6800-style) bus:
+// the E clock is the CPU clock divided by 10 (6 cycles low, 4 high), and a
+// CIA access asserts VPA, waits for the start of the next E cycle, then
+// takes a whole E cycle. An access therefore takes 10-19 CPU cycles instead
+// of the normal 4, depending on the E clock phase when it starts.
+const eClockCycles = 10
+
+// ciaAccessWait returns the extra CPU cycles for n back-to-back CIA accesses
+// in an instruction that otherwise takes elapsed cycles from the current
+// beam position. The accesses are taken to be the instruction's last bus
+// cycles, as the CIA operand normally is (MOVE.B $BFE001,D0; the write of
+// MOVE.B D0,$BFD100).
+func (a *Amiga) ciaAccessWait(n, elapsed int) int {
+	if n == 0 {
+		return 0
+	}
+	// Cycles into the current E cycle when the first access starts.
+	start := elapsed - 4*n
+	if start < 0 {
+		start = 0
+	}
+	phase := (a.eClockCounter + start) % eClockCycles
+	sync := (eClockCycles - phase) % eClockCycles
+	// First access: wait for the E cycle to start, then one E cycle. Each
+	// following access begins on an E cycle boundary and takes one more.
+	return sync + n*eClockCycles - 4*n
+}

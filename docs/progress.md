@@ -11,8 +11,7 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
 **Not yet implemented / known gaps** (roughly in planned order):
 
 1. **Timing (remaining).** Copper, audio and disk DMA slots are not
-   charged against the CPU/blitter; CIA accesses have no E-clock sync
-   delay; floppy DMA completes far faster than a real drive; blit data
+   charged against the CPU/blitter; floppy DMA completes far faster than a real drive; blit data
    still moves instantly at BLTSIZE (only BBUSY/IRQ timing is real).
 2. **Display.** Missing: DIWSTRT/DIWSTOP horizontal positioning,
    BPLCON1 scroll, BPLCON2 priorities, EHB, HAM, dual playfield,
@@ -28,6 +27,46 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-25 — CIA E-clock access timing and 8520 fixes
+
+**E-clock sync.** The CIAs sit on the 68000's synchronous (6800-style)
+bus. The E clock is the CPU clock ÷ 10 (6 cycles low, 4 high). A CIA access
+asserts VPA, waits for the next E cycle to start, then takes a whole E
+cycle: 10–19 CPU cycles instead of the normal 4. The emulator charged 4.
+
+- The CPU's CIA accesses are counted by the same Mapper wrapper as chip
+  bus accesses (`chipBus` renamed `busCounter`).
+- `ciaAccessWait` (`cia.go`) places them at the end of the instruction,
+  where the CIA operand access normally is. The phase comes from
+  `eClockCounter`, which is CPU cycles since the last E-cycle boundary
+  (where the CIAs tick). The first access waits for the boundary, and each
+  takes one full E cycle.
+- Every CIA access now ends on an E boundary, as on hardware. Code that
+  times loops on CIA reads, or that assumes a CIA access costs about an
+  E cycle (keyboard handshake, floppy step delays), now sees the real cost.
+
+**8520 behaviour fixes** (found reviewing `cia.go` against the datasheet):
+- In one-shot mode, writing TAHI/TBHI loads the counter and starts the
+  timer even while it is running. Before, this only happened when stopped.
+- Timer B INMODE is CRB bits 6–5, not just bit 6. `01` (CNT pin) counted
+  the E clock; it now counts nothing, since CNT has no edges in the
+  emulator. `11` (Timer A underflows gated by CNT) counts like `10`.
+- ICR mask writes keep only bits 0–4.
+
+**Measured.** Boot to `workbench.task` 1,012 → 1,013 frames; 0.3% of CPU
+cycles are E-clock sync. The boot trace is identical step for step with and
+without the 8520 fixes, so KS 1.3 does not use those paths.
+
+**Tests.** `cia_timing_test.go` checks the wait formula, and that a CPU
+`MOVE.B $BFE001,D0` ends on an E boundary with 6–15 extra cycles and takes
+all 10 values across the 10 phases. `cia_test.go` covers one-shot restart,
+INMODE and the ICR mask. Full suite passes.
+
+**Still simplified.** CIA-A answers on odd and CIA-B on even addresses
+only; the emulator decodes both parities for both chips and puts a word
+read's value in the high byte. There is no 2-cycle start delay on timers.
+The serial port only models keyboard input.
 
 ## 2026-09-25 — DMA cycle stealing
 
@@ -45,7 +84,7 @@ slots. The blitter takes any free slot. Unless BLTPRI ("nasty") is set, it
 gives the CPU a slot after refusing it for 3 cycles.
 
 **Fix** (`amiga/dma.go`).
-- `chipBus` wraps chip RAM and the custom registers in the CPU's Mapper
+- `chipBus` (now `busCounter`) wraps chip RAM and the custom registers in the CPU's Mapper
   and counts CPU word accesses. DMA channels read chip RAM directly, so
   they are not counted; ROM and CIA accesses never wait.
 - After each instruction `chipBusWait` places the accesses as back-to-back
