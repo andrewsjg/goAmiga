@@ -14,6 +14,10 @@ type Copper struct {
 	cop1lc uint32 // Copper list 1 pointer
 	cop2lc uint32 // Copper list 2 pointer
 	pc     uint32 // Current instruction pointer
+
+	// halted is set when a MOVE targets a register the Copper may not
+	// write; it stops until restarted (VBLANK or a COPJMP strobe).
+	halted bool
 	wait   bool   // True if waiting for beam position
 	waitVP uint16 // Wait vertical position
 	waitHP uint16 // Wait horizontal position
@@ -42,6 +46,7 @@ func (c *Copper) GetCop2LC() uint32 { return c.cop2lc }
 // Restart sets the Copper PC to COP1LC (which=1) or COP2LC (which=2).
 func (c *Copper) Restart(which int) {
 	c.wait = false
+	c.halted = false
 	if which == 1 {
 		c.pc = c.cop1lc
 	} else {
@@ -78,7 +83,7 @@ func (c *Copper) waitMet(hpos, vpos int) bool {
 // one line. That alternates with the per-cycle path (CPU running) and looks
 // like vertical shake.
 func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
-	if c.pc < 0x1000 {
+	if c.halted {
 		return
 	}
 	// Fast path: if waiting, check if this line can satisfy the condition.
@@ -121,7 +126,7 @@ func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
 			c.wait = false
 		}
 		c.Step(hpos, vpos)
-		if c.pc == 0 {
+		if c.halted {
 			return
 		}
 		if c.wait {
@@ -148,12 +153,7 @@ func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
 // hpos is the beam tracker's position in CPU cycles (0..CPUClocksPerLine);
 // see beamHP for the conversion to Copper horizontal positions.
 func (c *Copper) Step(hpos, vpos int) {
-	// Skip execution if PC is zero or points to the low-memory system area
-	// (vectors, ExecBase jump table). Valid copper lists are always allocated
-	// above the system structures. This guards against the Kickstart 1.3 bug
-	// where LoadView dereferences a NULL CopList pointer, reading ExecBase
-	// from address $4 and storing it as the LOF copper list pointer.
-	if c.pc < 0x1000 {
+	if c.halted {
 		return
 	}
 
@@ -171,9 +171,6 @@ func (c *Copper) Step(hpos, vpos int) {
 	}
 
 	// Fetch 32-bit instruction from chip RAM
-	if c.pc == 0 {
-		return
-	}
 	_, err := c.amiga.ChipRAM.Read(int(c.pc&0x7FFFF), c.buf[:4])
 	if err != nil {
 		return
@@ -186,11 +183,17 @@ func (c *Copper) Step(hpos, vpos int) {
 		// MOVE: write ir2 to custom register at offset (ir1 & 0x1FE)
 		regOffset := int(ir1 & 0x1FE)
 
-		// Safety: COPCON bit 1 must be set to write to regs < $040
-		if regOffset < 0x040 {
-			copcon := c.amiga.Custom.ReadReg16(0x02E)
-			if copcon&0x02 == 0 {
-				return // write blocked
+		// OCS: the Copper can never write $000-$03E, and $040-$07E only
+		// with COPCON CDANG set. An illegal MOVE halts it until the next
+		// VBLANK or COPJMP. (Kickstart 1.3 relies on this: with no
+		// view copper list, COP2LC is 0 and the system list's COPJMP2
+		// sends the Copper to address 0, whose first word is a MOVE to
+		// $000 — so it just stops.)
+		if regOffset < 0x080 {
+			cdang := c.amiga.Custom.ReadReg16(0x02E)&0x02 != 0
+			if regOffset < 0x040 || !cdang {
+				c.halted = true
+				return
 			}
 		}
 

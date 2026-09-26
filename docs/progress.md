@@ -26,10 +26,51 @@ Sound plays through Paula; floppies can be written and swapped.
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
-5. **Workarounds to remove.** `flood.go` patches the KS1.3 Flood routine
-   natively at a ROM-specific address. The underlying blitter problem it
-   papers over should be found. `Blitter.GuardWrites` heuristics remain in
-   the code (off by default) and could be deleted.
+5. **Safety nets.** CPU access violations are dropped rather than raised
+   (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-26 — Workarounds removed: native Flood, blitter guards, Copper low-PC skip
+
+**Native Flood.** `flood.go` intercepted graphics.library's Flood at the
+KS1.3 ROM address `$FC5AD0` and filled natively, because the ROM's Flood
+"filled whole bitplanes". Test: `Amiga.NativeFlood` on vs off, rendering
+the insert-disk screen (11 Flood calls). The two pictures were
+pixel-identical, and the picture is correct. The ROM Flood had been fine
+since the descending-modulo blitter fix; the patch was dead weight, and
+a ROM-address hook would have misfired on any other Kickstart.
+Deleted, with `flood_series_test.go` (which traced the native fill).
+`TestInsertScreenFloodFills` now pins the insert screen's colour histogram
+(outline, disk body and shutter fills, background) within 5%, so an
+unbounded or missing fill fails.
+
+**Blitter guards.** `GuardWrites` with its deny maps and address bands
+(`canWriteD`, `buildDeny`, ~480 lines) was off by default. It was deleted
+with its tests (`blitter_guard_test.go`, `wb_*_protect_test.go`,
+`wb_idcmp_diag_test.go`) and the drag tests' deny instrumentation. The
+blit-start pointers (`preApt`–`preDpt`) stay as diagnostics.
+
+**Copper low-PC skip.** The Copper did nothing while its PC was below
+`$1000` or zero, attributed to "a KS1.3 LoadView NULL bug". A counter
+showed it fired constantly: hundreds of thousands of slots during boot and
+on the insert screen. The real sequence: with no view copper list, COP2LC
+is 0, and the system list's COPJMP2 sends the Copper to address 0. A real
+A500 does the same, and survives because of OCS register protection. The
+Copper can never write `$000`–`$03E`, can write `$040`–`$07E` only with
+COPCON CDANG, and an illegal MOVE halts it until the next VBLANK or
+COPJMP. Address 0's first word is a MOVE to `$000`, so it just stops.
+The emulator's check was wrong both ways: it allowed `< $040` with CDANG,
+always allowed `$040`–`$07E`, and skipped the write instead of halting. So
+the Copper would have crawled through low memory writing registers. The
+skip was hiding that. Now `Copper.halted` implements the real rule and the
+PC guards are gone. `TestCopperIllegalMoveHalts` covers each register
+class and the restart.
+
+**Checks.** Workbench boot screenshot pixel-identical, boot timing
+unchanged, full suite passes. One unexplained event: while iterating, two
+runs of a test subset panicked with a nil dereference. The panic did not
+reproduce in three repeats of the same subset or in a full `-count=1`
+run, and no stack trace was captured. If it recurs, capture the full
+output.
 
 ## 2026-09-26 — Paula audio
 

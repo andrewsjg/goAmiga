@@ -67,7 +67,7 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | File | Component | Notes |
 |---|---|---|
 | `custom.go` | Custom register file | Set/clear registers (DMACON, INTENA, INTREQ, ADKCON), interrupt priority → IPL, register dispatch to other components |
-| `copper.go` | Copper | MOVE / WAIT / SKIP, COPJMP1/2, run per scanline |
+| `copper.go` | Copper | MOVE / WAIT / SKIP, COPJMP1/2, run per scanline; OCS register protection (illegal MOVE halts until VBLANK) |
 | `blitter.go` | Blitter | Area mode (both directions, minterms, shifts, masks, fill) and line mode. Blits complete instantly at the BLTSIZE write; busy/interrupt are deferred |
 | `video.go` | Bitplane DMA + Denise | Per-scanline fetch inside the vertical DIW; `drawLine` composes a view of the beam — standard 640×256 (hires columns from H `$81`, lines 44–299) or overscan 720×284 (`SetOverscan`, `--overscan`): DIW clipping, DDFSTRT placement, BPLCON1 scroll, dual playfield, EHB, HAM, BPLCON2 sprite priority, collisions (CLXDAT), mid-line COLOR/BPLCON1/BPLCON2 writes (`noteWrite`), interlace (640×512, fields woven by LOF) |
 | `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes; `lineBuffer` gives per-column sprite colour and pair, with attached sprites |
@@ -76,7 +76,6 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `paula.go` | Paula audio | 4 DMA/manual channels, interrupts, ADKCON modulation; 48 kHz box-filtered stereo mix with A500 fixed and LED filters into an `AudioBuffer` (played by `display.go`) |
 | `keyboard.go`, `mouse.go` | Input | Keyboard serial handshake via CIA-A; mouse counters in JOY0DAT, button on CIA-A PRA |
 | `display.go`, `keyboard_ebiten.go` | Host window | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
-| `flood.go` | HLE patch | Intercepts KS1.3 `graphics.library` Flood at `$FC5AD0` and fills natively (a workaround — see `progress.md`) |
 
 ## Tests
 

@@ -145,3 +145,39 @@ func TestVPOSWSetsLOF(t *testing.T) {
 		t.Fatal("VPOSW $8000 did not set LOF")
 	}
 }
+
+// OCS Copper register protection: $000-$03E never, $040-$07E only with
+// COPCON CDANG; an illegal MOVE halts the Copper until it is restarted.
+func TestCopperIllegalMoveHalts(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		reg   uint16
+		cdang bool
+		halts bool
+	}{
+		{"$000 (address 0's first word)", 0x000, false, true},
+		{"$020 even with CDANG", 0x020, true, true},
+		{"BLTCON0 without CDANG", 0x040, false, true},
+		{"BLTCON0 with CDANG", 0x040, true, false},
+		{"COLOR00", 0x180, false, false},
+	} {
+		a := startCopper(t, []uint16{
+			c.reg, 0x1234,
+			0x0182, 0x0ABC, // MOVE COLOR01: runs only if not halted
+			0xFFFF, 0xFFFE,
+		}, 0x40)
+		if c.cdang {
+			a.Custom.WriteReg16(0x02E, 0x0002)
+		}
+		a.advanceBeamPerCycle(CPUClocksPerLine)
+		if halted := a.Custom.ReadReg16(0x182) != 0x0ABC; halted != c.halts {
+			t.Errorf("%s: halted=%v, want %v", c.name, halted, c.halts)
+		}
+		if c.halts {
+			a.Copper.Restart(1)
+			if a.Copper.halted {
+				t.Errorf("%s: still halted after restart", c.name)
+			}
+		}
+	}
+}

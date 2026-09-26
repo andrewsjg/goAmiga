@@ -104,7 +104,6 @@ func TestWBDragReleaseStress(t *testing.T) {
 	vec2 := rd32(2 * 4)
 	vec3 := rd32(3 * 4)
 
-	blockedFL := 0
 	overrun := 0
 	a.Blitter.DebugWriteHook = func(addr int, val, aW, bW, cW uint16, mt byte) {
 		start := int(a.Blitter.preDpt & 0x7FFFE)
@@ -113,17 +112,6 @@ func TestWBDragReleaseStress(t *testing.T) {
 			overrun++
 		}
 	}
-	// Wrap canWriteD counting via OnExecute + re-check deny
-	a.Blitter.OnExecute = func(size, con0, con1 uint16, dpt uint32) {
-		// After buildDeny inside Execute, count deny ranges
-		if len(a.Blitter.denyLo) > 0 && (dpt&0x7FFFE) >= 0xC000 {
-			// sample: would write at dpt be denied?
-			if !a.Blitter.canWriteD(int(dpt&0x7FFFE), dpt) {
-				blockedFL++
-			}
-		}
-	}
-
 	prevPC := a.CPU.PC
 	faults := 0
 	alerts := 0
@@ -225,14 +213,14 @@ func TestWBDragReleaseStress(t *testing.T) {
 			goto done
 		}
 		if session%5 == 4 {
-			t.Logf("session %d ok fl=%s blockedFL=%d overrunHints=%d pc=$%08X",
-				session, det, blockedFL, overrun, a.CPU.PC)
+			t.Logf("session %d ok fl=%s overrunHints=%d pc=$%08X",
+				session, det, overrun, a.CPU.PC)
 		}
 	}
 done:
 	ok, det = freelistOK(a)
-	t.Logf("final freelist=%v (%s) faults=%d alerts=%d blockedFL=%d overrunHints=%d LastAlert=$%08X COLOR00=$%04X pc=$%08X",
-		ok, det, faults, alerts, blockedFL, overrun, rd32(eb+0x202),
+	t.Logf("final freelist=%v (%s) faults=%d alerts=%d overrunHints=%d LastAlert=$%08X COLOR00=$%04X pc=$%08X",
+		ok, det, faults, alerts, overrun, rd32(eb+0x202),
 		a.Custom.ReadReg16(0x180), a.CPU.PC)
 	if faults > 0 || alerts > 0 {
 		t.Errorf("saw faults=%d alerts=%d during drag/release", faults, alerts)

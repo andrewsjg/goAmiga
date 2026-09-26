@@ -367,9 +367,6 @@ func (a *Amiga) Step() error {
 		a.CPU.LastCycles = skip
 		a.FastIdleSkips += uint64(skip)
 		a.FastIdleCount++
-	} else if a.tryNativeFlood() {
-		// graphics.library Flood handled natively (see flood.go).
-		// LastCycles already set; fall through to beam advance.
 	} else {
 		err = a.CPU.Step()
 		// Detect transition into stopped state (STOP instruction just executed).

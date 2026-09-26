@@ -333,7 +333,7 @@ func TestWBOpenWindowAndDrag(t *testing.T) {
 	}
 	writeLog := map[int][]wr{}
 	const bandLo, bandHi = 0xD510 + 40*80, 0xD510 + 86*80
-	blitCount, lineCount, denied := 0, 0, 0
+	blitCount, lineCount := 0, 0
 	a.Blitter.OnExecute = func(size, con0, con1 uint16, dpt uint32) {
 		blitCount++
 		if con1&1 != 0 {
@@ -347,12 +347,6 @@ func TestWBOpenWindowAndDrag(t *testing.T) {
 	a.Blitter.DebugWriteHook = func(addr int, val, aW, bW, cW uint16, mt byte) {
 		if addr >= bandLo && addr < bandHi {
 			writeLog[addr] = append(writeLog[addr], wr{len(allBlits) - 1, val})
-		}
-		if !a.Blitter.canWriteD(addr, a.Blitter.preDpt) {
-			denied++
-			if denied <= 15 {
-				t.Logf("  DENIED write addr=$%06X val=$%04X mt=$%02X startD=$%06X", addr, val, mt, a.Blitter.preDpt)
-			}
 		}
 	}
 	dumpHistory := func(addr int) {
@@ -448,7 +442,7 @@ func TestWBOpenWindowAndDrag(t *testing.T) {
 	for _, e := range top {
 		t.Logf("  hot pc=$%08X count=%d", e.pc, e.n)
 	}
-	t.Logf("during drag: blits=%d lineBlits=%d deniedWrites=%d", blitCount, lineCount, denied)
+	t.Logf("during drag: blits=%d lineBlits=%d", blitCount, lineCount)
 
 	snap(t, a, "wb_diag_dragging.png")
 	a.Mouse.LeftButton = false
