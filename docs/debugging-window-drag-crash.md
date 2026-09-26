@@ -37,6 +37,8 @@ are band-aids that can only *deny legitimate blits* (they already broke
 `TestBlitterAreaFill`, which blits to $3000 inside a denied band). They are
 now gated behind `Blitter.GuardWrites` and **disabled by default**; the
 blitter is hardware-accurate and may write anywhere in chip RAM.
+*(2026-09-26: the guard code and its tests have since been deleted
+entirely; see progress.md.)*
 
 ## How it was found
 
