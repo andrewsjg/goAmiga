@@ -58,8 +58,8 @@ faults on the Amiga bus).
 | `$200000-$9FFFFF` | Zorro II fast RAM once Autoconfig has placed it (`--fastram`; normally at `$200000`) |
 | `$BF0000-$BFFFFF` | Both CIAs, partially decoded (`ciaSpace`): CIA-A when A12 is low, odd bytes (`$BFE001`: OVL, LED, disk status, keyboard serial, mouse button, TOD = frame counter); CIA-B when A13 is low, even bytes (`$BFD000`: disk control, index pulse on /FLAG, TOD = scanline counter) |
 | `$C00000-$D7FFFF` | Slow RAM (`--slowram`, on the chip bus) |
-| `$E80000-$E8FFFF` | Autoconfig space: the fast RAM board's ID until configured |
 | `$DFF000-$DFFFFF` | Custom chip registers (`custom.go`) |
+| `$E80000-$E8FFFF` | Autoconfig space: the fast RAM board's ID until configured |
 | `$FC0000-$FFFFFF` | Kickstart ROM (256KB) |
 
 Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
