@@ -36,6 +36,10 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("Loaded ROM: %s (%d bytes)\n", *romPath, len(romData))
+	if sum := amiga.ROMChecksum(romData); sum != 0xFFFFFFFF {
+		fmt.Fprintf(os.Stderr, "Warning: %s fails the Kickstart checksum ($%08X, want $FFFFFFFF);\n"+
+			"  the image is damaged or modified and Kickstart will stop with a red screen.\n", *romPath, sum)
+	}
 
 	// Create Amiga
 	var logger *os.File

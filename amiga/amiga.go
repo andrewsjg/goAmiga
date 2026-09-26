@@ -1,6 +1,7 @@
 package amiga
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +12,7 @@ import (
 
 const (
 	ChipRAMSize = 512 * 1024 // 512KB chip RAM
-	ROMSize     = 256 * 1024 // 256KB Kickstart ROM
+	ROMSize     = 256 * 1024 // Kickstart 1.x ROM; 2.x/3.x ROMs are twice this
 
 	// Memory map addresses
 	ChipRAMBase  = 0x000000
@@ -24,7 +25,7 @@ const (
 	CIAAEnd      = 0xBFEFFF
 	CustomBase   = 0xDFF000
 	CustomEnd    = 0xDFFFFF
-	ROMBase      = 0xFC0000
+	ROMBase      = 0xF80000 // 512KB ROM area; a 256KB ROM appears twice
 	ROMEnd       = 0xFFFFFF
 
 	// PAL timing. The beam counts colour clocks (3.546895 MHz); the 68000
@@ -85,6 +86,8 @@ type Amiga struct {
 	// E clock divider: CIAs tick every 10 CPU cycles
 	eClockCounter int
 
+	romSize int // 256KB or 512KB
+
 	// ROM overlay: when true, ROM is mapped to $000000-$03FFFF (256KB mirror)
 	overlay bool
 
@@ -123,11 +126,6 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 		return nil, fmt.Errorf("invalid ROM size: %d bytes (expected %d or %d)", len(romData), ROMSize, ROMSize*2)
 	}
 
-	// Use last 256KB if ROM is 512KB
-	if len(romData) == ROMSize*2 {
-		romData = romData[ROMSize:]
-	}
-
 	a := &Amiga{
 		logger:      logger,
 		debugWriter: os.Stderr,
@@ -137,6 +135,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	// Create memory devices
 	a.ChipRAM = newChipRAM(ChipRAMSize)
 	a.ROM = m68kmem.NewROM(romData)
+	a.romSize = len(romData)
 	a.Custom = NewCustomChips(logger, a)
 	a.CIAA = NewCIA("CIA-A", logger)
 	a.CIAB = NewCIA("CIA-B", logger)
@@ -264,8 +263,9 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	// Anything not mapped floats (open bus): Kickstart probes for memory
 	// by reading and writing, and finds nothing there.
 	if overlay {
-		// ROM mapped at $000000-$03FFFF (256KB overlay, same as ROM)
-		a.Mapper.Map(a.ROM, 0x000000, ROMSize-1)
+		// The ROM overlays chip RAM's space at reset (mirrored if 256KB),
+		// so the CPU finds its reset vectors at $000000.
+		a.mapROM(0x000000)
 	} else {
 		a.Mapper.Map(&busCounter{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMEnd)
 	}
@@ -286,12 +286,19 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	}
 	a.Mapper.Map(&busCounter{a.Custom, &a.cpuChipAccesses}, CustomBase, CustomEnd)
 
-	// ROM at $FC0000-$FFFFFF (256KB)
-	a.Mapper.Map(a.ROM, ROMBase, ROMEnd)
+	a.mapROM(ROMBase)
 
 	// Update CPU decoder if it exists
 	if a.CPU != nil && a.CPU.M != nil {
 		a.CPU.M = m68kmem.NewDecoder(a.Mapper)
+	}
+}
+
+// mapROM maps the Kickstart ROM across the 512KB from base: a 512KB
+// (2.x/3.x) ROM once, a 256KB (1.x) ROM twice, as the A500 decodes it.
+func (a *Amiga) mapROM(base int) {
+	for off := 0; off < 2*ROMSize; off += a.romSize {
+		a.Mapper.Map(a.ROM, base+off, base+off+a.romSize-1)
 	}
 }
 
@@ -718,6 +725,20 @@ func (a *Amiga) SwapDisk(path string) error {
 		return fmt.Errorf("failed to read ADF: %w", err)
 	}
 	return a.Disk.SwapDisk(data, path)
+}
+
+// ROMChecksum returns the Kickstart checksum of a ROM image: the sum of its
+// longwords with end-around carry. Kickstart verifies it at boot (a red
+// screen if wrong); a good image sums to $FFFFFFFF.
+func ROMChecksum(rom []byte) uint32 {
+	var sum uint64
+	for i := 0; i+3 < len(rom); i += 4 {
+		sum += uint64(binary.BigEndian.Uint32(rom[i:]))
+		if sum > 0xFFFFFFFF {
+			sum = sum&0xFFFFFFFF + 1
+		}
+	}
+	return uint32(sum)
 }
 
 // LoadROM loads a Kickstart ROM from the given file path.

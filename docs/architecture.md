@@ -60,7 +60,7 @@ faults on the Amiga bus).
 | `$C00000-$D7FFFF` | Slow RAM (`--slowram`, on the chip bus) |
 | `$DFF000-$DFFFFF` | Custom chip registers (`custom.go`) |
 | `$E80000-$E8FFFF` | Autoconfig space: the fast RAM board's ID until configured |
-| `$FC0000-$FFFFFF` | Kickstart ROM (256KB) |
+| `$F80000-$FFFFFF` | Kickstart ROM: 512KB (2.x/3.x) once, or 256KB (1.x) mirrored at `$F80000` and `$FC0000` |
 
 Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 `Amiga.ChipRAM` directly rather than through the CPU's mapper.

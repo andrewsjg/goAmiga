@@ -22,12 +22,49 @@ Sound plays through Paula; floppies can be written and swapped.
    potentiometer/second-button inputs are not implemented. Audio DMA slots
    are not charged against the blitter.
 4. **Machine.** 512 KB chip RAM (no 1 MB Agnus), optional slow and Zorro II
-   fast RAM. One floppy drive (DF0:). 512KB ROMs are truncated to their upper half, so only
+   fast RAM. One floppy drive (DF0:). 512 KB ROMs load, but Kickstart 3.1
+   is untested: the repo's `Kick31.rom` is a damaged dump (see below). 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-26 — 512 KB ROMs; the repo's Kickstart 3.1 image is damaged
+
+**ROM mapping.** 512 KB (2.x/3.x) ROMs used to be cut to their upper half.
+Now `mapROM` maps the ROM across `$F80000`–`$FFFFFF`: a 512 KB ROM once,
+a 256 KB ROM twice (at `$F80000` and `$FC0000`, as the A500 decodes it),
+and the same way over `$000000` for the reset overlay. `TestROMMapping`.
+
+**First Kickstart 3.1 boot: red screen, then reset, repeating.** Red is
+Kickstart's ROM checksum failure. `ROMChecksum` (sum of longwords with
+end-around carry; a good image gives `$FFFFFFFF`) confirms the file is
+bad: `Kick31.rom` (40.63, the A500/A600/A2000 build, sha1
+`c60577608062fbe536d63c5e497ae04ec5b265bb`) sums to `$8DDE2FFB`, while
+`Kick13.rom` sums correctly. The emulator ran the ROM's own check
+correctly.
+
+What is wrong with it:
+- The footer is shifted: the size field `00 08 00 00` sits 5 bytes late and
+  the final `00 1D 00 1E 00 1F` is cut off. 5 bytes were inserted
+  somewhere.
+- All 40 RomTags up to intuition.library (`0x4F0E8`) are intact.
+  gadtools.library and workbench.library have name strings but no RomTag
+  at all, so the damage is more than one clean insertion.
+- Diagnosis with a scratch copy whose checksum was forced to pass
+  (`GOAMIGA_KS31=<file> GOAMIGA_DIAG=1 go test -run TestKS31Diag
+  ./amiga/`, which also catches illegal-instruction exceptions): Kickstart
+  3.1 gets through exec init with ExecBase in slow RAM, then alerts
+  `$80000004` (illegal instruction). The faulting opcode is `$4E21`,
+  invalid on every 680x0, at ROM offset `$5E4C4` inside
+  intuition.library, i.e. in the shifted region. The other trap is exec's
+  deliberate MOVEC CPU probe.
+
+The image cannot boot on anything. Repairing it would mean guessing the
+missing bytes. The CLI now warns at startup when a ROM fails the
+checksum. Kickstart 3.1 support stays untested until a good image
+is available.
 
 ## 2026-09-26 — Slow RAM and Zorro II fast RAM
 
