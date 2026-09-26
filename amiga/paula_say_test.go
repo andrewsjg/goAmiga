@@ -82,7 +82,7 @@ func TestSayHello(t *testing.T) {
 	// Speech: 10 ms windows with RMS above 1% of full scale. "hello" at
 	// narrator's default rate is about 0.4 s long.
 	const win = AudioSampleRate / 100
-	active, peak, first := 0, 0.0, -1
+	active, peak, first, last := 0, 0.0, -1, -1
 	for w := 0; (w+1)*win*2 <= len(samples); w++ {
 		var sum float64
 		for _, s := range samples[w*win*2 : (w+1)*win*2] {
@@ -94,6 +94,7 @@ func TestSayHello(t *testing.T) {
 			if first < 0 {
 				first = w
 			}
+			last = w
 		}
 	}
 	t.Logf("%.1f s of audio; speech %.2f s starting at %.2f s, peak %.2f",
@@ -109,8 +110,11 @@ func TestSayHello(t *testing.T) {
 		t.Errorf("only %d audio interrupts", total)
 	}
 	if os.Getenv("GOAMIGA_DIAG") != "" {
-		if err := writeWAV("/tmp/goamiga_say.wav", samples); err == nil {
-			t.Log("wrote /tmp/goamiga_say.wav")
+		// Just the speech, with half a second either side.
+		from := max(0, (first-50)*win*2)
+		to := min(len(samples), (last+51)*win*2)
+		if err := writeWAV("/tmp/goamiga_say.wav", samples[from:to]); err == nil {
+			t.Logf("wrote /tmp/goamiga_say.wav (%.1f s)", float64((to-from)/2)/AudioSampleRate)
 		}
 	}
 }
