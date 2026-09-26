@@ -7,6 +7,7 @@ verified. Longer investigations get their own write-up in `docs/`.
 
 **Works:** Kickstart 1.3 boots; Workbench 1.3 boots from ADF; drawers open,
 windows drag, Preferences launches. Keyboard and mouse work in the window.
+Sound plays through Paula; floppies can be written and swapped.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
@@ -17,7 +18,9 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
 2. **Display.** Missing: BPLCON0 and
    sprite register changes partway through a line; collisions are only
    detected on lines that are drawn (not in headless mode).
-3. **Audio.** Paula audio DMA is not implemented.
+3. **Paula (other).** Audio works; the serial port (UART) and the
+   potentiometer/second-button inputs are not implemented. Audio DMA slots
+   are not charged against the blitter.
 4. **Machine.** Chip RAM only (no `$C00000` slow RAM or fast RAM). One
    floppy drive (DF0:). 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
@@ -27,6 +30,61 @@ windows drag, Preferences launches. Keyboard and mouse work in the window.
    natively at a ROM-specific address. The underlying blitter problem it
    papers over should be found. `Blitter.GuardWrites` heuristics remain in
    the code (off by default) and could be deleted.
+
+## 2026-09-26 — Paula audio
+
+**Channels** (`amiga/paula.go`). Four channels, each with AUDxLC, LEN,
+PER, VOL and DAT (written from `CustomChips.Write`).
+- **DMA:** with DMACON DMAEN + AUDxEN the channel copies LC/LEN into its
+  counters, fetches a word, and raises its interrupt (INTREQ bit 7+n,
+  level 4). That is software's cue to write the next buffer's LC/LEN.
+  Each word is two signed 8-bit samples, high byte first, each held
+  AUDxPER colour clocks. When the length runs out the channel reloads and
+  interrupts again. Clearing AUDxEN stops it.
+- **Manual mode:** with DMA off, a CPU write to AUDxDAT plays the word and
+  interrupts to ask for the next.
+- **Modulation:** with ADKCON USEnVn+1/USEnPn+1, a channel is silent and
+  its words set the next channel's volume and/or period (alternating when
+  both are set), one word per period.
+- **Timing:** channels are event driven in colour clocks (`Paula.Tick`
+  from `Amiga.Step`), not ticked per cycle. Fast-idle wakes for the next
+  audio interrupt (`CyclesToNextInterrupt`), so a task sleeping on audio
+  is woken on time.
+
+**Output.** Channels 0 and 3 go left, 1 and 2 right, scaled by volume
+(0–64). Output is box-filtered into 48 kHz host samples: the channel levels
+are integrated between events and sample boundaries. Then comes the
+A500's fixed ~4.4 kHz low-pass and, when the power LED is bright (CIA-A
+PRA bit 1 low), the 3.3 kHz 12 dB/octave LED filter. Samples go into an
+`AudioBuffer` ring. In the window, Ebitengine's audio player
+(`NewPlayerF32`) reads it with 50 ms of player buffering. The ring holds
+at most 100 ms and drops the oldest samples: the emulated frame is 49.92 Hz
+against a 50 Hz tick, so Paula slightly outpaces the host. `--mute`
+turns host audio off. Headless runs mix nothing unless a test attaches
+an `AudioBuffer`.
+
+**End-to-end test** (`TestSayHello`). The startup-sequence's first echo
+is patched to `sys:Utilities/Say hello`, so narrator.device speaks through
+the ROM's audio.device during boot. Checked:
+- Workbench still starts, so Say finished and narrator got its audio
+  interrupts (channels 0 and 1, 34 each);
+- narrator programs period 161 (22 kHz);
+- 0.34 s of speech at 18.2 s into boot, peak 0.43, the same on both sides.
+
+Offline analysis of the WAV (`GOAMIGA_DIAG=1` writes
+`/tmp/goamiga_say.wav`): the strongest autocorrelation peak of the vowel
+is 136 Hz (r = 0.92). That is a plausible narrator pitch with stress on
+"hel-LO" (default 110 Hz). A timing error would have shifted both pitch
+and duration.
+
+**Unit tests** (`paula_test.go`): DMA sample order and hold time,
+interrupts at buffer start and repeat, new LC/LEN taking effect at the
+next buffer, stopping; manual mode; mixed output rate, volume scaling
+and left/right routing; volume modulation; exact next-interrupt
+prediction.
+
+**Speed.** Idle Workbench with display and mixing: 1,329 fps (26.6× real
+time). Boot unchanged.
 
 ## 2026-09-25 — Disk swapping (F11)
 

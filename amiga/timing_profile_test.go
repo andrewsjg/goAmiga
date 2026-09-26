@@ -52,6 +52,7 @@ func TestTimingProfile(t *testing.T) {
 	// Throughput with rendering on, once Workbench is idle.
 	defer func() { t.Logf("  disk: %d sectors written during boot and idle", a.Disk.SectorsWritten) }()
 	a.Video.DisplayActive = true
+	a.Paula.Output = NewAudioBuffer(AudioSampleRate) // mix audio, as the app does
 	for range 100 {
 		_ = a.RunFrame()
 	}

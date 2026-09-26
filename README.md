@@ -23,6 +23,8 @@ drive.
 go run ./cmd/goamiga --rom Kick13.rom --disk wb13.adf --disk extras13.adf --disk blank.adf
 ```
 
+Sound plays through the host's audio output (`--mute` to turn it off).
+
 The floppy is writable: anything the Amiga saves to DF0: is written back
 into the ADF file. Keep a copy of disks you care about, or pass
 `--write-protect`.

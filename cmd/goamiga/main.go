@@ -16,6 +16,7 @@ func main() {
 	maxCycles := flag.Uint64("cycles", 0, "Maximum CPU cycles to execute (headless mode)")
 	headless := flag.Bool("headless", false, "Run without display window")
 	writeProtect := flag.Bool("write-protect", false, "Write-protect the floppy: the Amiga cannot change the ADF file")
+	mute := flag.Bool("mute", false, "No sound")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	flag.Parse()
@@ -97,6 +98,7 @@ func main() {
 	a.Video.SetOverscan(*overscan)
 	display := amiga.NewDisplay(a)
 	display.Disks = disks
+	display.Mute = *mute
 	if len(disks) > 0 {
 		display.DiskIndex = 0
 	}

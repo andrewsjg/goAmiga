@@ -62,6 +62,7 @@ type Amiga struct {
 	Sprites  *SpriteEngine
 	Disk     *DiskDrive
 	Keyboard *Keyboard
+	Paula    *Paula
 	Mouse    *Mouse
 	Mapper   *m68kmem.Mapper
 
@@ -150,6 +151,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	a.Sprites = NewSpriteEngine(a)
 	a.Disk = NewDiskDrive(a)
 	a.Keyboard = NewKeyboard(a)
+	a.Paula = NewPaula(a)
 	a.Mouse = NewMouse(a)
 
 	// Wire CIA interrupt callbacks
@@ -301,6 +303,9 @@ func (a *Amiga) Reset() error {
 	if a.Keyboard != nil {
 		a.Keyboard.Reset()
 	}
+	if a.Paula != nil {
+		a.Paula.Reset()
+	}
 
 	if a.logger != nil {
 		fmt.Fprintf(a.logger, "RESET: SSP=$%08X PC=$%08X\n", a.CPU.A[7], a.CPU.PC)
@@ -348,6 +353,11 @@ func (a *Amiga) Step() error {
 		}
 		if a.Disk != nil {
 			if c := a.Disk.CyclesToNextEvent(); c > 0 && c < skip {
+				skip = c
+			}
+		}
+		if a.Paula != nil {
+			if c := a.Paula.CyclesToNextInterrupt(); c > 0 && c < skip {
 				skip = c
 			}
 		}
@@ -418,6 +428,9 @@ func (a *Amiga) Step() error {
 	}
 	if a.Disk != nil {
 		a.Disk.TickCycles(elapsed)
+	}
+	if a.Paula != nil {
+		a.Paula.Tick(elapsed)
 	}
 
 	// Use fast per-line beam advance when the CPU is stopped (no instruction

@@ -5,8 +5,10 @@ package amiga
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -48,6 +50,10 @@ type Display struct {
 	DiskIndex int
 
 	lastTitle string
+
+	// Mute turns off host audio (Paula still runs).
+	Mute        bool
+	audioPlayer *audio.Player
 }
 
 // NewDisplay creates a new Ebitengine display for the given Amiga.
@@ -359,9 +365,40 @@ func (d *Display) Layout(outsideWidth, outsideHeight int) (int, int) {
 // Run starts the Ebitengine game loop at 50fps (PAL).
 func (d *Display) Run() error {
 	d.amiga.Video.DisplayActive = true
+	if !d.Mute {
+		if err := d.startAudio(); err != nil {
+			fmt.Printf("audio disabled: %v\n", err)
+		}
+	}
 	ebiten.SetWindowSize(d.amiga.Video.DisplaySize())
 	ebiten.SetTPS(50)
 	ebiten.SetScreenClearedEveryFrame(false)
 	d.applyGrab(false)
 	return ebiten.RunGame(d)
+}
+
+// Host audio. Paula writes 48 kHz stereo into an AudioBuffer as the
+// emulator runs; Ebitengine's player pulls from it on its own goroutine.
+// The buffer holds at most audioLatency: the emulated frame (313 lines,
+// 49.92 Hz) is slightly longer than the 50 Hz tick, so Paula produces a
+// little more than the host plays and the oldest samples are dropped
+// rather than letting latency grow. Underruns play silence.
+const (
+	audioLatency       = 100 * time.Millisecond
+	audioPlayerBuffer  = 50 * time.Millisecond
+	audioLatencyFrames = int(audioLatency * AudioSampleRate / time.Second)
+)
+
+func (d *Display) startAudio() error {
+	ctx := audio.NewContext(AudioSampleRate)
+	d.amiga.Paula.Output = NewAudioBuffer(audioLatencyFrames)
+	p, err := ctx.NewPlayerF32(d.amiga.Paula.Output)
+	if err != nil {
+		d.amiga.Paula.Output = nil
+		return err
+	}
+	p.SetBufferSize(audioPlayerBuffer)
+	p.Play()
+	d.audioPlayer = p
+	return nil
 }

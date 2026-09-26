@@ -470,6 +470,14 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		if c.amiga != nil && c.amiga.Disk != nil {
 			c.amiga.Disk.WriteDSKSYNC(uint16(p[0])<<8 | uint16(p[1]))
 		}
+	case 0x0A0, 0x0A2, 0x0A4, 0x0A6, 0x0A8, 0x0AA, // AUD0
+		0x0B0, 0x0B2, 0x0B4, 0x0B6, 0x0B8, 0x0BA, // AUD1
+		0x0C0, 0x0C2, 0x0C4, 0x0C6, 0x0C8, 0x0CA, // AUD2
+		0x0D0, 0x0D2, 0x0D4, 0x0D6, 0x0D8, 0x0DA: // AUD3
+		if c.amiga != nil && c.amiga.Paula != nil && n == 2 {
+			c.amiga.Paula.WriteReg(offset, uint16(p[0])<<8|uint16(p[1]))
+		}
+
 	case 0x09E: // ADKCON
 		if c.amiga != nil && c.amiga.Disk != nil {
 			c.amiga.Disk.WriteADKCON(uint16(p[0])<<8 | uint16(p[1]))
