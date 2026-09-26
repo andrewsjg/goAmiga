@@ -6,7 +6,7 @@ import "testing"
 // 512 KB slow RAM for frames frames.
 func bootKS32(t *testing.T, frames int) *Amiga {
 	t.Helper()
-	rom, err := LoadROM("../Kick32.rom")
+	rom, err := LoadROM("../ROMS/Kick32.rom")
 	if err != nil {
 		t.Skip(err)
 	}
@@ -56,5 +56,53 @@ func TestKS32InsertScreen(t *testing.T) {
 		if got := hist[c.rgb]; got < c.n*(100-c.slack)/100 || got > c.n*(100+c.slack)/100 {
 			t.Errorf("colour $%03X: %d pixels, want %d ±%d%%", c.rgb, got, c.n, c.slack)
 		}
+	}
+}
+
+// Kickstart 3.2 boots the Install 3.2 disk to Workbench with a correct
+// display: graphics.library detects OCS (a zero DENISEID read made SetPatch
+// detect AGA and shear every screen), and the screen's bitplanes stay on
+// down to line 299 (the Copper used to run the instruction after a line-255
+// WAIT on line 255 itself, cutting the screen off 40 lines early).
+func TestKS32InstallDiskWorkbench(t *testing.T) {
+	rom, err := LoadROM("../ROMS/Kick32.rom")
+	if err != nil {
+		t.Skip(err)
+	}
+	a, err := New(rom, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.ConfigureMemory(512, 0)
+	if err := a.LoadDisk("../disks/Install3.2.adf"); err != nil {
+		t.Skip(err)
+	}
+	a.Disk.WriteProtected = true
+	a.Reset()
+	for f := 0; f < 3000; f++ {
+		if err := a.RunFrame(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rd := func(addr uint32) uint32 { v, _ := a.CPU.M.Long(int(addr)); return v }
+	if alert := rd(rd(4) + 0x202); alert != 0xFFFFFFFF {
+		t.Errorf("exec LastAlert = $%08X", alert)
+	}
+	gfx := findLibrary(a, "graphics.library")
+	if crb, _ := a.CPU.M.Byte(int(gfx + 0xEC)); crb != 0 {
+		t.Errorf("GfxBase->ChipRevBits0 = $%02X, want 0 (OCS)", crb)
+	}
+	// Workbench's window spans the screen.
+	ib := findLibrary(a, "intuition.library")
+	scr := rd(ib + 60)
+	if w := rd(scr + 4); w == 0 || readCStrMem(a, rd(w+32), 20) != "Workbench" {
+		t.Fatal("no Workbench window")
+	}
+	for a.vpos != 299 {
+		a.advanceBeamPerCycle(1)
+	}
+	a.advanceBeamPerCycle(200)
+	if planes := a.Custom.ReadReg16(0x100) >> 12 & 7; planes != 2 {
+		t.Errorf("line 299: %d bitplanes, want 2 (screen cut short)", planes)
 	}
 }

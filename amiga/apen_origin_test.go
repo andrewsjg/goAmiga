@@ -8,7 +8,7 @@ import (
 // TestAPenOrigin tracks every change to FgPen on the boot RastPort and
 // records PC/stack when it first becomes 2 (and subsequent changes).
 func TestAPenOrigin(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

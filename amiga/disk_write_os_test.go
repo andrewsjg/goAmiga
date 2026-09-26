@@ -66,11 +66,11 @@ func ofsReadFile(t *testing.T, adf []byte, name string) ([]byte, bool) {
 // disk image: the startup-sequence's first echo is patched to
 // `echo >df0:written "goAmiga write test"`.
 func TestAmigaDOSWritesFile(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}
-	adf, err := os.ReadFile("../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	adf, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

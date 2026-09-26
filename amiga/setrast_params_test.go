@@ -7,7 +7,7 @@ import (
 
 // Log moduli and template contents for every full-plane BPL blit (200x20).
 func TestSetRastParams(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

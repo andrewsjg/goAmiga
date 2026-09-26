@@ -68,7 +68,7 @@ func TestDiskSwap(t *testing.T) {
 		t.Fatalf("after eject, volumes %v: Workbench1.3 still in the drive", vols)
 	}
 
-	data, err := os.ReadFile("../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	data, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

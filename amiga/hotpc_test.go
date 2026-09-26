@@ -9,7 +9,7 @@ import (
 
 func TestHotPCs(t *testing.T) {
 	requireDiag(t)
-	romData, err := LoadROM("../Kick13.rom")
+	romData, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip("Kick13.rom not found:", err)
 	}
@@ -24,7 +24,7 @@ func TestHotPCs(t *testing.T) {
 
 	// Load Workbench 1.3 disk 1 if available
 	adfPaths := []string{
-		"../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
+		"../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
 		"../wb13.adf",
 		"../wb.adf",
 	}

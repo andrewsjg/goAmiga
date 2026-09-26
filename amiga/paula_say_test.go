@@ -36,11 +36,11 @@ func writeWAV(path string, samples []float32) error {
 // interrupts were missing, Say would never finish and Workbench would not
 // start. With GOAMIGA_DIAG=1 the sound is saved to /tmp/goamiga_say.wav.
 func TestSayHello(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}
-	adf, err := os.ReadFile("../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	adf, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

@@ -6,7 +6,7 @@ import (
 
 // Capture BLTCON1 values used by real Draw during insert-disk boot.
 func TestDrawOctantsBoot(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

@@ -11,7 +11,7 @@ import (
 // TestRenderDiag boots without disk, renders the insert disk screen,
 // saves a PNG, and dumps orientation diagnostics.
 func TestRenderDiag(t *testing.T) {
-	romData, err := LoadROM("../Kick13.rom")
+	romData, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip("Kick13.rom not found:", err)
 	}

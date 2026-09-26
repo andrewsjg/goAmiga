@@ -14,7 +14,7 @@ import (
 // 2. Video register state at various boot stages
 // 3. Copper list contents at the point workbench is displayed
 func main() {
-	romData, err := amiga.LoadROM("Kick13.rom")
+	romData, err := amiga.LoadROM("ROMS/Kick13.rom")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -26,7 +26,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := a.LoadDisk("Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"); err != nil {
+	if err := a.LoadDisk("disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

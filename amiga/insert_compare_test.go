@@ -10,7 +10,7 @@ import (
 // Freeze insert-disk art after full script and export for visual comparison.
 // Also count edge pixels and report BltTemplate activity.
 func TestInsertDiskCompare(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

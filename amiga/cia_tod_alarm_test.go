@@ -69,7 +69,7 @@ func TestCIATODHaltedByTODHIWrite(t *testing.T) {
 
 // CIA-B TOD must advance once per scanline and CIA-A once per frame.
 func TestCIATODClockedByBeam(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

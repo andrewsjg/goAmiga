@@ -11,8 +11,9 @@ included. Kickstart 1.3 (256KB) runs Workbench 1.3; Kickstart 3.2 for the
 A500/A600/A2000 (512KB) runs too, but wants Workbench 3.2 disks.
 
 ```bash
-go run ./cmd/goamiga --rom Kick13.rom --disk "Workbench1.3.adf"
-go run ./cmd/goamiga --rom Kick13.rom --headless --cycles 10000000
+go run ./cmd/goamiga --rom ROMS/Kick13.rom --disk "disks/Workbench1.3.adf"
+go run ./cmd/goamiga --rom ROMS/Kick32.rom --disk disks/Install3.2.adf --disk disks/Workbench3.2.adf
+go run ./cmd/goamiga --rom ROMS/Kick13.rom --headless --cycles 10000000
 ```
 
 Give `--disk` more than once to swap disks while running: F11 puts the
@@ -21,7 +22,7 @@ with a real swap), Shift+F11 ejects. The window title shows what's in the
 drive.
 
 ```bash
-go run ./cmd/goamiga --rom Kick13.rom --disk wb13.adf --disk extras13.adf --disk blank.adf
+go run ./cmd/goamiga --rom ROMS/Kick13.rom --disk disks/wb13.adf --disk disks/extras13.adf --disk disks/blank.adf
 ```
 
 The machine has 512 KB chip RAM plus 512 KB slow RAM by default, like an
@@ -40,7 +41,8 @@ for software that draws into the border.
 
 ## Testing
 
-Put `Kick13.rom` and the Workbench 1.3 ADFs in this directory, then:
+Put the ROMs in `ROMS/` (`Kick13.rom`, optionally `Kick32.rom`) and the ADFs
+in `disks/` (the Workbench 1.3 disks, optionally `Install3.2.adf`), then:
 
 ```bash
 go test ./amiga/          # ~6 minutes; tests skip if the ROM is missing

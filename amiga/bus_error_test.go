@@ -7,7 +7,7 @@ import (
 // Long reads at $FFFFFF (smashed freelist next=$FFFFFFFF) must not kill the host.
 // Mapper/ROM open-bus returns $FF; the instruction completes.
 func TestOpenBusReadFFFFFF(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

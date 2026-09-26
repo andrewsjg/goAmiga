@@ -74,11 +74,11 @@ func memRegions(a *Amiga) map[uint32][2]uint32 {
 // bootWBWith boots Workbench with the given expansion memory.
 func bootWBWith(t *testing.T, slowKB, fastKB int) *Amiga {
 	t.Helper()
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}
-	data, err := os.ReadFile("../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	data, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

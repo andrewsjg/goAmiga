@@ -57,7 +57,7 @@ func TestVHPOSRInColourClocks(t *testing.T) {
 // clock $E0 (near the end of the line), not halfway along it.
 func TestCopperWaitHorizontalPosition(t *testing.T) {
 	a := startCopper(t, []uint16{
-		0x30E1, 0xFFFE, // WAIT v=$30 h=$E0
+		0x30D1, 0xFFFE, // WAIT v=$30 h=$D0
 		0x0180, 0x0F00, // MOVE COLOR00
 		0xFFFF, 0xFFFE,
 	}, 0x30)
@@ -67,8 +67,29 @@ func TestCopperWaitHorizontalPosition(t *testing.T) {
 	if a.vpos != 0x30 {
 		t.Fatal("WAIT never released on its line")
 	}
-	if cc := a.hpos / CPUCyclesPerColorClock; cc < 0xE0 {
-		t.Errorf("MOVE ran at colour clock $%02X, want >= $E0", cc)
+	// The WAIT releases at $D0; waking takes that slot and the MOVE runs
+	// in the next one.
+	if cc := a.hpos / CPUCyclesPerColorClock; cc < 0xD4 {
+		t.Errorf("MOVE ran at colour clock $%02X, want >= $D4", cc)
+	}
+}
+
+// Crossing line 255: WAIT $FFDE, then WAIT $2C for line $12C. Waking from
+// the first WAIT pushes the second onto line 256, where the Copper's 8-bit
+// line compare starts again from 0, so the MOVE happens at line 300 — not
+// immediately on line 255 (which cut KS3.2's Workbench screen short).
+func TestCopperLine255Wrap(t *testing.T) {
+	a := startCopper(t, []uint16{
+		0xFFDF, 0xFFFE, // WAIT v=$FF h=$DE
+		0x2C01, 0xFFFE, // WAIT v=$2C (line $12C)
+		0x0180, 0x0F00, // MOVE COLOR00
+		0xFFFF, 0xFFFE,
+	}, 0xF0)
+	for a.Custom.ReadReg16(0x180) != 0x0F00 && a.vpos != 0 {
+		a.advanceBeamPerCycle(1)
+	}
+	if a.vpos != 0x12C {
+		t.Errorf("MOVE after the line-255 wrap ran on line %d, want 300", a.vpos)
 	}
 }
 

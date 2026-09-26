@@ -9,7 +9,7 @@ import (
 // blitter operations. This exercises the blitter timing, interrupt delivery,
 // and 68000 CCR handling (especially MOVEA not affecting flags).
 func TestNoDiskBoot(t *testing.T) {
-	romData, err := LoadROM("../Kick13.rom")
+	romData, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip("Kick13.rom not found:", err)
 	}

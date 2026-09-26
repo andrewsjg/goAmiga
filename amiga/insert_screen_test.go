@@ -7,7 +7,7 @@ import "testing"
 // with lines, Flood fills and BltTemplate text.
 func insertScreen(t *testing.T) map[uint16]int {
 	t.Helper()
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

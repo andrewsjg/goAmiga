@@ -47,7 +47,7 @@ func TestROMChecksum(t *testing.T) {
 	if got := ROMChecksum(rom); got != 0xFFFFFFFF {
 		t.Errorf("checksum $%08X, want $FFFFFFFF", got)
 	}
-	if rom, err := LoadROM("../Kick13.rom"); err == nil {
+	if rom, err := LoadROM("../ROMS/Kick13.rom"); err == nil {
 		if got := ROMChecksum(rom); got != 0xFFFFFFFF {
 			t.Errorf("Kick13.rom checksum $%08X", got)
 		}

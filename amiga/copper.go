@@ -124,6 +124,7 @@ func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
 				return
 			}
 			c.wait = false
+			continue // waking takes this slot (see Step)
 		}
 		c.Step(hpos, vpos)
 		if c.halted {
@@ -164,10 +165,13 @@ func (c *Copper) Step(hpos, vpos int) {
 		// Mask the compare value the same way the beam is masked (HRM).
 		wantVP := c.waitVP & c.waitVM
 		if vp > wantVP || (vp == wantVP && hp >= c.waitHP) {
+			// Waking takes this slot; the next instruction is fetched in
+			// the following one. That delay is why software waits for
+			// $FFDE/$FFDF to cross line 255: the next WAIT is then compared
+			// on line 256, where the low 8 bits of the line start again at 0.
 			c.wait = false
-		} else {
-			return
 		}
+		return
 	}
 
 	// Fetch 32-bit instruction from chip RAM

@@ -10,7 +10,7 @@ import (
 // Snapshot BPL at 3M steps with forced insert-disk palette (copper colors
 // not yet programmed at that point).
 func TestForcedPaletteSnap(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

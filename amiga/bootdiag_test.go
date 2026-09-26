@@ -11,7 +11,7 @@ import (
 // exception vectors being entered, copper list changes, and bitplane state.
 func TestBootDiagFast(t *testing.T) {
 	requireDiag(t)
-	romData, err := os.ReadFile("../Kick13.rom")
+	romData, err := os.ReadFile("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skipf("Cannot load ROM: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestBootDiagFast(t *testing.T) {
 		t.Fatalf("Error creating Amiga: %v", err)
 	}
 
-	diskData, err := os.ReadFile("../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	diskData, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skipf("Cannot load disk: %v", err)
 	}

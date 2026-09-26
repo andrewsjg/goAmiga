@@ -7,7 +7,7 @@ import (
 
 // Compare BPL state with DisplayActive (copper runs during STOP) vs without.
 func TestBPLWithDisplayActive(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

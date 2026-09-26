@@ -6,7 +6,7 @@ import (
 
 // Decode insert-disk script polylines and verify each segment is continuous in BPL1.
 func TestInsertLineContinuity(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

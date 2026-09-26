@@ -8,7 +8,7 @@ import (
 // Confirm: APen=2 is intentional from boot script FE-cmd, and measure
 // what first Flood(pen=2) does to bitplanes.
 func TestFloodAPenIntentional(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}

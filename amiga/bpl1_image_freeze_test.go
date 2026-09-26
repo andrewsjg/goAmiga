@@ -17,7 +17,7 @@ import (
 // Logs every blit that writes into the display BPL1 region with full channel
 // parameters for comparison against graphics.library SetRast / BltTemplate.
 func TestBPL1ImageFreeze(t *testing.T) {
-	romData, err := LoadROM("../Kick13.rom")
+	romData, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip("Kick13.rom not found:", err)
 	}

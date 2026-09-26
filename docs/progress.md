@@ -24,13 +24,56 @@ Sound plays through Paula; floppies can be written and swapped.
    are not charged against the blitter.
 4. **Machine.** 512 KB chip RAM (no 1 MB Agnus), optional slow and Zorro II
    fast RAM. One floppy drive (DF0:). Kickstart 3.2 (Hyperion,
-   47.96, A500 build) reaches its insert screen and boots a disk; it needs
-   Workbench 3.2 disks (its ROM loads icon/workbench.library from LIBS:). 512KB ROMs are truncated to their upper half, so only
+   47.96, A500 build) boots the Install 3.2 disk to Workbench. 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-26 — Workbench 3.2: DENISEID and the Copper's WAIT wake-up
+
+ROMs now live in `ROMS/` and ADFs in `disks/` (all test paths updated;
+both directories are still git-ignored by `*.rom`/`*.adf`).
+
+Booting `disks/Install3.2.adf` under Kickstart 3.2 reached Workbench with a
+wrecked display: every horizontal line smeared diagonally over several
+display lines. Two separate bugs.
+
+**1. SetPatch detected AGA.** The screen was hires, 2 planes, DDF
+`$38`/`$D8` (42 words), with BPLxMOD −8: rows of 76 bytes against an
+80-byte bitmap. Under the 1.3 disk the same screen had −4, which is right.
+graphics.library computes the modulo from what it thinks the chipset
+fetches, and `GfxBase->ChipRevBits0` showed `$08` (AA_ALICE) only after
+the Install disk's SetPatch 47 ran. SetPatch re-detects the chipset from
+`DENISEID` (`$DFF07C`): ECS Denise returns `$xxFC`, AGA Lisa `$xxF8`, and
+OCS Denise has no such register, so the bus floats high. The emulator
+returned `$0000`, whose bit pattern reads as AGA. `DENISEID` now reads
+`$FFFF` (`TestDENISEIDReadsAsOCS`).
+
+**2. The screen stopped 40 lines early.** The bottom border and scroll
+gadgets of the Workbench window were missing. BPLCON0 went to 0 planes
+by line 260. Disassembling the view's Copper list showed the standard
+pattern: `WAIT $FF,$DE` (end of line 255), `WAIT $2C` (line `$12C` = 300
+once past 255), `MOVE BPLCON0` (planes off). The emulated Copper ran the
+instruction after a satisfied WAIT in the same slot, so `WAIT $2C` was
+compared on line 255, where 255 ≥ `$2C`, and the planes went off
+immediately. On hardware, waking from a WAIT costs a cycle and the next
+instruction still has to be fetched. A WAIT released at `$DE` therefore
+has its successor compared on line 256, whose low 8 bits start again from
+0; that is the reason software uses `$DE`/`$DF` there. Now the wake-up
+consumes its Copper slot (in `Step` and `StepLine`).
+`TestCopperLine255Wrap`. `TestCopperWaitHorizontalPosition` moved its WAIT
+from `h=$E0` to `$D0`, because a MOVE after a WAIT at `$E0` now correctly
+lands on the next line.
+
+Kickstart 1.3's Workbench rendering is unchanged apart from the title's
+free-memory figure (360,168 → 360,112, sampled at a slightly different
+moment).
+
+**Tests.** `TestKS32InstallDiskWorkbench` boots Install 3.2
+(write-protected) to Workbench and checks no alert, `ChipRevBits0 == 0`,
+a Workbench window, and 2 planes still on at line 299. Full suite passes.
 
 ## 2026-09-26 — Kickstart 3.2 boots; wide bitplane fetches
 

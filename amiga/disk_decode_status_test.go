@@ -8,12 +8,12 @@ import (
 // Probe trackdisk decode completion: success returns sector 0-10 in D0;
 // errors are $15-$1B (see Kick 1.3 FEAE68-FEAE80).
 func TestDiskDecodeStatus(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}
 	a, _ := New(rom, nil)
-	data, err := os.ReadFile("../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	data, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

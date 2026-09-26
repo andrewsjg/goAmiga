@@ -89,6 +89,14 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 		if c.amiga != nil && c.amiga.Blitter != nil && c.amiga.Blitter.busy {
 			p[0] |= 0x40
 		}
+	case 0x07C: // DENISEID: OCS Denise has no ID register; the read floats
+		// high. ECS Denise returns $xxFC and AGA Lisa $xxF8, and SetPatch 3.x
+		// decodes those bits: returning $0000 made it detect AGA and set
+		// AGA display modulos, shearing every screen.
+		p[0] = 0xFF
+		if len(p) > 1 {
+			p[1] = 0xFF
+		}
 	case 0x00E: // CLXDAT: read clears
 		if c.amiga != nil && c.amiga.Video != nil {
 			val := c.amiga.Video.ReadCLXDAT()

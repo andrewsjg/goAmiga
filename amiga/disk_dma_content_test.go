@@ -8,12 +8,12 @@ import (
 // After first disk DMA of track 0, check if bootblock signature DOS\0 is present
 // when decoded, or at least MFM sync pattern in buffer.
 func TestDiskDMAContent(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}
 	a, _ := New(rom, nil)
-	data, err := os.ReadFile("../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	data, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

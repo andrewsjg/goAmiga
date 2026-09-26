@@ -8,7 +8,7 @@ import (
 // TestADFBoot loads a Workbench 1.3 ADF and traces the full boot sequence
 // past dos.library init to check whether the system makes progress.
 func TestADFBoot(t *testing.T) {
-	romData, err := LoadROM("../Kick13.rom")
+	romData, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip("Kick13.rom not found:", err)
 	}
@@ -23,7 +23,7 @@ func TestADFBoot(t *testing.T) {
 	// Load disk
 	loaded := false
 	for _, p := range []string{
-		"../Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
+		"../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
 		"../wb13.adf",
 	} {
 		if data, err := os.ReadFile(p); err == nil {

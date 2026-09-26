@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	rom, err := os.ReadFile("Kick13.rom")
+	rom, err := os.ReadFile("ROMS/Kick13.rom")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

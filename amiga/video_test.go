@@ -344,3 +344,14 @@ func TestWideFetchAdvancesPointers(t *testing.T) {
 		t.Errorf("pointers $%X, $%X after one line; want +80 (84 fetched - 4)", a.Video.bplpt[0], a.Video.bplpt[1])
 	}
 }
+
+// OCS Denise has no DENISEID; the read floats high. Anything that looks
+// like an ECS ($FC) or AGA ($F8) ID makes Kickstart 3.x use those modes.
+func TestDENISEIDReadsAsOCS(t *testing.T) {
+	a := newTestAmigaVideo()
+	b := make([]byte, 2)
+	a.Custom.Read(0x07C, b)
+	if b[0] != 0xFF || b[1] != 0xFF {
+		t.Errorf("DENISEID = $%02X%02X, want $FFFF", b[0], b[1])
+	}
+}

@@ -7,7 +7,7 @@ import (
 
 // Inspect outline connectivity just before first Flood.
 func TestOutlineGaps(t *testing.T) {
-	rom, err := LoadROM("../Kick13.rom")
+	rom, err := LoadROM("../ROMS/Kick13.rom")
 	if err != nil {
 		t.Skip(err)
 	}
