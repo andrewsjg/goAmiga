@@ -21,7 +21,7 @@ type Video struct {
 	buf [2]byte // scratch for chip RAM reads
 
 	// planeBuf holds the current line's bitplane data.
-	planeBuf [6][80]byte // 80 bytes = 40 words max (hires)
+	planeBuf [6][2 * maxFetchWords]byte
 
 	// changes lists this line's writes to Denise registers (colours,
 	// BPLCON1, BPLCON2) in beam order, for drawLine to apply mid-line.
@@ -178,28 +178,32 @@ func (v *Video) outputRow(vpos int) int {
 	return 2*y + 1
 }
 
+// maxFetchWords is the most words a plane can fetch per line: DDF from
+// $18 to $D8 in hires.
+const maxFetchWords = 50
+
 // fetchWords is the number of words fetched per plane per line for the
-// given DDFSTRT/DDFSTOP.
+// given DDFSTRT/DDFSTOP. Agnus fetches in units of 8 colour clocks from
+// DDFSTRT; it finishes the unit in which DDFSTOP is reached and one more.
+// A unit fetches one word per plane in lores and two in hires. So the
+// HRM's standard values give 20 lores words ($38/$D0) and 40 hires words
+// ($3C/$D4, and KS1.3's $3C/$D0); KS3.x's hires $38/$D8 gives 42, with
+// BPLxMOD -4 bringing the pointers back to an 80-byte row.
 func fetchWords(hires bool, ddfstrt, ddfstop uint16) int {
-	if ddfstrt == 0 || ddfstop == 0 || ddfstop <= ddfstrt {
+	start, stop := int(ddfstrt&0xFC), int(ddfstop&0xFC)
+	if start == 0 || stop <= start {
+		start, stop = 0x38, 0xD0
 		if hires {
-			return 40
+			start = 0x3C
 		}
-		return 20
 	}
-	// HRM: lores  DDFSTRT = DDFSTOP - 8*(words-1)  → words = (STOP-STRT)/8 + 1
-	//      hires DDFSTRT = DDFSTOP - 4*(words-2)  → words = (STOP-STRT)/4 + 2
-	if !hires {
-		return int((ddfstop-ddfstrt)/8) + 1
+	units := (stop-start+7)/8 + 1
+	words := units
+	if hires {
+		words *= 2
 	}
-	words := int((ddfstop-ddfstrt)/4) + 2
-	// Standard full-width hires copper (e.g. KS1.3 WB DDF $3C/$D0) is
-	// documented as 39 by the pure HRM identity, but Denise/fetch and
-	// graphics.library treat it as 40 words (80 bytes) with BPLMOD=0
-	// matching BitMap BytesPerRow=80. Using 39 shears the framebuffer
-	// by 2 bytes per line against drawn bitmaps.
-	if words == 39 {
-		words = 40
+	if words > maxFetchWords {
+		words = maxFetchWords
 	}
 	return words
 }
@@ -252,9 +256,6 @@ func (v *Video) RenderLine(vpos int) {
 	hires := bplcon0&0x8000 != 0
 	ddfstrt := v.amiga.Custom.ReadReg16(0x092)
 	words := fetchWords(hires, ddfstrt, v.amiga.Custom.ReadReg16(0x094))
-	if words > 40 {
-		words = 40 // cap to the pre-allocated buffer
-	}
 
 	fetch := v.bitplaneFetchLine(vpos)
 	draw := v.DisplayActive && vpos >= v.top && vpos < v.top+v.rows

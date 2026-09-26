@@ -6,8 +6,9 @@ Kickstart 1.3 boots Workbench 1.3 from an ADF image in a window.
 
 ## Running
 
-You need a Kickstart 1.3 ROM (256KB) and, optionally, an ADF disk image.
-Neither is included.
+You need a Kickstart ROM and, optionally, ADF disk images. Neither is
+included. Kickstart 1.3 (256KB) runs Workbench 1.3; Kickstart 3.2 for the
+A500/A600/A2000 (512KB) runs too, but wants Workbench 3.2 disks.
 
 ```bash
 go run ./cmd/goamiga --rom Kick13.rom --disk "Workbench1.3.adf"

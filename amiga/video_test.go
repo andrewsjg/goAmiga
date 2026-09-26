@@ -306,3 +306,41 @@ func TestVPOSR_LOF(t *testing.T) {
 		t.Errorf("VPOSR with lof=true: got $%04X, want LOF bit set (bit 15)", val)
 	}
 }
+
+// Agnus fetches in 8-colour-clock units, finishing the unit that reaches
+// DDFSTOP plus one more; a unit is one word per plane in lores, two in
+// hires.
+func TestFetchWords(t *testing.T) {
+	for _, c := range []struct {
+		hires       bool
+		start, stop uint16
+		want        int
+	}{
+		{false, 0x38, 0xD0, 20}, // standard lores
+		{false, 0x30, 0xD0, 21}, // lores with one word for scrolling
+		{true, 0x3C, 0xD4, 40},  // standard hires (HRM)
+		{true, 0x3C, 0xD0, 40},  // Kickstart 1.3 Workbench
+		{true, 0x38, 0xD8, 42},  // Kickstart 3.x Workbench (with BPLxMOD -4)
+		{true, 0x18, 0xD8, 50},  // widest overscan
+	} {
+		if got := fetchWords(c.hires, c.start, c.stop); got != c.want {
+			t.Errorf("hires=%v DDF $%02X/$%02X: %d words, want %d", c.hires, c.start, c.stop, got, c.want)
+		}
+	}
+}
+
+// A 42-word hires line advances the pointers by 84 bytes plus the modulo
+// (the fetch used to be capped at 40 words, shearing KS3.x's Workbench).
+func TestWideFetchAdvancesPointers(t *testing.T) {
+	a := newTestAmigaVideo()
+	a.Custom.WriteReg16(0x100, 0xA200) // hires, 2 planes
+	a.Custom.WriteReg16(0x092, 0x0038)
+	a.Custom.WriteReg16(0x094, 0x00D8)
+	a.Custom.WriteReg16(0x108, 0xFFFC) // -4
+	a.Custom.WriteReg16(0x10A, 0xFFFC)
+	a.Video.bplpt[0], a.Video.bplpt[1] = 0x1000, 0x8000
+	a.Video.RenderLine(DisplayTop)
+	if a.Video.bplpt[0] != 0x1000+80 || a.Video.bplpt[1] != 0x8000+80 {
+		t.Errorf("pointers $%X, $%X after one line; want +80 (84 fetched - 4)", a.Video.bplpt[0], a.Video.bplpt[1])
+	}
+}

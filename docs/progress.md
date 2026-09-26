@@ -5,7 +5,8 @@ verified. Longer investigations get their own write-up in `docs/`.
 
 ## Status
 
-**Works:** Kickstart 1.3 boots; Workbench 1.3 boots from ADF; drawers open,
+**Works:** Kickstart 1.3 boots; Kickstart 3.2 reaches its insert screen and
+boots disks; Workbench 1.3 boots from ADF; drawers open,
 windows drag, Preferences launches. Keyboard and mouse work in the window.
 Sound plays through Paula; floppies can be written and swapped.
 
@@ -22,13 +23,53 @@ Sound plays through Paula; floppies can be written and swapped.
    potentiometer/second-button inputs are not implemented. Audio DMA slots
    are not charged against the blitter.
 4. **Machine.** 512 KB chip RAM (no 1 MB Agnus), optional slow and Zorro II
-   fast RAM. One floppy drive (DF0:). 512 KB ROMs load, but Kickstart 3.1
-   is untested: the repo's `Kick31.rom` is a damaged dump (see below). 512KB ROMs are truncated to their upper half, so only
+   fast RAM. One floppy drive (DF0:). Kickstart 3.2 (Hyperion,
+   47.96, A500 build) reaches its insert screen and boots a disk; it needs
+   Workbench 3.2 disks (its ROM loads icon/workbench.library from LIBS:). 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-26 — Kickstart 3.2 boots; wide bitplane fetches
+
+`Kick32.rom` (Hyperion Kickstart 3.2, 47.96, the A500/A600/A2000 build;
+checksum good) was run with `GOAMIGA_DIAG=1 go test -run
+TestKickstartDiag ./amiga/`. The diagnostic takes any ROM via
+`GOAMIGA_KS` and a disk via `GOAMIGA_ADF`, always write-protected. It
+logs state and exec's alert, catches illegal instructions, and with
+`GOAMIGA_TRACE_OPEN=1` traces OpenLibrary/InitResident calls and results.
+
+**No disk:** the insert screen (Boing ball, version text, disk and drive)
+renders correctly on the first try, with no alert.
+
+**Workbench 1.3 disk: sheared screen.** Intuition 3.2's Workbench screen
+is hires, 2 planes, with DDF `$38`/`$D8` and BPLxMOD −4: 42 words per line,
+with the modulo bringing each row back to 80 bytes. `RenderLine` capped the
+fetch at 40 words (its buffer size), so the pointers advanced 4 bytes short
+every line. Fixes:
+- the fetch buffer holds the OCS maximum (50 hires words, DDF `$18`–`$D8`);
+- `fetchWords` uses the hardware rule instead of formulas plus a
+  special case. Agnus fetches in 8-colour-clock units from DDFSTRT and
+  finishes the unit that reaches DDFSTOP plus one more; a unit is 1 word
+  per plane in lores and 2 in hires. That gives 20 lores words for
+  `$38`/`$D0`, 40 hires for both `$3C`/`$D4` and KS1.3's `$3C`/`$D0` (the
+  old "39 → 40" special case is gone), and 42 for `$38`/`$D8`.
+  Kickstart 1.3 renders pixel-identically.
+
+**Then a requester: "Please insert a volume containing LIBS/icon.library".**
+Correct behaviour, not a bug. The OpenLibrary trace showed ramlib's
+`InitResident(icon.library)` blocking, and the requester comes from
+inside it. The ROM's workbench.library and icon.library RomTags sit
+`$68` bytes apart at the end of the ROM. They are loader stubs that name
+"LIBS" plus workbench.library 47.33 / icon.library 47.4, and load those
+from disk. The 1.3 disk only has icon.library v34, so 3.2 asks for its
+own. A Workbench 3.2 disk set is needed to go further.
+
+**Tests.** `TestKS32InsertScreen` (no alert; colour histogram of the
+insert screen with slack for the animated ball; skips without the ROM),
+`TestFetchWords`, `TestWideFetchAdvancesPointers`. Full suite passes.
 
 ## 2026-09-26 — 512 KB ROMs; the repo's Kickstart 3.1 image is damaged
 
