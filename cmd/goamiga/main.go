@@ -17,6 +17,8 @@ func main() {
 	headless := flag.Bool("headless", false, "Run without display window")
 	writeProtect := flag.Bool("write-protect", false, "Write-protect the floppy: the Amiga cannot change the ADF file")
 	mute := flag.Bool("mute", false, "No sound")
+	slowRAM := flag.Int("slowram", 512, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
+	fastRAM := flag.Int("fastram", 0, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	flag.Parse()
@@ -45,6 +47,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error creating Amiga: %v\n", err)
 		os.Exit(1)
 	}
+
+	if err := a.ConfigureMemory(*slowRAM, *fastRAM); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Memory: 512 KB chip, %d KB slow, %d KB fast\n", *slowRAM, *fastRAM)
 
 	// Load the first disk; the others are for F11 to swap in. Check them
 	// all now so a typo fails at startup, not at the swap.

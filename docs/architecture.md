@@ -55,7 +55,10 @@ faults on the Amiga bus).
 | Range | Device |
 |---|---|
 | `$000000-$07FFFF` | Chip RAM (`chipram.go`; addresses wrap at 512KB like Agnus). ROM while the CIA-A OVL bit is set at reset |
+| `$200000-$9FFFFF` | Zorro II fast RAM once Autoconfig has placed it (`--fastram`; normally at `$200000`) |
 | `$BF0000-$BFFFFF` | Both CIAs, partially decoded (`ciaSpace`): CIA-A when A12 is low, odd bytes (`$BFE001`: OVL, LED, disk status, keyboard serial, mouse button, TOD = frame counter); CIA-B when A13 is low, even bytes (`$BFD000`: disk control, index pulse on /FLAG, TOD = scanline counter) |
+| `$C00000-$D7FFFF` | Slow RAM (`--slowram`, on the chip bus) |
+| `$E80000-$E8FFFF` | Autoconfig space: the fast RAM board's ID until configured |
 | `$DFF000-$DFFFFF` | Custom chip registers (`custom.go`) |
 | `$FC0000-$FFFFFF` | Kickstart ROM (256KB) |
 
@@ -73,6 +76,7 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes; `lineBuffer` gives per-column sprite colour and pair, with attached sprites |
 | `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard), CPU address decoding and E-clock access timing |
 | `disk.go` | DF0: | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), read DMA with WORDSYNC, DSKSYN/DSKBLK timing, index pulse; write DMA decoded back to ADF sectors and saved to the `--disk` file (`--write-protect` to prevent); eject and `SwapDisk` (insert once trackdisk has polled the empty drive) |
+| `memory.go` | Expansion memory | Slow RAM at `$C00000`; Zorro II fast RAM board with Autoconfig (`ConfigureMemory`) |
 | `paula.go` | Paula audio | 4 DMA/manual channels, interrupts, ADKCON modulation; 48 kHz box-filtered stereo mix with A500 fixed and LED filters into an `AudioBuffer` (played by `display.go`) |
 | `keyboard.go`, `mouse.go` | Input | Keyboard serial handshake via CIA-A; mouse counters in JOY0DAT, button on CIA-A PRA |
 | `display.go`, `keyboard_ebiten.go` | Host window | Ebitengine, 50 fps; excluded by `-tags noebitengine` |

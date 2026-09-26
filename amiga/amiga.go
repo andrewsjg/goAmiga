@@ -63,8 +63,13 @@ type Amiga struct {
 	Disk     *DiskDrive
 	Keyboard *Keyboard
 	Paula    *Paula
-	Mouse    *Mouse
-	Mapper   *m68kmem.Mapper
+
+	// Expansion memory (ConfigureMemory): slow RAM at $C00000 and a Zorro
+	// II fast RAM board. nil when not fitted.
+	SlowRAM *ram
+	FastRAM *zorroRAM
+	Mouse   *Mouse
+	Mapper  *m68kmem.Mapper
 
 	logger io.Writer
 
@@ -256,23 +261,30 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	// Unmapped addresses float rather than fault, as on real hardware.
 	a.Mapper.OpenBus = true
 
+	// Anything not mapped floats (open bus): Kickstart probes for memory
+	// by reading and writing, and finds nothing there.
 	if overlay {
 		// ROM mapped at $000000-$03FFFF (256KB overlay, same as ROM)
 		a.Mapper.Map(a.ROM, 0x000000, ROMSize-1)
-		a.Mapper.Map(m68kmem.NewNop(), ROMSize, ChipRAMEnd)
 	} else {
 		a.Mapper.Map(&busCounter{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMEnd)
 	}
 
-	// NOP for unmapped ranges (Kickstart probes memory by reading/writing)
-	a.Mapper.Map(m68kmem.NewNop(), ChipRAMEnd+1, CIASpaceBase-1)
-	a.Mapper.Map(m68kmem.NewNop(), CIASpaceEnd+1, CustomBase-1)
+	// Zorro II fast RAM: its Autoconfig ID until configured, then its RAM.
+	if z := a.FastRAM; z != nil && !z.shut {
+		if z.base == 0 {
+			a.Mapper.Map(z, AutoconfigBase, AutoconfigEnd)
+		} else {
+			a.Mapper.Map(z.mem, int(z.base), int(z.base)+len(z.mem.b)-1)
+		}
+	}
 
 	a.Mapper.Map(&busCounter{&ciaSpace{a.CIAA, a.CIAB}, &a.cpuCIAAccesses}, CIASpaceBase, CIASpaceEnd)
+	// Slow RAM is on the chip bus: CPU accesses contend with DMA.
+	if a.SlowRAM != nil {
+		a.Mapper.Map(&busCounter{a.SlowRAM, &a.cpuChipAccesses}, SlowRAMBase, SlowRAMBase+len(a.SlowRAM.b)-1)
+	}
 	a.Mapper.Map(&busCounter{a.Custom, &a.cpuChipAccesses}, CustomBase, CustomEnd)
-
-	// NOP between custom and ROM
-	a.Mapper.Map(m68kmem.NewNop(), CustomEnd+1, ROMBase-1)
 
 	// ROM at $FC0000-$FFFFFF (256KB)
 	a.Mapper.Map(a.ROM, ROMBase, ROMEnd)
@@ -285,6 +297,10 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 
 // Reset performs a hard reset of the Amiga.
 func (a *Amiga) Reset() error {
+	// Expansion boards forget their configuration on reset.
+	if a.FastRAM != nil {
+		a.FastRAM.unconfigure()
+	}
 	// Enable ROM overlay for reset vectors
 	a.wireMemoryMap(true)
 

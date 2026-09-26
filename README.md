@@ -23,6 +23,10 @@ drive.
 go run ./cmd/goamiga --rom Kick13.rom --disk wb13.adf --disk extras13.adf --disk blank.adf
 ```
 
+The machine has 512 KB chip RAM plus 512 KB slow RAM by default, like an
+A500 with a trapdoor expansion. `--slowram 0|512|1024|1536` and
+`--fastram <KB>` (Zorro II, up to 8192) change that.
+
 Sound plays through the host's audio output (`--mute` to turn it off).
 
 The floppy is writable: anything the Amiga saves to DF0: is written back

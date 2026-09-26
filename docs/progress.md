@@ -21,13 +21,48 @@ Sound plays through Paula; floppies can be written and swapped.
 3. **Paula (other).** Audio works; the serial port (UART) and the
    potentiometer/second-button inputs are not implemented. Audio DMA slots
    are not charged against the blitter.
-4. **Machine.** Chip RAM only (no `$C00000` slow RAM or fast RAM). One
-   floppy drive (DF0:). 512KB ROMs are truncated to their upper half, so only
+4. **Machine.** 512 KB chip RAM (no 1 MB Agnus), optional slow and Zorro II
+   fast RAM. One floppy drive (DF0:). 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-26 — Slow RAM and Zorro II fast RAM
+
+**Slow RAM** (`--slowram`, KB: 0/512/1024/1536, default 512 like an A500
+with a trapdoor board) is mapped at `$C00000` behind the chip-bus access
+counter, so CPU accesses contend with DMA as on hardware. Kickstart 1.3
+finds it by probing and moves ExecBase and the supervisor structures into
+it (ExecBase `$C00276`). Workbench shows 884,424 free instead of 360,168.
+
+**Fast RAM** (`--fastram`, KB: 0 or a power of two 64–8192) is a Zorro II
+Autoconfig board (`amiga/memory.go`). Until configured it presents its ID
+at `$E80000`: each register is two nibbles in bits 7–4 of even bytes, and
+every register but er_Type reads inverted. er_Type is Zorro II + link into
+the memory list + size code, with a made-up manufacturer `$07DB`.
+expansion.library writes A19–A16 to `$4A`, then A23–A20 to `$48`, which
+configures it. The board then leaves the config space and its RAM appears
+at the base (`$200000`). `$4C` shuts it up. Reset unconfigures it.
+Kickstart adds it as `MEMF_FAST|MEMF_PUBLIC`.
+
+The Mapper's explicit "NOP" regions were dropped, since open-bus mode
+already floats anything unmapped. That leaves room to map expansion
+devices in the gaps.
+
+**Gotcha found.** Many tests detect "Workbench started" by PC `$055C`:
+exec's AddTask jump-table entry, which is ExecBase − 282 with ExecBase at
+`$676`. With slow RAM, ExecBase moves and that address is wrong. New
+tests compute ExecBase − 282 instead. The old tests boot without slow RAM
+and are unaffected.
+
+**Tests** (`memory_test.go`): the Autoconfig protocol register by register
+(ID nibbles and inversion, base address write, RAM visible at both ends,
+board gone from config space, reset); Workbench boots with 512 KB slow
+RAM (MemList region at `$C005E8`, ~424 KB free), with a 2 MB board (at
+`$200000`, MEMF_FAST, ~1.96 MB free), and with 1 MB slow + 4 MB fast
+(5,463 KB free in total). Full suite passes.
 
 ## 2026-09-26 — Workarounds removed: native Flood, blitter guards, Copper low-PC skip
 
