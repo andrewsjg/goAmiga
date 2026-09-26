@@ -112,22 +112,37 @@ func TestSwapDiskTiming(t *testing.T) {
 	a.Disk.InsertDisk(patternADF())
 	a.Disk.selected = true
 
-	// Nobody polls: the disk goes in after swapMaxWait.
+	// Nobody polls, drive idle (motor off): in after swapIdleWait.
 	a.Disk.SwapDisk(make([]byte, ADFSize), "")
 	if a.Disk.Inserted() || a.Disk.ReadStatus(0xFF)&0x04 != 0 {
 		t.Fatal("drive not empty (with /DSKCHANGE low) right after SwapDisk")
 	}
-	a.Disk.TickCycles(swapMaxWait - 1)
+	a.Disk.TickCycles(swapIdleWait - 1)
 	if a.Disk.Inserted() {
-		t.Fatal("inserted before swapMaxWait")
+		t.Fatal("inserted before swapIdleWait")
 	}
 	a.Disk.TickCycles(1)
 	if !a.Disk.Inserted() || a.Disk.Swapping() {
+		t.Fatal("not inserted after swapIdleWait with the drive idle")
+	}
+
+	// Drive busy (motor on): head steps are data seeks, not trackdisk's
+	// poll, and the idle wait does not apply; only swapMaxWait does.
+	a.Disk.motor = true
+	a.Disk.SwapDisk(make([]byte, ADFSize), "")
+	a.Disk.HandleCIABWrite(0x01, 0x00) // step while busy
+	a.Disk.TickCycles(swapMaxWait - 1)
+	if a.Disk.Inserted() {
+		t.Fatal("inserted while the drive was busy, before swapMaxWait")
+	}
+	a.Disk.TickCycles(1)
+	if !a.Disk.Inserted() {
 		t.Fatal("not inserted after swapMaxWait")
 	}
 
-	// A head step with the drive empty (trackdisk's poll) brings the
-	// insert forward to swapAfterPoll.
+	// A step with the motor off (trackdisk's poll of the empty drive)
+	// brings the insert forward to swapAfterPoll.
+	a.Disk.motor = false
 	a.Disk.SwapDisk(make([]byte, ADFSize), "")
 	a.Disk.HandleCIABWrite(0x01, 0x00) // /STEP falling edge
 	a.Disk.TickCycles(swapAfterPoll)

@@ -31,6 +31,54 @@ Sound plays through Paula; floppies can be written and swapped.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-26 — Clock "error #8000000B"; disk swaps while the drive is busy
+
+**Report.** Booting Install 3.2, swapping to Workbench 3.2 and running
+Utilities/Clock gave "Program failed (error #8000000B)", CPU exception 11
+(Line-F).
+
+**Reproducing it headlessly** needed new `TestKickstartDiag` options, all
+applied to in-memory copies of the images:
+- `GOAMIGA_PATCH="old|new;…"` replaces startup-sequence lines (same length
+  or shorter; FFS data blocks have no checksum);
+- `GOAMIGA_SWAP="disk:frame"` swaps disks at a given frame;
+- `GOAMIGA_SWAP_ON_REQUEST=disk` swaps whenever a "System Request" is up
+  and the motor is off;
+- `GOAMIGA_BOOTBLOCK` borrows another disk's boot block;
+- `GOAMIGA_FRAMES`, `GOAMIGA_TRACE_VOLUMES`, and `GOAMIGA_TRACE_DRIVE`.
+
+The catcher now covers Line-A/Line-F too. `diag/adf.py` lists and extracts
+files from OFS/FFS images.
+
+Workbench3.2.adf ships with an empty boot block (`DOS\1` + zeros, bad
+checksum), so it does not boot on its own. Install 3.2 does, and loads
+icon/workbench.library with FixRomLibs. That matches Hyperion's floppy
+set; see the Workbench disk's startup-sequence.
+
+**Found along the way: `SwapDisk` inserted too early while the drive was
+busy.** When the swap came during disk activity, DOS kept treating the new
+disk as the old volume ("Install3.2 has a checksum error on disk block
+684"). Drive trace: with the motor on, a data-seek step happened while
+the drive was empty. `SwapDisk` took it for trackdisk's change poll and
+inserted 0.5 s later. The next seek, now with a disk present, cleared
+/DSKCHANGE before trackdisk polled, so the swap was never reported. Real
+hardware corrupts disks the same way if you swap while the light is on;
+trackdisk only polls when idle. Now only a step with the motor *off*
+counts as the poll. Without one, the disk goes in after 3 s of idle drive,
+or after 10 s regardless. With that, DOS's volume list follows every swap
+under Kickstart 3.2. `TestSwapDiskTiming` covers the busy-drive case.
+
+**The crash itself is not an emulator bug.** OpenLibrary trace for Clock:
+`amigaguide.library` v39 returns NULL, and Clock then crashes at PC
+`$FFFFFFB8`. That is `JSR -72(A6)` with A6 = 0, i.e. a call through the
+NULL library base; the word there (top of ROM) is `$FFFF`, a Line-F
+opcode. amigaguide.library is in `Workbench3.2:Libs`, but booted from
+Install 3.2, `LIBS:` is `Install3.2:Libs`. A real A500 booted the same
+way crashes identically. With `Assign LIBS: Workbench3.2:Libs ADD`, the
+amigaguide open no longer fails, but with one drive ramlib ping-pongs
+between the two volumes for every library (standard single-drive
+AmigaDOS behaviour). Two drives are the practical fix for this disk set.
+
 ## 2026-09-26 — Workbench 3.2: DENISEID and the Copper's WAIT wake-up
 
 ROMs now live in `ROMS/` and ADFs in `disks/` (all test paths updated;

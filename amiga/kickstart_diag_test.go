@@ -1,8 +1,11 @@
 package amiga
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -29,10 +32,49 @@ func TestKickstartDiag(t *testing.T) {
 	}
 	a.ConfigureMemory(512, 0)
 	if adf := os.Getenv("GOAMIGA_ADF"); adf != "" {
-		if err := a.LoadDisk(adf); err != nil {
+		data, err := os.ReadFile(adf)
+		if err != nil {
 			t.Fatal(err)
 		}
-		a.Disk.WriteProtected = true // never modify the image
+		// $GOAMIGA_RUN runs a command early in the startup-sequence, in
+		// place of its AddBuffers line (same length; FFS data blocks have
+		// no checksum). The image on disk is never touched.
+		if cmd := os.Getenv("GOAMIGA_RUN"); cmd != "" {
+			old := []byte("AddBuffers >NIL: DF0: 15")
+			i := bytes.Index(data, old)
+			line := []byte("Run " + cmd)
+			if i < 0 || len(line) > len(old) {
+				t.Fatalf("cannot patch startup-sequence for %q", cmd)
+			}
+			copy(data[i:], append(line, bytes.Repeat([]byte(" "), len(old)-len(line))...))
+		}
+		// $GOAMIGA_PATCH="old|new" replaces a line of the startup-sequence
+		// with a command of at most the same length (padded with spaces).
+		// Several patches may be given, separated by ";".
+		for _, pt := range strings.Split(os.Getenv("GOAMIGA_PATCH"), ";") {
+			if pt == "" {
+				continue
+			}
+			old, repl, _ := strings.Cut(pt, "|")
+			i := bytes.Index(data, []byte(old))
+			if i < 0 || len(repl) > len(old) {
+				t.Fatalf("cannot patch %q", old)
+			}
+			copy(data[i:], append([]byte(repl), bytes.Repeat([]byte(" "), len(old)-len(repl))...))
+		}
+		// $GOAMIGA_BOOTBLOCK copies another disk's boot block, to boot a
+		// disk that ships non-bootable (Workbench3.2.adf).
+		if bb := os.Getenv("GOAMIGA_BOOTBLOCK"); bb != "" {
+			other, err := os.ReadFile(bb)
+			if err != nil {
+				t.Fatal(err)
+			}
+			copy(data[:1024], other[:1024])
+		}
+		if err := a.Disk.InsertDisk(data); err != nil {
+			t.Fatal(err)
+		}
+		a.Disk.WriteProtected = true
 	}
 	a.Reset()
 	a.Video.DisplayActive = true
@@ -70,14 +112,18 @@ func TestKickstartDiag(t *testing.T) {
 		if err := a.Step(); err != nil {
 			return err
 		}
-		if h := rd(0x10); a.CPU.PC == h && prev != h && illegals < 5 && rd(4) > 0x100 {
-			illegals++
-			op, _ := a.CPU.M.Word(int(prev))
-			eb := rd(4)
-			task := rd(eb + 276)
-			name := readCStrMem(a, rd(task+10), 32)
-			t.Logf("ILLEGAL at $%06X opcode $%04X (ROM offset $%05X) task $%06X %q",
-				prev, op, prev-0xF80000, task, name)
+		for _, vec := range []uint32{4, 10, 11} { // illegal, Line-A, Line-F
+			if h := rd(4 * vec); a.CPU.PC == h && prev != h && illegals < 8 && rd(4) > 0x100 {
+				illegals++
+				op, _ := a.CPU.M.Word(int(prev))
+				eb := rd(4)
+				task := rd(eb + 276)
+				name := readCStrMem(a, rd(task+10), 32)
+				code := make([]byte, 16)
+				a.CPU.M.Read(int(prev)-6, code)
+				t.Logf("EXCEPTION vector %d at $%06X opcode $%04X task $%06X %q; bytes from PC-6: % X",
+					vec, prev, op, task, name, code)
+			}
 		}
 		return nil
 	}
@@ -85,7 +131,71 @@ func TestKickstartDiag(t *testing.T) {
 	if os.Getenv("GOAMIGA_ADF") != "" {
 		frames = 3000
 	}
+	if n, err := strconv.Atoi(os.Getenv("GOAMIGA_FRAMES")); err == nil {
+		frames = n
+	}
+	// $GOAMIGA_SWAP="disk.adf:frame" swaps DF0: to another disk at that
+	// frame (write-protected, via SwapDisk's eject/insert).
+	swapFrame, swapData := -1, []byte(nil)
+	if sw := os.Getenv("GOAMIGA_SWAP"); sw != "" {
+		i := strings.LastIndex(sw, ":")
+		swapFrame, _ = strconv.Atoi(sw[i+1:])
+		if swapData, err = os.ReadFile(sw[:i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// $GOAMIGA_SWAP_ON_REQUEST="other.adf": act like a user with two disks.
+	// Whenever a "System Request" window is up (DOS asking for a volume),
+	// swap to the other disk; DOS closes the requester itself once the
+	// right volume is in.
+	var disks [2][]byte
+	cur := 0
+	if other := os.Getenv("GOAMIGA_SWAP_ON_REQUEST"); other != "" {
+		disks[0] = append([]byte(nil), a.Disk.adf...)
+		if disks[1], err = os.ReadFile(other); err != nil {
+			t.Fatal(err)
+		}
+	}
+	requestOpen := func() bool {
+		ib := findLibrary(a, "intuition.library")
+		if ib == 0 {
+			return false
+		}
+		for scr := rd(ib + 60); scr != 0; scr = rd(scr) {
+			for w := rd(scr + 4); w != 0; w = rd(w) {
+				if readCStrMem(a, rd(w+32), 20) == "System Request" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	lastSwap := -1000
+	lastVols := ""
 	for f := 0; f <= frames; f++ {
+		// Like a sensible user: only swap once the drive has stopped.
+		if disks[1] != nil && f%25 == 0 && f-lastSwap > 400 && !a.Disk.Swapping() && !a.Disk.motor && requestOpen() {
+			cur ^= 1
+			a.Disk.SwapDisk(disks[cur], "")
+			lastSwap = f
+			t.Logf("frame %d: requester up, swapped to disk %d", f, cur)
+		}
+		if os.Getenv("GOAMIGA_TRACE_VOLUMES") != "" && f%5 == 0 {
+			if v := fmt.Sprint(dosVolumes(a)); v != lastVols {
+				t.Logf("frame %d: volumes %s (drive: disk=%v change=%v motor=%v)", f, v, a.Disk.Inserted(), a.Disk.diskChange, a.Disk.motor)
+				lastVols = v
+			}
+		}
+		if os.Getenv("GOAMIGA_TRACE_DRIVE") != "" && lastSwap > 0 && f%25 == 0 && f < lastSwap+160 {
+			d := a.Disk
+			t.Logf("frame %d: drive disk=%v swapping=%v change=%v motor=%v sel=%v cyl=%d statusReadsSelected=%d pendingWait=%.2fs",
+				f, d.Inserted(), d.Swapping(), d.diskChange, d.motor, d.selected, d.cylinder, d.StatusSelectedTrue,
+				float64(d.pendingWait)/7093790)
+		}
+		if f == swapFrame {
+			a.Disk.SwapDisk(swapData, "")
+			t.Logf("frame %d: swapped disk", f)
+		}
 		start := a.cycles
 		for a.cycles-start < CyclesPerFrame {
 			if err := step(); err != nil {
@@ -226,5 +336,9 @@ func TestKickstartDiag(t *testing.T) {
 				t.Logf("  $%06X SKIP v=$%02X h=$%02X", pc, w1>>8, w1&0xFE)
 			}
 		}
+	}
+	if eb := rd(4); eb > 0x100 {
+		attn, _ := a.CPU.M.Word(int(eb + 0x128))
+		t.Logf("ExecBase->AttnFlags=$%04X (bit0 68010, bit1 68020, bit4 68881, bit5 68882)", attn)
 	}
 }

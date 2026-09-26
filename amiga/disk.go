@@ -43,8 +43,9 @@ type DiskDrive struct {
 
 	// A disk waiting to go in after SwapDisk ejected the old one, and the
 	// CPU cycles left before it does.
-	pending     *pendingDisk
-	pendingWait int
+	pending        *pendingDisk
+	pendingWait    int // cycles until insertion (shortened by a poll)
+	pendingElapsed int // cycles since the eject
 	// Drive state
 	motor               bool
 	side                int // 0=lower, 1=upper
@@ -101,14 +102,19 @@ type pendingDisk struct {
 }
 
 // Disk swap timing. Swapping instantly confuses AmigaDOS: trackdisk only
-// learns the drive is empty when it polls (steps the head and reads
-// /DSKCHANGE), and if the new disk is already in by then it never reports
-// the old one gone. So SwapDisk ejects, waits until the head is stepped
-// with the drive empty, lets that poll finish, then inserts. Software that
-// never polls gets the disk after swapMaxWait.
+// learns the drive is empty when it polls (with the motor off, it steps the
+// head and reads /DSKCHANGE), and if the new disk is already in by then it
+// never reports the old one gone. A head step while the drive is busy (motor
+// on) is a data seek, not a poll; worse, the next seek with the new disk in
+// clears /DSKCHANGE before trackdisk looks, so DOS goes on reading the new
+// disk as the old volume ("checksum error on disk block ..."). So SwapDisk
+// ejects, waits for a step with the motor off (trackdisk's poll), lets that
+// poll finish, then inserts. If nothing polls, it inserts once the drive
+// has been idle for swapIdleWait, or after swapMaxWait regardless.
 const (
-	swapAfterPoll = 7_093_790 / 2 // 0.5 s after the empty-drive poll
-	swapMaxWait   = 7_093_790 * 3 // insert after 3 s regardless
+	swapAfterPoll = 7_093_790 / 2  // 0.5 s after the empty-drive poll
+	swapIdleWait  = 7_093_790 * 3  // insert after 3 s if the motor is off
+	swapMaxWait   = 7_093_790 * 10 // insert after 10 s regardless
 )
 
 // SwapDisk ejects the current disk and inserts data (from file path, or
@@ -121,6 +127,7 @@ func (d *DiskDrive) SwapDisk(data []byte, path string) error {
 	d.Eject()
 	d.pending = &pendingDisk{data: data, path: path}
 	d.pendingWait = swapMaxWait
+	d.pendingElapsed = 0
 	return nil
 }
 
@@ -190,8 +197,8 @@ func (d *DiskDrive) HandleCIABWrite(old, new byte) {
 		}
 		if d.adf != nil {
 			d.diskChange = false // stepping clears disk change only when disk is present
-		} else if d.pending != nil && d.pendingWait > swapAfterPoll {
-			d.pendingWait = swapAfterPoll // polled while empty: insert soon
+		} else if d.pending != nil && !d.motor && d.pendingWait > swapAfterPoll {
+			d.pendingWait = swapAfterPoll // trackdisk polled the empty drive
 		}
 	}
 }
@@ -485,7 +492,9 @@ func (d *DiskDrive) TickCycles(cpuCycles int) {
 	}
 	if d.pending != nil {
 		d.pendingWait -= cpuCycles
-		if d.pendingWait <= 0 {
+		d.pendingElapsed += cpuCycles
+		idle := !d.motor && d.pendingElapsed >= swapIdleWait
+		if d.pendingWait <= 0 || idle || d.pendingElapsed >= swapMaxWait {
 			d.insertPending()
 		}
 	}
@@ -512,6 +521,10 @@ func (d *DiskDrive) CyclesToNextEvent() int {
 	consider(d.completionCycles)
 	if d.pending != nil {
 		consider(d.pendingWait)
+		consider(swapMaxWait - d.pendingElapsed)
+		if !d.motor {
+			consider(swapIdleWait - d.pendingElapsed)
+		}
 	}
 	if d.spinning() && d.amiga.CIAB.icrMask&0x10 != 0 {
 		consider(DiskRevolutionCycles - int(d.amiga.cycles%DiskRevolutionCycles))
