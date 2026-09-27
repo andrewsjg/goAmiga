@@ -59,7 +59,8 @@ faults on the Amiga bus).
 | `$BF0000-$BFFFFF` | Both CIAs, partially decoded (`ciaSpace`): CIA-A when A12 is low, odd bytes (`$BFE001`: OVL, LED, disk status, keyboard serial, mouse button, TOD = frame counter); CIA-B when A13 is low, even bytes (`$BFD000`: disk control, index pulse on /FLAG, TOD = scanline counter) |
 | `$C00000-$D7FFFF` | Slow RAM (`--slowram`, on the chip bus) |
 | `$DFF000-$DFFFFF` | Custom chip registers (`custom.go`) |
-| `$E80000-$E8FFFF` | Autoconfig space: the fast RAM board's ID until configured |
+| `$E80000-$E8FFFF` | Autoconfig space: the ID of the first board in the chain not yet configured (fast RAM, then the hard disk controller) |
+| `$E90000-$EFFFFF` | The hard disk controller once configured (normally `$E90000`, 64 KB: trap register, boot ROM, device structures) |
 | `$F80000-$FFFFFF` | Kickstart ROM: 512KB (2.x/3.x) once, or 256KB (1.x) mirrored at `$F80000` and `$FC0000` |
 
 Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
@@ -77,10 +78,11 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard), CPU address decoding and E-clock access timing |
 | `drive.go` | Floppy drives | One `Drive` per unit: disk image, motor latch, head, select, change latch, swap, external-drive ID |
 | `disk.go` | Disk controller | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), read DMA with WORDSYNC, DSKSYN/DSKBLK timing, index pulse; write DMA decoded back to ADF sectors and saved to the `--disk` file (`--write-protect` to prevent); eject and `SwapDisk` (insert once trackdisk has polled the empty drive) |
-| `memory.go` | Expansion memory | Slow RAM at `$C00000`; Zorro II fast RAM board with Autoconfig (`ConfigureMemory`) |
+| `memory.go`, `autoconfig.go` | Expansion memory | Slow RAM at `$C00000`; Zorro II Autoconfig chain; fast RAM board (`ConfigureMemory`) |
+| `hdboard.go`, `hardfile.go` | Hard disk | Autoboot Zorro II board and `goamiga.device`. Go generates the 68000 boot ROM (DiagArea, RomTag, BootPoint, driver glue) for the board's address. The code writes trap numbers to the board and Go performs the request. Hardfiles are plain or RDB (`AttachHardfile`, `--hdf`) |
 | `paula.go` | Paula audio | 4 DMA/manual channels, interrupts, ADKCON modulation; 48 kHz box-filtered stereo mix with A500 fixed and LED filters into an `AudioBuffer` (played by `display.go`) |
-| `keyboard.go`, `mouse.go` | Input | Keyboard serial handshake via CIA-A; mouse counters in JOY0DAT, button on CIA-A PRA |
-| `display.go`, `keyboard_ebiten.go` | Host window | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
+| `keyboard.go`, `mouse.go`, `joystick.go` | Input | Keyboard serial handshake via CIA-A. Mouse counters in JOY0DAT. Port 2 joystick in JOY1DAT. Fire buttons on CIA-A PRA. Second and third buttons on the POTGO pins |
+| `display.go`, `display_joystick.go`, `keyboard_ebiten.go` | Host window | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
 
 ## Tests
 

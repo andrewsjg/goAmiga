@@ -37,6 +37,37 @@ The floppy is writable: anything the Amiga saves to DF0: is written back
 into the ADF file. Keep a copy of disks you care about, or pass
 `--write-protect`.
 
+### Hard disks
+
+`--hdf file.hdf` attaches a hard disk image as the next unit of
+`goamiga.device`, the emulator's own autobooting controller; repeat it for
+more. Images can be plain hardfiles (a single partition, as WinUAE creates
+them, mounted as `DH0:`, `DH1:` ...) or whole disks with a Rigid Disk Block
+(each partition mounted under its own name). With no bootable floppy in DF0:
+the Amiga boots from the hard disk.
+
+```bash
+go run ./cmd/goamiga --rom ROMS/Kick32.rom --hdf dh0.hdf --hdf-create 100 --df0 disks/Install3.2.adf
+```
+
+`--hdf-create MB` creates any `--hdf` file that doesn't exist yet, blank.
+Format it from the Amiga (for example `Format DRIVE DH0: NAME Work FFS
+QUICK`), then install onto it. Writes go straight into the image file;
+`--write-protect` covers hardfiles too. Partitions must use a filesystem the
+Kickstart ROM has: OFS on 1.3, OFS or FFS on 2.0 and later. Filesystems
+stored in an RDB are not loaded.
+
+### Joystick
+
+A joystick is always plugged into port 2 (the mouse stays in port 1). Any
+gamepad drives it: D-pad or left stick, A (bottom button) to fire, B for
+the second button. Ctrl+F12 (or `--joy-keys`) turns the arrow keys into the
+joystick as well, with Right Ctrl or Right Alt/Option to fire and Right
+Shift for the second button. While that's on, those keys don't reach the
+Amiga keyboard.
+
+### Display
+
 The window shows the standard PAL display area (640×256, doubled
 vertically). Add `--overscan` to see the full overscan area (720×284),
 for software that draws into the border.

@@ -5,31 +5,132 @@ verified. Longer investigations get their own write-up in `docs/`.
 
 ## Status
 
-**Works:** Kickstart 1.3 boots; Kickstart 3.2 reaches its insert screen and
-boots disks; Workbench 1.3 boots from ADF; drawers open,
-windows drag, Preferences launches. Keyboard and mouse work in the window.
-Sound plays through Paula; floppies can be written and swapped.
+**Works:**
+- Kickstart 1.3 and 3.2 (Hyperion 47.96, A500) boot. Workbench 1.3 and 3.2
+  run from floppy or hard disk. Drawers open, windows drag, Preferences
+  launches.
+- Input: keyboard and mouse, plus a joystick from a gamepad or the arrow
+  keys.
+- Sound plays through Paula.
+- Up to four floppy drives, writable and swappable. Hardfiles on an
+  autobooting controller.
+- The CPU passes the SingleStepTests 68000 suite with 68000 cycle timing.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
 1. **Timing (remaining).** Copper, audio and disk DMA slots are not
    charged against the CPU/blitter; blit and disk data still land in chip
    RAM at the start of the transfer (only BBUSY and interrupt timing are
-   real); no drive motor spin-up time.
+   real); no drive motor spin-up time. The CPU's bus cycles are counted per
+   instruction rather than placed within it.
 2. **Display.** Missing: BPLCON0 and
    sprite register changes partway through a line; collisions are only
    detected on lines that are drawn (not in headless mode).
-3. **Paula (other).** Audio works; the serial port (UART) and the
-   potentiometer/second-button inputs are not implemented. Audio DMA slots
-   are not charged against the blitter.
+3. **Paula (other).** No serial port (UART). The POTxDAT proportional
+   counters (analogue joysticks, paddles) are not implemented. Audio DMA
+   slots are not charged against the blitter.
 4. **Machine.** 512 KB chip RAM (no 1 MB Agnus), optional slow and Zorro II
-   fast RAM. Up to four floppy drives. Kickstart 3.2 (Hyperion,
-   47.96, A500 build) boots the Install 3.2 disk to Workbench. 512KB ROMs are truncated to their upper half, so only
-   256KB Kickstarts (1.x) work.
-   CPU instruction timing is only partly accurate (cycle counts match the
-   SingleStepTests for a minority of cases).
+   fast RAM. OCS only (no ECS/AGA). Hardfiles use Kickstart's filesystem;
+   filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-27 — Hard disks: an autobooting hardfile controller
+
+`--hdf file.hdf` (repeatable) attaches hard disk images. Plain WinUAE-style
+hardfiles and RDB disks both work. Kickstart 1.3 and 3.2 boot from them
+with no floppy.
+
+**Approach.** I didn't emulate a real controller (A590/A2091 with a WD33C93
+SCSI chip, plus its Commodore driver ROM). goAmiga has its own Zorro II board
+and device driver, as UAE does with uaehf.device. The board's autoboot ROM
+follows Commodore's autoboot example:
+
+1. Autoconfig: er_Type has ERTF_DIAGVALID, and er_InitDiagVec points at a
+   DiagArea (`DAC_WORDWIDE|DAC_CONFIGTIME`).
+2. expansion.library copies the DiagArea to RAM and calls its DiagPoint,
+   which fixes up the RomTag's MatchTag and EndSkip in the copy. The system
+   then finds that RomTag and initialises it.
+3. The RomTag init (RTF_COLDSTART) does:
+   - `AddDevice(goamiga.device)`
+   - for each partition, `MakeDosNode(parameter packet)`, then Enqueue a
+     BootNode (NT_BOOTNODE, `ln_Name` = the ConfigDev) on
+     `eb_MountList`.
+4. strap boots from the highest-priority BootNode by calling the
+   DiagArea's BootPoint, which does `FindResident("dos.library")` and jumps
+   to its init.
+
+**No assembler needed.** Nothing outside Go can assemble 68000 code here, and
+the ROM only needs glue. `hdboard.go` has a tiny assembler (about 15
+instructions, labels, short branches) and generates the ROM when
+expansion.library assigns the board's base, so every address in it is
+absolute. Each routine that needs real work writes a trap number to a board
+register (`move.w #n,$E90100`). The board's Write handler then runs Go code
+with the CPU registers and memory in reach:
+
+| Trap | Go does |
+|---|---|
+| DiagPoint | patch the RomTag copy, remember the ConfigDev |
+| init | build the device base (jump table + Library) in the board's own RAM, so no AllocMem |
+| next partition | build the MakeDosNode parameter packet |
+| boot node | build the BootNode |
+| Open, Close | check the unit, set io_Unit, keep the open count |
+| BeginIO | perform the request |
+
+BeginIO's glue calls exec's ReplyMsg only when Go says the request was not
+IOF_QUICK. TD_ADDCHANGEINT is kept, never replied, as trackdisk does. The
+device supports:
+- CMD_READ/WRITE/UPDATE/CLEAR and TD_FORMAT
+- TD_MOTOR, TD_SEEK, TD_CHANGENUM/CHANGESTATE, TD_PROTSTATUS
+- TD_GETGEOMETRY, TD_GETNUMTRACKS, TD_GETDRIVETYPE
+- the TD64 and NSD 64-bit commands, and NSCMD_DEVICEQUERY
+
+**Autoconfig chain.** Adding a second board meant generalising the fast RAM
+code (`autoconfig.go`). Only the first board not yet configured answers at
+$E80000, and the rest follow once it takes its address. Fast RAM goes to
+$200000 and the controller to $E90000.
+
+**Images.** A plain hardfile has 32 sectors per track, one head and two
+reserved blocks, in one partition with boot priority -unit. An unformatted
+one is mounted as FFS on Kickstart 2.0 and later, OFS before. RDB disks
+supply their geometry and PART blocks (name, DosEnvec, bootable, no-mount).
+A handy fact for testing: an ADF is a valid plain hardfile. Its 1,760 blocks
+make 55 cylinders of 32 sectors, with the root block in the middle.
+`TestHardfileBootKS13` and `TestHardfileBootKS32` boot Workbench 1.3 and the
+Install 3.2 disk that way:
+
+| Kickstart | Frames to Workbench from hardfile | From floppy |
+|---|---|---|
+| 1.3 | 827 (16.5 s) | 3,056 |
+| 3.2 | 283 | — |
+
+Workbench3.2.adf alone stops at "insert LIBS/icon.library": the A500 3.2 ROM
+doesn't have it and that disk doesn't carry it. It is a missing module, not
+an emulator fault.
+
+Tests without Kickstart drive the traps directly (`TestHDDeviceIO`,
+`TestHDDeviceWriteProtect`), and `TestHardfileRDB` parses a built RDB.
+
+## 2026-09-27 — Joystick in port 2
+
+`joystick.go` gives game port 2 a digital joystick:
+- **Directions.** JOY1DAT reads the switch pattern: right sets X1, left
+  sets Y1, and down and up are X1^X0 and Y1^Y0.
+- **Fire.** Fire pulls /FIR1 (CIA-A PRA bit 7) low.
+- **Second button.** The second button grounds port 2's POTY pin
+  (POTGOR DATRY).
+
+POTGO is now modelled properly. Each pot pin reads high as an input, reads
+its DATxx bit when POTGO makes it an output, and reads low while a button
+shorts it. The mouse's right button therefore appears as DATLY, and its
+middle button as DATLX. POTGOR used to return $FFFF, and now returns only
+the four data bits, as Paula does. JOYTEST loads the mouse counters'
+upper six bits.
+
+On the host, any gamepad drives the joystick (D-pad or left stick, A and B).
+Ctrl+F12 or `--joy-keys` turns the arrow keys plus Right Ctrl/Alt and Right
+Shift into the joystick and takes those keys off the Amiga keyboard. F10 is
+an Amiga key, so the toggle couldn't use it.
 
 ## 2026-09-27 — Real 68000 instruction timing; CIA /IRQ is a level
 

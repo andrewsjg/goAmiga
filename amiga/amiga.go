@@ -69,8 +69,12 @@ type Amiga struct {
 	// II fast RAM board. nil when not fitted.
 	SlowRAM *ram
 	FastRAM *zorroRAM
-	Mouse   *Mouse
-	Mapper  *m68kmem.Mapper
+	// HardDisk is the hard disk controller, when hardfiles are attached.
+	HardDisk *hdBoard
+	Mouse    *Mouse
+	// Joystick is the joystick in game port 2.
+	Joystick *Joystick
+	Mapper   *m68kmem.Mapper
 
 	logger io.Writer
 
@@ -157,6 +161,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	a.Keyboard = NewKeyboard(a)
 	a.Paula = NewPaula(a)
 	a.Mouse = NewMouse(a)
+	a.Joystick = &Joystick{}
 
 	// Wire CIA interrupt callbacks
 	a.CIAA.OnInterrupt = func() { a.Custom.SetIntreq(1 << 3) }  // PORTS (IPL 2)
@@ -186,7 +191,11 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 		} else {
 			val |= 0x40 // released → high
 		}
-		val |= 0x80 // /FIR1 idle high (no joy1 fire)
+		if a.Joystick != nil && a.Joystick.Fire {
+			val &^= 0x80
+		} else {
+			val |= 0x80
+		}
 		return val
 	}
 	a.CIAA.OnCRAWrite = func(old, new byte) {
@@ -270,14 +279,8 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		a.Mapper.Map(&busCounter{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMEnd)
 	}
 
-	// Zorro II fast RAM: its Autoconfig ID until configured, then its RAM.
-	if z := a.FastRAM; z != nil && !z.shut {
-		if z.base == 0 {
-			a.Mapper.Map(z, AutoconfigBase, AutoconfigEnd)
-		} else {
-			a.Mapper.Map(z.mem, int(z.base), int(z.base)+len(z.mem.b)-1)
-		}
-	}
+	// Zorro II boards: fast RAM, the hard disk controller.
+	a.mapZorro()
 
 	a.Mapper.Map(&busCounter{&ciaSpace{a.CIAA, a.CIAB}, &a.cpuCIAAccesses}, CIASpaceBase, CIASpaceEnd)
 	// Slow RAM is on the chip bus: CPU accesses contend with DMA.
@@ -305,8 +308,8 @@ func (a *Amiga) mapROM(base int) {
 // Reset performs a hard reset of the Amiga.
 func (a *Amiga) Reset() error {
 	// Expansion boards forget their configuration on reset.
-	if a.FastRAM != nil {
-		a.FastRAM.unconfigure()
+	for _, b := range a.zorroBoards() {
+		b.autoconfig().unconfigure()
 	}
 	// Enable ROM overlay for reset vectors
 	a.wireMemoryMap(true)
