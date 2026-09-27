@@ -96,8 +96,8 @@ func opDivu(c *Processor) (t stepTrace) {
 	}
 
 	if divisor == 0 {
-		// divide by zero — for now set error
-		t.err = fmt.Errorf("divide by zero")
+		c.SR &^= StatusCarry | StatusOverflow | StatusZero | StatusNegative
+		t.err = c.RaiseException(VecDivideByZero)
 		return
 	}
 
@@ -105,12 +105,12 @@ func opDivu(c *Processor) (t stepTrace) {
 	quotient := dividend / uint32(divisor)
 	remainder := dividend % uint32(divisor)
 
-	c.SR &= ^uint32(StatusCarry | StatusOverflow | StatusZero | StatusNegative)
-
+	// On overflow Dn, N and Z are left alone (as measured on the 68000).
 	if quotient > 0xFFFF {
-		c.SR |= StatusOverflow
+		c.SR = c.SR&^StatusCarry | StatusOverflow
 		return
 	}
+	c.SR &= ^uint32(StatusCarry | StatusOverflow | StatusZero | StatusNegative)
 
 	c.D[reg] = (remainder&0xFFFF)<<16 | (quotient & 0xFFFF)
 
@@ -144,7 +144,8 @@ func opDivs(c *Processor) (t stepTrace) {
 
 	divisor := int32(int16(src))
 	if divisor == 0 {
-		t.err = fmt.Errorf("divide by zero")
+		c.SR &^= StatusCarry | StatusOverflow | StatusZero | StatusNegative
+		t.err = c.RaiseException(VecDivideByZero)
 		return
 	}
 
@@ -152,12 +153,12 @@ func opDivs(c *Processor) (t stepTrace) {
 	quotient := dividend / divisor
 	remainder := dividend % divisor
 
-	c.SR &= ^uint32(StatusCarry | StatusOverflow | StatusZero | StatusNegative)
-
+	// On overflow Dn, N and Z are left alone (as measured on the 68000).
 	if quotient > 32767 || quotient < -32768 {
-		c.SR |= StatusOverflow
+		c.SR = c.SR&^StatusCarry | StatusOverflow
 		return
 	}
+	c.SR &= ^uint32(StatusCarry | StatusOverflow | StatusZero | StatusNegative)
 
 	c.D[reg] = (uint32(remainder)&0xFFFF)<<16 | (uint32(quotient) & 0xFFFF)
 
@@ -166,74 +167,6 @@ func opDivs(c *Processor) (t stepTrace) {
 	}
 	if quotient < 0 {
 		c.SR |= StatusNegative
-	}
-	return
-}
-
-// opSbcd implements SBCD (4-171)
-func opSbcd(c *Processor) (t stepTrace) {
-	t = stepTrace{
-		addr: c.PC,
-		op:   "sbcd",
-		sz:   noSize,
-		n:    1,
-	}
-	c.PC += 2
-
-	rx := (c.op & 0x0E00) >> 9
-	ry := c.op & 0x07
-	x := byte(0)
-	if c.SR&StatusExtend != 0 {
-		x = 1
-	}
-	mod := (c.op & 0x08) >> 3
-
-	var vx, vy byte
-	if mod == 0 {
-		t.src = fmt.Sprintf("D%d", ry)
-		t.dst = fmt.Sprintf("D%d", rx)
-		vx = byte(c.D[rx])
-		vy = byte(c.D[ry])
-	} else {
-		t.src = fmt.Sprintf("-(A%d)", ry)
-		t.dst = fmt.Sprintf("-(A%d)", rx)
-		c.A[rx]--
-		c.A[ry]--
-		vx, t.err = c.M.Byte(int(c.A[rx]))
-		if t.err != nil {
-			return
-		}
-		vy, t.err = c.M.Byte(int(c.A[ry]))
-		if t.err != nil {
-			return
-		}
-	}
-
-	c.SR &= ^(StatusCarry | StatusExtend)
-
-	// packed BCD subtract
-	lo := int16(vx&0x0F) - int16(vy&0x0F) - int16(x)
-	if lo < 0 {
-		lo += 10
-	}
-	hi := int16(vx>>4) - int16(vy>>4)
-	if lo > 9 {
-		hi--
-	}
-	if hi < 0 {
-		hi += 10
-		c.SR |= StatusCarry | StatusExtend
-	}
-	v := byte(hi<<4) | byte(lo&0x0F)
-
-	if v != 0 {
-		c.SR &= ^StatusZero
-	}
-
-	if mod == 0 {
-		c.D[rx] = (c.D[rx] & 0xFFFFFF00) | uint32(v)
-	} else {
-		_, t.err = c.M.Write(int(c.A[rx]), []byte{v})
 	}
 	return
 }

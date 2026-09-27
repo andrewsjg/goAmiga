@@ -1,7 +1,6 @@
 package m68k
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 )
@@ -85,20 +84,20 @@ func opClr(c *Processor) (t stepTrace) {
 		sz:   c.op >> 6 & 0x3,
 	}
 	c.PC += 2
-
-	switch t.sz {
-	default:
+	if t.sz > SizeLong {
 		t.err = errBadOpSize
-
-	case SizeByte:
-		t.dst, t.err = c.writeByte(c.op, 0)
-
-	case SizeWord:
-		t.dst, t.err = c.writeWord(c.op, 0)
-
-	case SizeLong:
-		t.dst, t.err = c.writeLong(c.op, 0)
+		return
 	}
+
+	// The 68000's CLR reads its destination before writing zero (so an
+	// odd address faults on the read).
+	ea := decodeEA(c.op)
+	rmw := c.saveRMW(ea)
+	if _, _, t.err = c.readInt(ea, t.sz); t.err != nil {
+		return
+	}
+	c.restoreRMW(rmw)
+	t.dst, t.err = c.writeInt(ea, NewInt(0, int(t.sz)))
 	if t.err != nil {
 		return
 	}
@@ -135,7 +134,16 @@ func opMoveToSr(c *Processor) (t stepTrace) {
 	return
 }
 
-// opMovem implements MOVEM (pg. 4-128)
+// opMovem implements MOVEM (4-128), one register at a time as the 68000
+// does, so an address error happens at the right transfer:
+//   - registers to memory: D0..A7 upwards from the address, or for -(An)
+//     A7..D0 downwards from An (mask bit 0 = A7); -(An) stores An's value
+//     from before the instruction;
+//   - memory to registers: D0..A7 upwards; words are sign-extended.
+//
+// An is written back (with the final address) only once the transfer is
+// done, so for (An)+ it overrides a value loaded into An. If the first
+// transfer faults, -(An) is unchanged and (An)+ is left advanced by 2.
 func opMovem(c *Processor) (t stepTrace) {
 	t = stepTrace{
 		addr: c.PC,
@@ -145,124 +153,100 @@ func opMovem(c *Processor) (t stepTrace) {
 	}
 	c.PC += 2
 	regl, _, _ := c.readImmWord() // register list
-	dir := c.op & 0x0400 >> 10    // direction
-
-	if dir == 0 {
-		// register to memory
-		// For the predecrement addressing mode (-(An), EA mode bits = 100),
-		// the register list mask is encoded in REVERSE order:
-		//   bit 0 = A7, bit 1 = A6, ..., bit 7 = A0, bit 8 = D7, ..., bit 15 = D0
-		// Registers are stored from highest-numbered to lowest-numbered, so the
-		// highest-numbered register ends up at the HIGHEST memory address and the
-		// lowest-numbered register (last pushed) ends up at the LOWEST address.
-		// We iterate bits 0→15 (last→first push order), then REVERSE the buffer
-		// so the first-pushed (highest-numbered) value sits at the highest address.
-		//
-		// For all other addressing modes (control, absolute etc.), the mask is
-		// in normal order (bit 0=D0 ... bit 15=A7) and the buffer is written
-		// sequentially starting at the EA address.
-		mod := c.op & 0x38 >> 3 // EA mode field
-		isPredec := mod == 0x04 // predecrement -(An)
-
-		t.src = fmt.Sprintf("$%X", regl)
-		b := &bytes.Buffer{}
-		for i := uint16(0); i < 16; i++ {
-			ok := regl & (1 << i)
-			if ok == 0 {
-				continue // skip unset registers
-			}
-
-			// read register value
-			// For predecrement: bit 0=A7, ..., bit 7=A0, bit 8=D7, ..., bit 15=D0
-			// For other modes:  bit 0=D0, ..., bit 7=D7, bit 8=A0, ..., bit 15=A7
-			var v uint32
-			if isPredec {
-				if i < 8 {
-					v = c.A[7-i]
-				} else {
-					v = c.D[7-(i-8)]
-				}
-			} else {
-				if i < 8 {
-					v = c.D[i]
-				} else {
-					v = c.A[i-8]
-				}
-			}
-
-			// write value to buffer
-			binary.BigEndian.PutUint32(c.buf[:4], v)
-			if t.sz == SizeWord { // movem.w <list>,<ea>
-				b.Write(c.buf[2:4])
-			} else { // movem.l <list>,<ea>
-				b.Write(c.buf[:4])
-			}
-		}
-
-		buf := b.Bytes()
-		if isPredec {
-			// Reverse the buffer so the last-pushed register (lowest-numbered,
-			// first in our iteration) ends up at the LOWEST memory address.
-			stride := 4
-			if t.sz == SizeWord {
-				stride = 2
-			}
-			// Reverse in chunks of stride bytes
-			for lo, hi := 0, len(buf)-stride; lo < hi; lo, hi = lo+stride, hi-stride {
-				for k := 0; k < stride; k++ {
-					buf[lo+k], buf[hi+k] = buf[hi+k], buf[lo+k]
-				}
-			}
-		}
-
-		// flush buffer to memory
-		t.dst, t.err = c.writeBytes(c.op, buf)
-		return
-	}
-
-	// memory to register
-	t.dst = fmt.Sprintf("$%X", regl)
-
-	// count registers
-	regc := 0
-	for i := uint16(0); i < 16; i++ {
-		if regl&(1<<i) != 0 {
-			regc++
-		}
-	}
-
-	// read values from memory
-	buflen := regc * 2
+	toRegs := c.op&0x0400 != 0
+	mode, reg := c.op>>3&7, c.op&7
+	size := uint32(2)
 	if t.sz == SizeLong {
-		buflen = regc * 4
+		size = 4
 	}
-	t.src, t.err = c.readBytes(c.op, c.buf[:buflen])
-	if t.err != nil {
+
+	var addr uint32
+	switch mode {
+	case 3, 4:
+		addr = c.A[reg]
+		if mode == 3 {
+			t.src = fmt.Sprintf("(A%d)+", reg)
+			// A fault on the first transfer leaves An advanced by 2.
+			defer func() {
+				if r := recover(); r != nil {
+					c.A[reg] = addr + 2
+					panic(r)
+				}
+			}()
+		} else {
+			t.dst = fmt.Sprintf("-(A%d)", reg)
+		}
+	default:
+		var opr string
+		if addr, opr, t.err = c.controlAddr(c.op & 0x3F); t.err != nil {
+			return
+		}
+		if toRegs {
+			t.src = opr
+		} else {
+			t.dst = opr
+		}
+	}
+	if !toRegs {
+		t.src = fmt.Sprintf("$%X", regl)
+		regs := append(c.D[:8:8], c.A[:]...) // values before the transfer
+		for i := uint16(0); i < 16; i++ {
+			if regl&(1<<i) == 0 {
+				continue
+			}
+			var v uint32
+			if mode == 4 {
+				v = regs[15-i] // bit 0 = A7 ... bit 15 = D0
+				addr -= size
+			} else {
+				v = regs[i]
+			}
+			if mode == 4 && size == 4 {
+				// A long is written low word first, going down.
+				if t.err = c.writeAt(addr+2, NewInt(v&0xFFFF, SizeWord)); t.err != nil {
+					return
+				}
+				if t.err = c.writeAt(addr, NewInt(v>>16, SizeWord)); t.err != nil {
+					return
+				}
+			} else if t.err = c.writeAt(addr, NewInt(v, int(t.sz))); t.err != nil {
+				return
+			}
+			if mode != 4 {
+				addr += size
+			}
+		}
+		if mode == 4 {
+			c.A[reg] = addr
+		}
 		return
 	}
 
-	// set register values
-	x := 0
+	t.dst = fmt.Sprintf("$%X", regl)
 	for i := uint16(0); i < 16; i++ {
-		ok := regl & (1 << i)
-		if ok == 0 {
-			continue // skip unset registers
+		if regl&(1<<i) == 0 {
+			continue
 		}
 		var v uint32
-		if t.sz == SizeWord { // movem.w <ea>,<list>
-			v = uint32(wordToInt32(binary.BigEndian.Uint16(c.buf[x : x+2])))
-			x += 2
-		} else { // movem.l <ea>,<list>
-			v = binary.BigEndian.Uint32(c.buf[x : x+4])
-			x += 4
+		if size == 2 {
+			var w uint16
+			if w, t.err = c.M.Word(int(addr)); t.err != nil {
+				return
+			}
+			v = uint32(wordToInt32(w))
+		} else if v, t.err = c.M.Long(int(addr)); t.err != nil {
+			return
 		}
+		addr += size
 		if i < 8 {
 			c.D[i] = v
 		} else {
 			c.A[i-8] = v
 		}
 	}
-
+	if mode == 3 {
+		c.A[reg] = addr
+	}
 	return
 }
 
@@ -432,6 +416,12 @@ func opJsr(c *Processor) (t stepTrace) {
 				return
 			}
 		}
+	}
+
+	// An odd target faults on the prefetch from it, before the return
+	// address is pushed.
+	if jmp&1 != 0 && !c.NoAddressErrors {
+		panic(&addressError{addr: jmp, program: true, pc: jmp - 4, sr: c.SR})
 	}
 
 	// push return address (current PC) to stack
@@ -708,15 +698,15 @@ func opUnlk(c *Processor) (t stepTrace) {
 	}
 	c.PC += 2
 
-	// SP = An
+	// SP = An, then pop An. The pop is written last, so UNLK A7 leaves
+	// A7 = the popped value.
 	c.A[7] = c.A[reg]
-
-	// pop An from stack
-	c.A[reg], t.err = c.M.Long(int(c.A[7]))
-	if t.err != nil {
+	var v uint32
+	if v, t.err = c.M.Long(int(c.A[7])); t.err != nil {
 		return
 	}
 	c.A[7] += 4
+	c.A[reg] = v
 	return
 }
 
@@ -968,8 +958,15 @@ func opMoveFromSr(c *Processor) (t stepTrace) {
 	}
 	c.PC += 2
 
+	// Like CLR, the 68000 reads the destination before writing it.
 	ea := decodeEA(c.op)
-	t.dst, t.err = c.writeWord(ea, uint16(c.SR))
+	sr := uint16(c.SR)
+	rmw := c.saveRMW(ea)
+	if _, _, t.err = c.readWord(ea); t.err != nil {
+		return
+	}
+	c.restoreRMW(rmw)
+	t.dst, t.err = c.writeWord(ea, sr)
 	return
 }
 
@@ -1005,6 +1002,7 @@ func opTas(c *Processor) (t stepTrace) {
 	c.PC += 2
 
 	ea := decodeEA(c.op)
+	rmw := c.saveRMW(ea) // one address calculation for the read and the write
 	var b byte
 	b, t.dst, t.err = c.readByte(ea)
 	if t.err != nil {
@@ -1020,6 +1018,63 @@ func opTas(c *Processor) (t stepTrace) {
 	}
 
 	b |= 0x80
+	c.restoreRMW(rmw)
 	t.dst, t.err = c.writeByte(ea, b)
+	return
+}
+
+// opChk implements CHK.W (4-69): trap (vector 6) if Dn < 0 or Dn > <ea>.
+// Flags as on the 68000: Z from Dn, V and C cleared, and on a trap N set if
+// Dn < 0 and cleared if Dn > <ea>.
+func opChk(c *Processor) (t stepTrace) {
+	reg := (c.op >> 9) & 7
+	t = stepTrace{addr: c.PC, op: "chk", sz: SizeWord, n: 1, dst: fmt.Sprintf("D%d", reg)}
+	c.PC += 2
+	var bound uint16
+	bound, t.src, t.err = c.readWord(c.op)
+	if t.err != nil {
+		return
+	}
+	dn, ub := int16(c.D[reg]), int16(bound)
+	c.SR &^= StatusZero | StatusOverflow | StatusCarry
+	if dn == 0 {
+		c.SR |= StatusZero
+	}
+	switch {
+	case dn < 0:
+		c.SR |= StatusNegative
+	case dn > ub:
+		c.SR &^= StatusNegative
+	default:
+		return
+	}
+	t.err = c.RaiseException(VecCHK)
+	return
+}
+
+// opTrapv implements TRAPV (4-191): trap (vector 7) if V is set.
+func opTrapv(c *Processor) (t stepTrace) {
+	t = stepTrace{addr: c.PC, op: "trapv", sz: noSize, n: 1}
+	c.PC += 2
+	if c.SR&StatusOverflow != 0 {
+		t.err = c.RaiseException(VecTRAPV)
+	}
+	return
+}
+
+// opRtr implements RTR (4-170): pop the CCR, then the PC.
+func opRtr(c *Processor) (t stepTrace) {
+	t = stepTrace{addr: c.PC, op: "rtr", sz: noSize, n: 1}
+	var ccr uint16
+	if ccr, t.err = c.M.Word(int(c.A[7])); t.err != nil {
+		return
+	}
+	var pc uint32
+	if pc, t.err = c.M.Long(int(c.A[7] + 2)); t.err != nil {
+		return
+	}
+	c.A[7] += 6
+	c.SR = c.SR&0xFF00 | uint32(ccr&0x1F)
+	c.PC = pc
 	return
 }

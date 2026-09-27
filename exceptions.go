@@ -182,3 +182,85 @@ func (c *Processor) CheckInterrupts() error {
 
 	return nil
 }
+
+// addressError describes a word or long access at an odd address.
+type addressError struct {
+	addr    uint32 // the faulting address (full 32 bits)
+	write   bool
+	program bool   // an instruction fetch (prefetch from an odd PC)
+	pc      uint32 // PC value to stack
+	sr      uint32 // SR at the fault
+}
+
+// oddAccess is the Decoder's OnOddAccess hook during an instruction: it
+// aborts the instruction with an address error. The PC stacked is the PC at
+// the fault less 2, the 68000's prefetch lag (for an instruction with one
+// memory operand that is the address of its last extension word).
+func (c *Processor) oddAccess(addr int, write bool) {
+	pc := c.PC - 2
+	if write {
+		pc += c.faultPCAdjust
+	}
+	panic(&addressError{addr: uint32(addr), write: write, pc: pc, sr: c.SR})
+}
+
+// raiseAddressError takes exception 3 with the 68000's group 0 frame (14
+// bytes): from the new stack pointer upwards, the special status word, the
+// access address, the instruction register, the SR and the PC. The SSW has
+// the opcode's top 11 bits, then R/W (1 = read), I/N (1 = instruction
+// fetch) and the function code. A second fault while stacking (odd SSP)
+// halts the processor, as on the 68000.
+func (c *Processor) raiseAddressError(ae *addressError) error {
+	c.M.OnOddAccess = nil
+	c.runState = RunStateRunning
+	super := ae.sr&StatusSupervisor != 0
+	fc := uint16(1) // user data
+	switch {
+	case ae.program && super:
+		fc = 6
+	case ae.program:
+		fc = 2
+	case super:
+		fc = 5
+	}
+	ssw := uint16(c.op)&0xFFE0 | fc
+	if !ae.write {
+		ssw |= 0x10
+	}
+	if ae.program {
+		ssw |= 0x08
+	}
+
+	if c.SR&StatusSupervisor == 0 {
+		c.USP = c.A[7]
+		c.A[7] = c.SSP
+		c.SR |= StatusSupervisor
+	}
+	c.SR &^= StatusTrace
+	if c.A[7]&1 != 0 {
+		c.runState = RunStateStopped // double fault
+		return nil
+	}
+	push := func(v uint32, size int) {
+		c.A[7] -= uint32(size)
+		if size == 4 {
+			binary.BigEndian.PutUint32(c.buf[:4], v)
+		} else {
+			binary.BigEndian.PutUint16(c.buf[:2], uint16(v))
+		}
+		c.M.Write(int(c.A[7]), c.buf[:size])
+	}
+	push(ae.pc, 4)
+	push(ae.sr&0xFFFF, 2)
+	push(uint32(c.op), 2)
+	push(ae.addr, 4)
+	push(uint32(ssw), 2)
+
+	newPC, err := c.M.Long(VecAddressError * 4)
+	if err != nil {
+		return err
+	}
+	c.PC = newPC
+	c.LastCycles = 50
+	return nil
+}

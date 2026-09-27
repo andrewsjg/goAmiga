@@ -169,25 +169,13 @@ func opAddx(c *Processor) (t stepTrace) {
 		t.src = fmt.Sprintf("-(A%d)", ry)
 		t.dst = fmt.Sprintf("-(A%d)", rx)
 
-		switch t.sz {
-		case SizeByte:
-			c.A[ry]--
-			c.A[rx]--
-		case SizeWord:
-			c.A[ry] -= 2
-			c.A[rx] -= 2
-		case SizeLong:
-			c.A[ry] -= 4
-			c.A[rx] -= 4
-		}
-
-		var srcVal, dstVal Int
-		srcVal, _, t.err = c.readInt(0x10|ry, t.sz)
-		if t.err != nil {
+		// Source first, then destination (see readPredec).
+		srcVal, _, err := c.readPredec(ry, t.sz)
+		if t.err = err; t.err != nil {
 			return
 		}
-		dstVal, _, t.err = c.readInt(0x10|rx, t.sz)
-		if t.err != nil {
+		dstVal, dstAddr, err := c.readPredec(rx, t.sz)
+		if t.err = err; t.err != nil {
 			return
 		}
 
@@ -213,7 +201,7 @@ func opAddx(c *Processor) (t stepTrace) {
 			c.SR &= ^StatusZero
 		}
 
-		_, t.err = c.writeInt(0x10|rx, result)
+		t.err = c.writeAt(dstAddr, result)
 	}
 	return
 }

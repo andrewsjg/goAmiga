@@ -120,6 +120,14 @@ type Processor struct {
 	// run off the end of their code into zeroed memory.
 	HaltOnZero bool
 
+	// NoAddressErrors disables 68000 address errors (exception 3 on word
+	// and long accesses at odd addresses).
+	NoAddressErrors bool
+
+	// faultPCAdjust corrects the PC stacked by an address error for
+	// instructions whose prefetch is not simply 2 behind (MOVE's write).
+	faultPCAdjust uint32
+
 	// LastCycles holds the cycle count of the most recently executed instruction.
 	// Minimum is 4 for the fastest 68000 instructions.
 	LastCycles int
@@ -254,6 +262,31 @@ func (c *Processor) Run() (err error) {
 func (c *Processor) Step() (err error) {
 	c.runState = RunStateRunning
 
+	// Address errors: a word or long access at an odd address aborts the
+	// instruction (see raiseAddressError). Register updates made before the
+	// faulting access (e.g. -(An)) stand, as on the 68000.
+	if !c.NoAddressErrors {
+		snapSR := c.SR
+		c.faultPCAdjust = 0
+		c.M.OnOddAccess = c.oddAccess
+		defer func() {
+			c.M.OnOddAccess = nil
+			if r := recover(); r != nil {
+				ae, ok := r.(*addressError)
+				if !ok {
+					panic(r)
+				}
+				// The flags are those from before the instruction, except
+				// that MOVE sets them before its write.
+				isMove := c.op>>12 >= 1 && c.op>>12 <= 3
+				if !(isMove && ae.write) {
+					c.SR, ae.sr = snapSR, snapSR
+				}
+				err = c.raiseAddressError(ae)
+			}
+		}()
+	}
+
 	// read from program pointer into op
 	// TODO: consider prefetching a whole page of instructions and measure
 	if _, err = c.M.Read(int(c.PC), c.buf[0:2]); err != nil {
@@ -321,6 +354,14 @@ func (c *Processor) Step() (err error) {
 			return
 		}
 		err = newTraceableError(t.addr, c.op, t.err)
+		return
+	}
+
+	// A jump, branch or return to an odd address faults on the prefetch
+	// from the new PC, still within this instruction.
+	if c.PC&1 != 0 && !c.NoAddressErrors {
+		c.M.OnOddAccess = nil
+		err = c.raiseAddressError(&addressError{addr: c.PC, program: true, pc: c.PC - 4, sr: c.SR})
 		return
 	}
 
@@ -568,8 +609,11 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 		opr = fmt.Sprintf("(A%d)", reg)
 
 	case 0x03: // memory address with post-increment
-		n, err = c.M.Word(int(c.A[reg]))
+		// Incremented before the access: an address error leaves it
+		// incremented, as on the 68000.
+		addr := c.A[reg]
 		c.A[reg] += 2
+		n, err = c.M.Word(int(addr))
 		opr = fmt.Sprintf("(A%d)+", reg)
 
 	case 0x04: // memory address with pre-decrement
@@ -672,8 +716,11 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 		opr = fmt.Sprintf("(A%d)", reg)
 
 	case 0x03: // memory address with post-increment
-		n, err = c.M.Long(int(c.A[reg]))
+		// Incremented before the access: an address error leaves it
+		// incremented, as on the 68000.
+		addr := c.A[reg]
 		c.A[reg] += 4
+		n, err = c.M.Long(int(addr))
 		opr = fmt.Sprintf("(A%d)+", reg)
 
 	case 0x04: // memory address with pre-decrement
@@ -768,8 +815,9 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 		opr = fmt.Sprintf("(A%d)", reg)
 
 	case 0x03: // memory address with post-increment
-		_, err = c.M.Read(int(c.A[reg]), b)
+		addr := c.A[reg]
 		c.A[reg] += uint32(len(b))
+		_, err = c.M.Read(int(addr), b)
 		opr = fmt.Sprintf("(A%d)+", reg)
 
 	case 0x04: // memory address with pre-decrement
@@ -1122,6 +1170,12 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 		opr = fmt.Sprintf("(A%d)+", reg)
 
 	case 0x04: // memory address with pre-decrement
+		// The 68000 writes a long to -(An) low word first, so an address
+		// error leaves An decremented by only 2.
+		if (c.A[reg]-2)&1 != 0 && c.M.OnOddAccess != nil {
+			c.A[reg] -= 2
+			c.M.OnOddAccess(int(c.A[reg]), true)
+		}
 		c.A[reg] -= 4
 		binary.BigEndian.PutUint32(c.buf[:4], v)
 		_, err = c.M.Write(int(c.A[reg]), c.buf[:4])
@@ -1276,4 +1330,88 @@ func (c *Processor) setStatusForLong(v uint32) {
 	if v&0x80000000 != 0 {
 		c.SR |= StatusNegative
 	}
+}
+
+// readPredec reads an operand at -(An) the way ADDX, SUBX and CMPM do: a
+// byte moves A7 by 2 to keep the stack even, and a long is fetched as two
+// words, low word first, so an address error leaves An decremented by only
+// 2. It returns the value and its address.
+func (c *Processor) readPredec(reg, sz uint16) (Int, uint32, error) {
+	switch sz {
+	case SizeByte:
+		addr := c.A[reg] - 1
+		if reg == 7 {
+			addr--
+		}
+		c.A[reg] = addr
+		b, err := c.M.Byte(int(addr))
+		return NewInt(uint32(b), SizeByte), addr, err
+	case SizeWord:
+		c.A[reg] -= 2
+		w, err := c.M.Word(int(c.A[reg]))
+		return NewInt(uint32(w), SizeWord), c.A[reg], err
+	default:
+		c.A[reg] -= 2
+		lo, err := c.M.Word(int(c.A[reg]))
+		if err != nil {
+			return NewInt(0, SizeLong), 0, err
+		}
+		c.A[reg] -= 2
+		hi, err := c.M.Word(int(c.A[reg]))
+		return NewInt(uint32(hi)<<16|uint32(lo), SizeLong), c.A[reg], err
+	}
+}
+
+// writeAt writes v to memory at addr.
+func (c *Processor) writeAt(addr uint32, v Int) error {
+	var err error
+	switch v.Size() {
+	case SizeByte:
+		_, err = c.M.Write(int(addr), []byte{v.Byte()})
+	case SizeWord:
+		binary.BigEndian.PutUint16(c.buf[:2], v.Word())
+		_, err = c.M.Write(int(addr), c.buf[:2])
+	default:
+		binary.BigEndian.PutUint32(c.buf[:4], v.Long())
+		_, err = c.M.Write(int(addr), c.buf[:4])
+	}
+	return err
+}
+
+// controlAddr computes a control addressing mode's address (as LEA does):
+// (An), (d16,An), (d8,An,Xn), (xxx).W, (xxx).L, (d16,PC), (d8,PC,Xn).
+func (c *Processor) controlAddr(ea uint16) (addr uint32, opr string, err error) {
+	reg := ea & 7
+	switch ea >> 3 & 7 {
+	case 2:
+		return c.A[reg], fmt.Sprintf("(A%d)", reg), nil
+	case 5:
+		var d int16
+		if d, err = c.M.Sword(int(c.PC)); err != nil {
+			return
+		}
+		c.PC += 2
+		return uint32(int32(c.A[reg]) + int32(d)), fmt.Sprintf("($%X,A%d)", d, reg), nil
+	case 6:
+		return c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+	case 7:
+		switch reg {
+		case 0:
+			var n uint16
+			n, _, err = c.readImmWord()
+			return uint32(wordToInt32(n)), fmt.Sprintf("$%X", int32(n)), err
+		case 1:
+			var n uint32
+			n, _, err = c.readImmLong()
+			return n, fmt.Sprintf("$%X", n), err
+		case 2:
+			var n uint16
+			n, _, err = c.readImmWord()
+			disp := wordToInt32(n)
+			return uint32(int32(c.PC) + disp - 2), fmt.Sprintf("($%X,PC)", disp), err
+		case 3:
+			return c.decodeBriefExt(c.PC, "PC")
+		}
+	}
+	return 0, "", errBadAddress
 }

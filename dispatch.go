@@ -48,6 +48,8 @@ var opcodes = [][]opcode{
 		{0x4E72, 0xFFFF, opStop},       // STOP
 		{0x4E73, 0xFFFF, opRte},        // RTE
 		{0x4E75, 0xFFFF, opRts},        // RTS
+		{0x4E76, 0xFFFF, opTrapv},      // TRAPV
+		{0x4E77, 0xFFFF, opRtr},        // RTR
 		{0x4E50, 0xFFF8, opLink},       // LINK
 		{0x4E58, 0xFFF8, opUnlk},       // UNLK
 		{0x4880, 0xFFF8, opExt},        // EXT.W
@@ -64,6 +66,8 @@ var opcodes = [][]opcode{
 		{0x46C0, 0xFFC0, opMoveToSr},   // MOVE to SR
 		{0x4880, 0xFB80, opMovem},      // MOVEM
 		{0x41C0, 0xF1C0, opLea},        // LEA
+		{0x4180, 0xF1C0, opChk},        // CHK.W
+		{0x4800, 0xFFC0, opNbcd},       // NBCD
 		{0x4000, 0xFF00, opNegx},       // NEGX
 		{0x4200, 0xFF00, opClr},        // CLR
 		{0x4400, 0xFF00, opNeg},        // NEG

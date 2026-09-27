@@ -123,6 +123,19 @@ func opMove(c *Processor) (t stepTrace) {
 	// on the real 68000. Only regular MOVE sets N, Z and clears V, C.
 	isMovea := dst&0x38 == 0x08
 
+	// Where the 68000's prefetch stands at the write, for the PC an address
+	// error stacks: MOVE to -(An) prefetches the next instruction first
+	// (+2); MOVE from memory to (xxx).l writes before fetching the
+	// address's low word (-2).
+	switch {
+	case dst&0x38 == 0x20:
+		defer func() { c.faultPCAdjust = 0 }()
+		c.faultPCAdjust = 2
+	case dst&0x3F == 0x39 && src&0x38 >= 0x10 && src != 0x3C: // memory source
+		defer func() { c.faultPCAdjust = 0 }()
+		c.faultPCAdjust = ^uint32(1) // -2
+	}
+
 	if !isMovea {
 		c.SR &= 0xFFFFFFF0
 	}
@@ -134,7 +147,8 @@ func opMove(c *Processor) (t stepTrace) {
 		if t.err != nil {
 			break
 		}
-		t.dst, t.err = c.writeByte(dst, b)
+		// Flags are set before the write (an address error on the write
+		// stacks the new flags).
 		if !isMovea {
 			if b == 0 {
 				c.SR |= StatusZero
@@ -143,6 +157,7 @@ func opMove(c *Processor) (t stepTrace) {
 				c.SR |= StatusNegative
 			}
 		}
+		t.dst, t.err = c.writeByte(dst, b)
 
 	case SizeWord:
 		var v uint16
@@ -150,7 +165,8 @@ func opMove(c *Processor) (t stepTrace) {
 		if t.err != nil {
 			break
 		}
-		t.dst, t.err = c.writeWord(dst, v)
+		// Flags are set before the write (an address error on the write
+		// stacks the new flags).
 		if !isMovea {
 			if v == 0 {
 				c.SR |= StatusZero
@@ -159,6 +175,7 @@ func opMove(c *Processor) (t stepTrace) {
 				c.SR |= StatusNegative
 			}
 		}
+		t.dst, t.err = c.writeWord(dst, v)
 
 	case SizeLong:
 		var v uint32
@@ -166,7 +183,8 @@ func opMove(c *Processor) (t stepTrace) {
 		if t.err != nil {
 			break
 		}
-		t.dst, t.err = c.writeLong(dst, v)
+		// Flags are set before the write (an address error on the write
+		// stacks the new flags).
 		if !isMovea {
 			if v == 0 {
 				c.SR |= StatusZero
@@ -175,6 +193,7 @@ func opMove(c *Processor) (t stepTrace) {
 				c.SR |= StatusNegative
 			}
 		}
+		t.dst, t.err = c.writeLong(dst, v)
 	}
 
 	return

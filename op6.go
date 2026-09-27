@@ -39,6 +39,9 @@ func opBcc(c *Processor) (t stepTrace) {
 
 	// compute displacement
 	var disp int32
+	// An 8-bit displacement, or 0 for a 16-bit one in the next word. (On
+	// the 68020 $FF introduces a 32-bit displacement; on the 68000 it is
+	// just -1, an odd target that raises an address error if taken.)
 	switch c.op & 0xFF {
 	default: // 8-bit displacement
 		disp = byteToInt32(byte(c.op))
@@ -47,16 +50,6 @@ func opBcc(c *Processor) (t stepTrace) {
 		var n uint16
 		n, _, t.err = c.readImmWord()
 		disp = wordToInt32(n)
-
-	case 0xFF: // 32-bit displacement
-		if cc < 2 {
-			// 32-bit displacement is not implemented on the 68000 for bra and bsr
-			t.err = errBadOpcode
-			return
-		}
-		var n uint32
-		n, _, t.err = c.readImmLong()
-		disp = longToInt32(n)
 	}
 	if t.err != nil {
 		return
