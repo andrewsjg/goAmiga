@@ -120,7 +120,7 @@ func (p *Paula) WriteReg(offset int, val uint16) {
 	c := &p.ch[n]
 	switch offset & 0xF {
 	case 0x0: // AUDxLCH
-		c.lc = c.lc&0xFFFF | uint32(val&0x7)<<16
+		c.lc = c.lc&0xFFFF | uint32(val&0x1F)<<16 // chip RAM wraps at its size
 	case 0x2: // AUDxLCL
 		c.lc = c.lc&^0xFFFF | uint32(val&0xFFFE)
 	case 0x4:

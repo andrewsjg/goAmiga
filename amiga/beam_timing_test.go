@@ -202,3 +202,55 @@ func TestCopperIllegalMoveHalts(t *testing.T) {
 		}
 	}
 }
+
+// graphics.library ends a hires 4-plane screen with WAIT (255,$38) then
+// WAIT (44,0). The planes take every even slot from $38 to the end of the
+// fetch, so the Copper cannot fetch the second WAIT until the end of line
+// 255; it is compared on line 256 and the display runs to line 300. The
+// Copper once ignored bitplane DMA, ended the display on line 255, and cut
+// off the bottom of a 16-colour Workbench.
+func TestCopperStallsDuringHires4PlaneFetch(t *testing.T) {
+	a := startCopper(t, []uint16{
+		0xFF39, 0xFFFE, // WAIT v=$FF h=$38
+		0x2C01, 0xFFFE, // WAIT v=$2C (line $12C)
+		0x0180, 0x0F00, // MOVE COLOR00
+		0xFFFF, 0xFFFE,
+	}, 0xF0)
+	for reg, v := range map[int]uint16{
+		0x08E: 0x2C81, 0x090: 0x2CC1, // DIW: lines $2C-$12C
+		0x092: 0x0038, 0x094: 0x00D8, // DDF: 42 hires words
+		0x100: 0xC200, // hires, 4 planes
+	} {
+		writeCustom16(a, reg, v)
+	}
+	writeCustom16(a, 0x096, 0x8300) // DMAEN + BPLEN
+	for a.Custom.ReadReg16(0x180) != 0x0F00 && a.vpos != 0 {
+		a.advanceBeamPerCycle(1)
+	}
+	if a.vpos != 0x12C {
+		t.Errorf("MOVE ran on line %d, want 300", a.vpos)
+	}
+}
+
+// With 3 hires planes the Copper keeps half its slots in the fetch window:
+// it slows down but does not stop.
+func TestCopperHalfSpeedDuringHires3PlaneFetch(t *testing.T) {
+	var prog []uint16
+	for i := 1; i <= 200; i++ {
+		prog = append(prog, 0x0180, uint16(i))
+	}
+	prog = append(prog, 0xFFFF, 0xFFFE)
+	a := startCopper(t, prog, 0x40)
+	for reg, v := range map[int]uint16{
+		0x08E: 0x2C81, 0x090: 0x2CC1, 0x092: 0x0038, 0x094: 0x00D8, 0x100: 0xB200,
+	} {
+		writeCustom16(a, reg, v)
+	}
+	writeCustom16(a, 0x096, 0x8300)
+	a.advanceBeamPerCycle(CPUClocksPerLine)
+	// 42 of 57 MOVE times fall in the $38-$E0 window at half speed.
+	got := int(a.Custom.ReadReg16(0x180))
+	if got < 30 || got > 45 {
+		t.Errorf("Copper executed %d MOVEs in a 3-plane hires line, want ~36", got)
+	}
+}

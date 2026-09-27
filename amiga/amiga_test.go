@@ -175,8 +175,9 @@ func TestCopperMOVE(t *testing.T) {
 	binary.BigEndian.PutUint16(buf[:], 0x8280) // set DMAEN + COPEN
 	a.Custom.Write(0x096, buf[:])
 
-	// Step the Copper
+	// Two bus cycles: the MOVE's two words
 	a.Copper.Step(0, 0)
+	a.Copper.Step(4, 0)
 
 	// COLOR00 ($180) should now be $0ABC
 	color00 := a.Custom.ReadReg16(0x180)
@@ -199,8 +200,10 @@ func TestCopperWAIT(t *testing.T) {
 	a.Copper.cop1lc = 0x00002000
 	a.Copper.Restart(1)
 
-	// Step at vpos=50 — should be waiting
+	// Fetch the WAIT (two words) and compare at vpos=50 — should be waiting
 	a.Copper.Step(0, 50)
+	a.Copper.Step(4, 50)
+	a.Copper.Step(8, 50)
 	if !a.Copper.wait {
 		t.Error("Copper should be waiting at vpos=50")
 	}
@@ -211,8 +214,9 @@ func TestCopperWAIT(t *testing.T) {
 		t.Error("Copper should have stopped waiting at vpos=100")
 	}
 
-	// The MOVE should have executed
-	a.Copper.Step(0, 100)
+	// The MOVE's two words
+	a.Copper.Step(4, 100)
+	a.Copper.Step(8, 100)
 	color00 := a.Custom.ReadReg16(0x180)
 	if color00 != 0x0FFF {
 		t.Errorf("COLOR00 = $%04X, want $0FFF after WAIT+MOVE", color00)

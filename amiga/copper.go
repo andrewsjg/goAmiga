@@ -17,12 +17,15 @@ type Copper struct {
 
 	// halted is set when a MOVE targets a register the Copper may not
 	// write; it stops until restarted (VBLANK or a COPJMP strobe).
-	halted bool
-	wait   bool   // True if waiting for beam position
-	waitVP uint16 // Wait vertical position
-	waitHP uint16 // Wait horizontal position
-	waitVM uint16 // Wait vertical mask
-	waitHM uint16 // Wait horizontal mask
+	halted  bool
+	wait    bool // True if waiting for beam position
+	compare bool // a WAIT was fetched: compare the beam next cycle
+	second  bool // the first word (ir1) of an instruction has been fetched
+	ir1     uint16
+	waitVP  uint16 // Wait vertical position
+	waitHP  uint16 // Wait horizontal position
+	waitVM  uint16 // Wait vertical mask
+	waitHM  uint16 // Wait horizontal mask
 
 	amiga  *Amiga
 	logger io.Writer
@@ -45,7 +48,7 @@ func (c *Copper) GetCop2LC() uint32 { return c.cop2lc }
 
 // Restart sets the Copper PC to COP1LC (which=1) or COP2LC (which=2).
 func (c *Copper) Restart(which int) {
-	c.wait = false
+	c.wait, c.compare, c.second = false, false, false
 	c.halted = false
 	if which == 1 {
 		c.pc = c.cop1lc
@@ -70,86 +73,46 @@ func (c *Copper) waitMet(hpos, vpos int) bool {
 	return vp > wantVP || (vp == wantVP && hp >= c.waitHP)
 }
 
-// StepLine processes Copper instructions for one complete scanline.
-// The real Copper can start one instruction every CopperCyclesPerInstr CPU
-// cycles (up to ~56 per line). When waiting, we check once whether the wait condition can be
-// satisfied this line; if not, we skip entirely.
-//
-// Important: a WAIT whose position is already reached must not freeze the rest
-// of the line. graphics.library COP2 often issues WAIT v=display_line mid-burst;
-// if we stop the slot loop on that WAIT without also running the following
-// MOVE (e.g. BPLCON0 enable), the first display line renders with planes off
-// and bitplane pointers do not advance — the whole frame appears shifted down
-// one line. That alternates with the per-cycle path (CPU running) and looks
-// like vertical shake.
+// StepLine runs the Copper over the part of a scanline from hposStart to
+// hposEnd (CPU cycles), one bus cycle every CopperCyclesPerWord. It is the
+// batched equivalent of calling Step on each of those cycles.
 func (c *Copper) StepLine(hposStart, hposEnd, vpos int) {
-	if c.halted {
+	if c.halted || c.wait && !c.canWake(hposEnd, vpos) {
 		return
 	}
-	// Fast path: if waiting, check if this line can satisfy the condition.
-	if c.wait {
-		vp := uint16(vpos) & c.waitVM
-		wantVP := c.waitVP & c.waitVM
-		if vp < wantVP {
-			return // vpos too early — no chance this line
-		}
-		if vp == wantVP {
-			// Might satisfy if hpos advances far enough this line
-			hp := beamHP(hposEnd-1) & c.waitHM
-			if hp < c.waitHP {
-				return // won't reach required hpos this line
-			}
-		}
-		// vp > waitVP or vp == waitVP && hposEnd might reach waitHP:
-		// fall through to per-slot processing to handle the exact transition
-	}
-	// Per-slot processing: one instruction per Copper DMA slot
-	maxSlots := (hposEnd - hposStart + CopperCyclesPerInstr - 1) / CopperCyclesPerInstr
-	if maxSlots < 1 {
-		maxSlots = 1
-	}
-	for slot := 0; slot < maxSlots; slot++ {
-		hpos := hposStart + slot*CopperCyclesPerInstr
-		if hpos >= hposEnd {
-			hpos = hposEnd - 1
-		}
-		// Clear an already-met wait before fetching (covers WAIT decoded on a
-		// previous slot of this same line for the current beam position).
-		if c.wait {
-			if !c.waitMet(hpos, vpos) {
-				// Still waiting for a later hpos on this line — try next slot.
-				if uint16(vpos)&c.waitVM == c.waitVP&c.waitVM {
-					continue
-				}
-				return
-			}
-			c.wait = false
-			continue // waking takes this slot (see Step)
-		}
-		c.Step(hpos, vpos)
-		if c.halted {
+	for h := (hposStart + CopperCyclesPerWord - 1) &^ (CopperCyclesPerWord - 1); h < hposEnd; h += CopperCyclesPerWord {
+		c.Step(h, vpos)
+		if c.halted || c.wait && !c.canWake(hposEnd, vpos) {
 			return
-		}
-		if c.wait {
-			// Just entered a wait. If it is already free at this beam position
-			// (WAIT for current line decoded mid-line), clear and keep going so
-			// the following MOVE still runs before RenderLine.
-			if c.waitMet(hpos, vpos) {
-				c.wait = false
-				continue
-			}
-			// Wait for later this line: keep scanning slots with rising hpos.
-			if uint16(vpos)&c.waitVM == c.waitVP&c.waitVM {
-				continue
-			}
-			return // later line
 		}
 	}
 }
 
-// Step executes one Copper cycle. The Copper fetches a 32-bit instruction
-// from chip RAM every other DMA cycle (effectively every 4 CPU cycles for
-// a complete instruction). For simplicity, we execute one instruction per call.
+// canWake reports whether a pending WAIT can end on line vpos before
+// hposEnd.
+func (c *Copper) canWake(hposEnd, vpos int) bool {
+	vp := uint16(vpos) & c.waitVM
+	wantVP := c.waitVP & c.waitVM
+	return vp > wantVP || vp == wantVP && beamHP(hposEnd-1)&c.waitHM >= c.waitHP
+}
+
+// Step runs one Copper bus cycle at beam position (hpos, vpos). The Copper
+// owns the even colour clocks, one every CopperCyclesPerWord CPU cycles, and
+// in each it either fetches one instruction word or does its internal work:
+//
+//   - An instruction is two words; it executes when the second arrives.
+//   - A WAIT compares the beam in the cycle after its second word. When
+//     that cycle falls on the next line, the comparison sees the new line:
+//     this is what makes WAIT $FFDE followed by WAIT $2C wait for line
+//     256+$2C rather than end at once on line 255.
+//   - Waking from a WAIT takes a cycle.
+//   - Bitplane DMA outranks the Copper: a word cannot be fetched in a slot
+//     the bitplanes take. Hires with 4 planes takes every even slot of the
+//     fetch window (lores with 6, and hires with 3, half of them), so the
+//     Copper stalls there. graphics.library relies on this for hires
+//     screens: it ends the display with WAIT (255,$38); WAIT (44,0), and
+//     the second WAIT is only fetched after the fetch window, at the very
+//     end of line 255, so it is compared on line 256.
 //
 // hpos is the beam tracker's position in CPU cycles (0..CPUClocksPerLine);
 // see beamHP for the conversion to Copper horizontal positions.
@@ -157,32 +120,35 @@ func (c *Copper) Step(hpos, vpos int) {
 	if c.halted {
 		return
 	}
-
-	// If waiting, check beam position
 	if c.wait {
-		vp := uint16(vpos) & c.waitVM
-		hp := beamHP(hpos) & c.waitHM
-		// Mask the compare value the same way the beam is masked (HRM).
-		wantVP := c.waitVP & c.waitVM
-		if vp > wantVP || (vp == wantVP && hp >= c.waitHP) {
-			// Waking takes this slot; the next instruction is fetched in
-			// the following one. That delay is why software waits for
-			// $FFDE/$FFDF to cross line 255: the next WAIT is then compared
-			// on line 256, where the low 8 bits of the line start again at 0.
-			c.wait = false
+		if c.waitMet(hpos, vpos) {
+			c.wait = false // waking takes this cycle
 		}
 		return
 	}
-
-	// Fetch 32-bit instruction from chip RAM
-	_, err := c.amiga.ChipRAM.Read(int(c.pc), c.buf[:4])
-	if err != nil {
+	if c.compare {
+		c.compare = false
+		c.wait = !c.waitMet(hpos, vpos)
 		return
 	}
-	ir1 := binary.BigEndian.Uint16(c.buf[0:2])
-	ir2 := binary.BigEndian.Uint16(c.buf[2:4])
-	c.pc += 4
+	if c.amiga.bitplaneDMA(vpos).uses(hpos / CPUCyclesPerColorClock) {
+		return
+	}
+	if _, err := c.amiga.ChipRAM.Read(int(c.pc), c.buf[:2]); err != nil {
+		return
+	}
+	c.pc += 2
+	w := binary.BigEndian.Uint16(c.buf[0:2])
+	if !c.second {
+		c.ir1, c.second = w, true
+		return
+	}
+	c.second = false
+	c.execute(c.ir1, w, hpos, vpos)
+}
 
+// execute runs a fetched instruction.
+func (c *Copper) execute(ir1, ir2 uint16, hpos, vpos int) {
 	if ir1&1 == 0 {
 		// MOVE: write ir2 to custom register at offset (ir1 & 0x1FE)
 		regOffset := int(ir1 & 0x1FE)
@@ -223,21 +189,12 @@ func (c *Copper) Step(hpos, vpos int) {
 		c.waitVM = ((ir2 >> 8) & 0x7F) | 0x80 // bit 15 is blitter-finished-disable
 		c.waitHM = (ir2 & 0xFE) >> 1
 
-		// End-of-list detection: WAIT $FFFF,$FFFE
+		// End-of-list: WAIT $FFFF,$FFFE never matches.
 		if ir1 == 0xFFFF && ir2 == 0xFFFE {
-			c.wait = true // will never match, effectively stops Copper
+			c.wait = true
 			return
 		}
-
-		// If the beam is already at/past this position, do not stall: the next
-		// copper cycle must fetch the following instruction on this same line.
-		// (Leaving wait=true here made StepLine return early and pushed the
-		// following MOVE — often BPLCON0 enable — to the next scanline.)
-		if c.waitMet(hpos, vpos) {
-			c.wait = false
-		} else {
-			c.wait = true
-		}
+		c.compare = true // in the next cycle
 	} else {
 		// SKIP: skip next instruction if beam is past position
 		skipVP := (ir1 >> 8) & 0xFF

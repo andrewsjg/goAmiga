@@ -35,6 +35,50 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-27 — Bottom of a 16-colour Workbench missing: Copper vs bitplane DMA
+
+After installing Workbench 3.2 to a hard disk, the bottom fifth of the screen
+showed only the background colour, at every window scale. The window's
+bottom border and gadgets were missing, so the display itself was stopping.
+The Install disk's Workbench drew fine.
+
+**Cause.** The installed system opens a hires 4-plane (16-colour) screen.
+graphics.library ends such a screen with this Copper list:
+
+    WAIT (255,$38)
+    WAIT (44,0)
+    MOVE BPLCON0 = display off
+
+The Copper compares only 8 bits of the line, so at line 255 the second WAIT
+($FF ≥ $2C) is already satisfied. On real hardware it isn't reached there:
+hires with 4 planes takes every even DMA slot from DDFSTRT ($38) to the end
+of the fetch ($E0). The Copper can't fetch the second WAIT until $E0/$E2,
+the last slots of line 255, so the compare happens on line 256 and the
+display runs to line 300. Our Copper ran one whole instruction per 8-cycle
+slot and ignored bitplane DMA, so it switched the display off at line 255.
+The Install screen has fewer planes and never stalls the Copper, which is
+why it was fine.
+
+**Fix.** The Copper now works one bus cycle at a time (`Step`, every
+`CopperCyclesPerWord` = 4 CPU cycles on even colour clocks):
+- it fetches one word per cycle, and an instruction executes when its second
+  word arrives;
+- a WAIT compares the beam in the cycle after that, and waking takes a
+  cycle;
+- a word can't be fetched in a slot that bitplane DMA takes (`bitplaneDMA`,
+  the table already used for CPU slot stealing). Hires with 4 planes blocks
+  the Copper for the whole fetch window, and hires with 3 planes or lores
+  with 6 halves its speed.
+
+The $FFDE line-255 trick still works (`TestCopperLine255Wrap`), and so
+does the free-bus throughput of about 56 MOVEs a line. New tests:
+`TestCopperStallsDuringHires4PlaneFetch` and
+`TestCopperHalfSpeedDuringHires3PlaneFetch`.
+
+Also found on the way: Paula masked AUDxLCH to 3 bits, so audio couldn't
+reach chip RAM above 512 KB. It is now 5 bits, and chip RAM wraps at its
+size.
+
 ## 2026-09-27 — Bigger window
 
 The window now opens at twice the emulated screen's size: 1280×1024 for the

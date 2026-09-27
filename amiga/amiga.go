@@ -46,6 +46,8 @@ const (
 	// every other colour clock and each instruction is two words, so it
 	// starts at most one instruction every 4 colour clocks (8 CPU cycles).
 	CopperCyclesPerInstr = 8
+	// CopperCyclesPerWord: the Copper can use every other colour clock.
+	CopperCyclesPerWord = 4
 )
 
 // Amiga represents a complete Amiga 500 system.
@@ -615,7 +617,7 @@ func (a *Amiga) advanceBeamPerCycle(elapsed int) {
 		}
 
 		// Copper step on its DMA slots (DMACON bits 9=DMAEN and 7=COPEN)
-		if a.hpos%CopperCyclesPerInstr == 0 {
+		if a.hpos%CopperCyclesPerWord == 0 {
 			dmacon := a.Custom.ReadReg16(0x096)
 			if dmacon&0x0280 == 0x0280 {
 				a.Copper.Step(a.hpos, a.vpos)
