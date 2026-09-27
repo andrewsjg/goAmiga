@@ -12,7 +12,7 @@ import (
 )
 
 // Disk keys. F11 picks the drive: DF0:, Alt+F11 DF1:, Ctrl+F11 DF2:,
-// Ctrl+Alt+F11 DF3:. On its own it opens a file dialog to choose an ADF to
+// Ctrl+Alt+F11 DF3: (DF0: if the drive the modifiers name isn't connected). On its own it opens a file dialog to choose an ADF to
 // insert; with Shift it ejects; with Cmd (macOS) or the Windows key it
 // swaps to the next disk in the drive's list.
 //
@@ -41,8 +41,11 @@ func (d *Display) pollDiskKeys() {
 	}
 	dr := d.amiga.Disk.DF(unit)
 	if dr == nil {
-		fmt.Printf("DF%d: not connected (use --drives)\n", unit)
-		return
+		// Modifier state is unreliable on some hosts (macOS reports Option
+		// held after some shortcuts), and with only DF0: fitted there is
+		// nothing else it could mean.
+		fmt.Printf("DF%d: not connected (use --drives); using DF0: (modifiers seen:%s)\n", unit, heldModifiers())
+		unit, dr = 0, d.amiga.Disk.DF(0)
 	}
 	switch {
 	case ebiten.IsKeyPressed(ebiten.KeyShift):
@@ -130,4 +133,26 @@ func (d *Display) insert(unit, i int) {
 	}
 	d.DiskIndex[unit] = i
 	fmt.Printf("DF%d: %s\n", unit, path)
+}
+
+// heldModifiers lists the modifier keys Ebitengine reports as held.
+func heldModifiers() string {
+	var s string
+	for _, m := range []struct {
+		k    ebiten.Key
+		name string
+	}{
+		{ebiten.KeyAltLeft, "AltLeft"}, {ebiten.KeyAltRight, "AltRight"},
+		{ebiten.KeyControlLeft, "CtrlLeft"}, {ebiten.KeyControlRight, "CtrlRight"},
+		{ebiten.KeyShiftLeft, "ShiftLeft"}, {ebiten.KeyShiftRight, "ShiftRight"},
+		{ebiten.KeyMetaLeft, "MetaLeft"}, {ebiten.KeyMetaRight, "MetaRight"},
+	} {
+		if ebiten.IsKeyPressed(m.k) {
+			s += " " + m.name
+		}
+	}
+	if s == "" {
+		s = " none"
+	}
+	return s
 }

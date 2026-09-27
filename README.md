@@ -29,7 +29,8 @@ modifiers pick another drive, and Shift ejects instead:
 | Ctrl+F11 | DF2: |
 | Ctrl+Alt+F11 | DF3: |
 
-A new disk waits until the Amiga has seen the drive empty, as with a real
+If the drive the modifiers name isn't connected, F11 uses DF0:. A new
+disk waits until the Amiga has seen the drive empty, as with a real
 disk change. The emulation keeps running while the dialog is open.
 
 Each `--dfN` flag can be repeated to give that drive a list of disks. The
