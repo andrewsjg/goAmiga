@@ -145,9 +145,18 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 				p[1] = byte(val)
 			}
 		}
+	case 0x00C: // JOY1DAT - joystick in port 2
+		var val uint16
+		if c.amiga != nil && c.amiga.Joystick != nil {
+			val = c.amiga.Joystick.JOYDAT()
+		}
+		p[0] = byte(val >> 8)
+		if len(p) > 1 {
+			p[1] = byte(val)
+		}
 	case 0x016: // POTGOR - pot port data
-		if c.amiga != nil && c.amiga.Mouse != nil {
-			val := c.amiga.Mouse.POTGOR()
+		if c.amiga != nil {
+			val := c.amiga.potgor()
 			p[0] = byte(val >> 8)
 			if len(p) > 1 {
 				p[1] = byte(val)
@@ -273,6 +282,11 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		// interlace on or off so the next field has the right parity.
 		if c.amiga != nil && n == 2 {
 			c.amiga.lof = p[0]&0x80 != 0
+		}
+
+	case 0x036: // JOYTEST
+		if c.amiga != nil && n == 2 {
+			c.amiga.joyTest(uint16(p[0])<<8 | uint16(p[1]))
 		}
 
 	case 0x09A: // INTENA

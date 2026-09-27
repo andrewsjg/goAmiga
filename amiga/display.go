@@ -53,6 +53,11 @@ type Display struct {
 
 	lastTitle string
 
+	// JoyKeys makes the arrow keys and Right Ctrl/Alt/Shift a joystick in
+	// port 2 (Ctrl+F12 toggles). Gamepads always work.
+	JoyKeys  bool
+	gamepads []ebiten.GamepadID
+
 	// Mute turns off host audio (Paula still runs).
 	Mute        bool
 	audioPlayer *audio.Player
@@ -75,6 +80,7 @@ func (d *Display) Update() error {
 	d.updateTitle()
 	d.pollKeyboard()
 	d.pollMouse()
+	d.pollJoystick()
 	// Never tear down the window on a single-frame CPU fault. Step() already
 	// converts access violations to bus errors; if anything still leaks out,
 	// keep presenting frames so the user can see a Guru/requester.
@@ -99,6 +105,9 @@ func (d *Display) pollKeyboard() {
 			continue
 		}
 
+		if d.JoyKeys && joyKeys[eKey] {
+			continue
+		}
 		pressed := ebiten.IsKeyPressed(eKey)
 		wasPrev := d.prevKeys[eKey]
 		if pressed && !wasPrev {
@@ -196,7 +205,7 @@ func (d *Display) updateTitle() {
 		}
 		drives = append(drives, fmt.Sprintf("DF%d: %s", n, name))
 	}
-	title := fmt.Sprintf("goAmiga — %s — %s", strings.Join(drives, " | "), mouse)
+	title := fmt.Sprintf("goAmiga — %s — %s — %s", strings.Join(drives, " | "), mouse, d.joystickTitle())
 	if title != d.lastTitle {
 		ebiten.SetWindowTitle(title)
 		d.lastTitle = title
@@ -205,6 +214,9 @@ func (d *Display) updateTitle() {
 
 // pollMouseGrab handles trap/release only. No per-frame CursorMode polling.
 func (d *Display) pollMouseGrab() {
+	if d.pollJoyToggle() {
+		return
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
 		if d.mouseGrabbed {
 			d.applyGrab(false)

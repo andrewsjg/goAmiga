@@ -74,19 +74,14 @@ func TestMouseButtonPRA(t *testing.T) {
 func TestMouseRightButtonPOTGOR(t *testing.T) {
 	a := createTestAmiga(t)
 
-	// Right button not pressed: all bits high
-	val := a.Mouse.POTGOR()
-	if val != 0xFFFF {
-		t.Errorf("expected POTGOR=$FFFF, got $%04X", val)
+	// Right button not pressed: all four pot pins read high
+	if val := readCustom16(a, 0x016); val != 0x5500 {
+		t.Errorf("expected POTGOR=$5500, got $%04X", val)
 	}
 
-	// Press right button: bit 10 should be clear
+	// Press right button: DATLY (bit 10) goes low
 	a.Mouse.RightButton = true
-	val = a.Mouse.POTGOR()
-	if val&(1<<10) != 0 {
-		t.Error("POTGOR bit 10 should be clear when right button pressed")
-	}
-	if val != 0xFBFF {
-		t.Errorf("expected POTGOR=$FBFF, got $%04X", val)
+	if val := readCustom16(a, 0x016); val != 0x5100 {
+		t.Errorf("expected POTGOR=$5100, got $%04X", val)
 	}
 }
