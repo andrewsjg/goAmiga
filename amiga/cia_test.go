@@ -110,3 +110,30 @@ func TestCIAAddressDecoding(t *testing.T) {
 			a.CIAB.regs[CIARegDDRB], a.CIAA.regs[CIARegDDRB])
 	}
 }
+
+// A CIA's /IRQ is a level: while an enabled interrupt is pending (ICR not
+// read), software clearing INTREQ PORTS/EXTER does not stick.
+func TestCIAIRQIsLevel(t *testing.T) {
+	a := createTestAmiga(t)
+	intreq := func() uint16 { return a.Custom.ReadReg16(0x09C) }
+	ciaWrite(a.CIAA, CIARegICR, 0x81) // enable timer A
+	ciaWrite(a.CIAA, CIARegTALO, 1)
+	ciaWrite(a.CIAA, CIARegTAHI, 0)
+	ciaWrite(a.CIAA, CIARegCRA, 0x09) // one-shot
+	for i := 0; i < 4; i++ {
+		a.CIAA.Tick()
+	}
+	if intreq()&0x08 == 0 {
+		t.Fatal("timer A underflow did not raise PORTS")
+	}
+	a.Custom.Write(0x09C, []byte{0x00, 0x08}) // clear PORTS before reading ICR
+	if intreq()&0x08 == 0 {
+		t.Error("PORTS cleared while CIA-A still asserts /IRQ")
+	}
+	b := []byte{0}
+	a.CIAA.Read(CIARegICR<<8, b) // acknowledge
+	a.Custom.Write(0x09C, []byte{0x00, 0x08})
+	if intreq()&0x08 != 0 {
+		t.Error("PORTS still set after the ICR was read and INTREQ cleared")
+	}
+}

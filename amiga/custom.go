@@ -300,6 +300,18 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		} else {
 			old := uint16(c.regs[0x09C])<<8 | uint16(c.regs[0x09D])
 			old &^= val & 0x7FFF
+			// The CIAs' /IRQ outputs are levels: while a CIA still has an
+			// enabled interrupt pending (its ICR not yet read), clearing
+			// PORTS or EXTER does not stick. Losing this lost timer.device
+			// interrupts and hung trackdisk.
+			if c.amiga != nil {
+				if c.amiga.CIAA != nil && c.amiga.CIAA.IRQ() {
+					old |= 1 << 3
+				}
+				if c.amiga.CIAB != nil && c.amiga.CIAB.IRQ() {
+					old |= 1 << 13
+				}
+			}
 			c.regs[0x09C] = byte(old >> 8)
 			c.regs[0x09D] = byte(old)
 		}

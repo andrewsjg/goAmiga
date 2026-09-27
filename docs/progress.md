@@ -31,6 +31,31 @@ Sound plays through Paula; floppies can be written and swapped.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-27 — Real 68000 instruction timing; CIA /IRQ is a level
+
+**CPU timing.** go-m68k charged every instruction the 4-cycle minimum. On
+the SingleStepTests data, emulated time was a median 39% of real time, so the
+CPU ran about 2.5× too fast against the chipset. `go-m68k/timing.go` now
+applies the 68000 User's Manual tables: effective-address times, MOVE source
+plus destination, MOVEM per register, shift count, MULU/MULS bit patterns,
+Jorge Cwik's DIVU/DIVS algorithm, branch outcomes and exception frames. A few
+corrections came from the test data. Result: 99.78% of the 1,000,060 tests
+match to the cycle, and the emulated/real ratio is 1.00. The baseline file
+now also caps cycle mismatches per instruction.
+
+Effect on the machine: Kickstart 1.3 to `workbench.task` now takes 3,056
+frames (61.1 s emulated, 2.4 s host). With Workbench idle and the display on,
+the CPU is busy 13% of the time and the emulator runs at 23.8× real time.
+
+**CIA interrupt lost with slow RAM.** Once timing was realistic,
+`TestSlowRAMFound` hung in trackdisk. A CIA's /IRQ output is a level. It stays
+asserted while any enabled ICR bit is pending. We modelled it as an edge: the
+CIA set INTREQ PORTS/EXTER once, and a handler that cleared INTREQ before
+reading the ICR lost the interrupt for good. The timing change moved exactly
+such a CIA event into that gap. Now an INTREQ clear of bit 3 or bit 13 is
+ignored while CIA-A or CIA-B still asserts /IRQ (`CIA.IRQ()`). Tested by
+`TestCIAIRQIsLevel`. The full suite passes (376 s).
+
 ## 2026-09-27 — CPU checked against the SingleStepTests 68000 suite
 
 **Suite.** github.com/SingleStepTests/680x0 (formerly Tom Harte's

@@ -359,6 +359,10 @@ func (c *CIA) Tick() {
 	}
 }
 
+// IRQ reports whether the CIA's /IRQ output is asserted: an enabled
+// interrupt is pending and the ICR has not been read since.
+func (c *CIA) IRQ() bool { return c.icrData&c.icrMask != 0 }
+
 // fireIfPending raises the interrupt callback on the 0→1 transition of the
 // CIA interrupt output. The real 8520 asserts IRQ continuously, but Paula
 // latches on the rising edge.
