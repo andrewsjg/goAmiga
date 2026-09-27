@@ -5,6 +5,7 @@ package amiga
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -44,10 +45,11 @@ type Display struct {
 	framesSinceRecapture int
 	zeroMotionFrames     int
 
-	// Disks are the ADF files F11 cycles through; DiskIndex is the one in
-	// DF0: (-1 = none). Shift+F11 ejects.
-	Disks     []string
-	DiskIndex int
+	// Disks[n] are the ADF files the swap key cycles DFn: through, and
+	// DiskIndex[n] is the one in the drive (-1 = none). F11 swaps DF0:,
+	// Alt+F11 DF1:, Ctrl+F11 DF2:, Ctrl+Alt+F11 DF3:; with Shift, ejects.
+	Disks     [4][]string
+	DiskIndex [4]int
 
 	lastTitle string
 
@@ -60,7 +62,7 @@ type Display struct {
 func NewDisplay(a *Amiga) *Display {
 	return &Display{
 		amiga:     a,
-		DiskIndex: -1,
+		DiskIndex: [4]int{-1, -1, -1, -1},
 		screen:    ebiten.NewImage(LowResWidth, PALVisibleLines),
 		prevKeys:  make(map[ebiten.Key]bool),
 	}
@@ -131,50 +133,70 @@ func (d *Display) applyGrab(grab bool) {
 	d.updateTitle()
 }
 
-// pollDiskKeys handles F11 (swap DF0: to the next disk in Disks) and
-// Shift+F11 (eject).
+// pollDiskKeys handles the disk keys: F11 swaps DF0: to the next disk in
+// its list, Alt+F11 DF1:, Ctrl+F11 DF2:, Ctrl+Alt+F11 DF3:; holding Shift
+// ejects instead.
 func (d *Display) pollDiskKeys() {
 	if !inpututil.IsKeyJustPressed(ebiten.KeyF11) {
 		return
 	}
+	unit := 0
+	if ebiten.IsKeyPressed(ebiten.KeyAlt) {
+		unit++
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyControl) {
+		unit += 2
+	}
+	dr := d.amiga.Disk.DF(unit)
+	if dr == nil {
+		fmt.Printf("DF%d: not connected\n", unit)
+		return
+	}
 	if ebiten.IsKeyPressed(ebiten.KeyShift) {
-		d.amiga.Disk.Eject()
-		d.DiskIndex = -1
-		fmt.Println("DF0: ejected")
+		dr.Eject()
+		d.DiskIndex[unit] = -1
+		fmt.Printf("DF%d: ejected\n", unit)
 		return
 	}
-	if len(d.Disks) == 0 {
+	disks := d.Disks[unit]
+	if len(disks) == 0 {
 		return
 	}
-	next := (d.DiskIndex + 1) % len(d.Disks)
-	if err := d.amiga.SwapDisk(d.Disks[next]); err != nil {
-		fmt.Printf("DF0: %v\n", err)
+	next := (d.DiskIndex[unit] + 1) % len(disks)
+	if err := d.amiga.SwapDiskUnit(unit, disks[next]); err != nil {
+		fmt.Printf("DF%d: %v\n", unit, err)
 		return
 	}
-	d.DiskIndex = next
-	fmt.Printf("DF0: %s\n", d.Disks[next])
+	d.DiskIndex[unit] = next
+	fmt.Printf("DF%d: %s\n", unit, disks[next])
 }
 
-// updateTitle shows the mouse state and the disk in DF0: in the title bar.
+// updateTitle shows each connected drive's disk and the mouse state in the
+// title bar.
 func (d *Display) updateTitle() {
 	mouse := "F12 or click to trap mouse"
 	if d.mouseGrabbed {
 		mouse = "mouse trapped (Esc / F12 release)"
 	}
-	disk := "DF0: empty"
-	switch {
-	case d.amiga.Disk.Swapping() && d.DiskIndex >= 0:
-		disk = "DF0: inserting " + filepath.Base(d.Disks[d.DiskIndex])
-	case d.amiga.Disk.Inserted() && d.DiskIndex >= 0:
-		disk = "DF0: " + filepath.Base(d.Disks[d.DiskIndex])
-	case d.amiga.Disk.Inserted():
-		disk = "DF0: disk"
+	var drives []string
+	for n := 0; n < 4; n++ {
+		dr := d.amiga.Disk.DF(n)
+		if dr == nil {
+			continue
+		}
+		name := "empty"
+		i := d.DiskIndex[n]
+		switch {
+		case dr.Swapping() && i >= 0:
+			name = "inserting " + filepath.Base(d.Disks[n][i])
+		case dr.Inserted() && i >= 0:
+			name = filepath.Base(d.Disks[n][i])
+		case dr.Inserted():
+			name = "disk"
+		}
+		drives = append(drives, fmt.Sprintf("DF%d: %s", n, name))
 	}
-	hint := ""
-	if len(d.Disks) > 1 {
-		hint = " (F11 next disk)"
-	}
-	title := fmt.Sprintf("goAmiga — %s%s — %s", disk, hint, mouse)
+	title := fmt.Sprintf("goAmiga — %s — %s", strings.Join(drives, " | "), mouse)
 	if title != d.lastTitle {
 		ebiten.SetWindowTitle(title)
 		d.lastTitle = title

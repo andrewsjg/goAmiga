@@ -21,42 +21,32 @@ const (
 	DiskRevolutionCycles = DiskCyclesPerWord * MFMTrackWords // 1,418,750
 )
 
-// DiskDrive emulates an Amiga 3.5" floppy disk drive (DF0:).
+// DiskDrive is the floppy disk controller (Paula's disk DMA and the drive
+// signals on the CIAs) with up to four drives. DF0: is always connected and
+// embedded, so a.Disk.InsertDisk, a.Disk.motor and so on refer to it;
+// DF(n) reaches the others.
 type DiskDrive struct {
-	amiga *Amiga
+	*Drive // DF0:
 
-	// Disk image
-	adf  []byte // 901120 bytes (nil = no disk)
-	path string // file the image came from; written tracks are saved there
+	amiga  *Amiga
+	drives [4]*Drive // nil = no drive connected
 
-	// WriteProtected makes the drive report the disk as write-protected
-	// and ignore write DMA, like the tab on a real disk.
-	WriteProtected bool
+	side int // /SIDE: 0 = lower head, 1 = upper (shared by all drives)
 
 	// Write statistics: sectors committed to the image, and sectors in
 	// write DMA that were dropped (bad checksum or format) or whose header
 	// named a different track than the head was on.
 	SectorsWritten, BadSectorWrites, TrackMismatches int
 
-	// SaveErr is the last error writing a track back to the image file.
+	// SaveErr is the last error writing a track back to an image file.
 	SaveErr error
 
-	// A disk waiting to go in after SwapDisk ejected the old one, and the
-	// CPU cycles left before it does.
-	pending        *pendingDisk
-	pendingWait    int // cycles until insertion (shortened by a poll)
-	pendingElapsed int // cycles since the eject
-	// Drive state
-	motor               bool
-	side                int // 0=lower, 1=upper
-	cylinder            int // 0-79
-	selected            bool
-	SelectCount         int // times SEL0 goes low
-	DeselectCount       int // times SEL0 goes high
+	// DF0: select and status-read counters (diagnostics).
+	SelectCount         int
+	DeselectCount       int
 	StatusReads         int
 	StatusSelectedTrue  int
 	StatusSelectedFalse int
-	diskChange          bool // true until first head step after insert
 
 	// DMA registers
 	dskpt        uint32 // DMA destination pointer
@@ -77,21 +67,49 @@ type DiskDrive struct {
 
 // NewDiskDrive creates a new disk drive attached to the given Amiga.
 func NewDiskDrive(a *Amiga) *DiskDrive {
+	df0 := &Drive{Unit: 0}
 	return &DiskDrive{
+		Drive:   df0,
+		drives:  [4]*Drive{df0},
 		amiga:   a,
 		dsksync: 0x4489,
 	}
 }
 
-// InsertDisk loads an ADF image into the drive.
-func (d *DiskDrive) InsertDisk(data []byte) error {
-	if len(data) != ADFSize {
-		return fmt.Errorf("invalid ADF size: %d bytes (expected %d)", len(data), ADFSize)
+// ConnectDrive attaches drive n (1-3) if it is not already, and returns it.
+// Kickstart finds external drives at boot by reading their IDs.
+func (d *DiskDrive) ConnectDrive(n int) *Drive {
+	if d.drives[n] == nil {
+		d.drives[n] = &Drive{Unit: n}
 	}
-	d.adf = data
-	d.path = ""
-	d.diskChange = true
-	d.pending = nil
+	return d.drives[n]
+}
+
+// DF returns drive n (DFn:, 0-3), or nil if none is connected.
+func (d *DiskDrive) DF(n int) *Drive {
+	if n < 0 || n > 3 {
+		return nil
+	}
+	return d.drives[n]
+}
+
+// SetWriteProtected write-protects (or not) every connected drive.
+func (d *DiskDrive) SetWriteProtected(on bool) {
+	for _, dr := range d.drives {
+		if dr != nil {
+			dr.WriteProtected = on
+		}
+	}
+}
+
+// active is the drive the controller talks to: the lowest-numbered
+// selected drive, or nil.
+func (d *DiskDrive) active() *Drive {
+	for _, dr := range d.drives {
+		if dr != nil && dr.selected {
+			return dr
+		}
+	}
 	return nil
 }
 
@@ -117,122 +135,68 @@ const (
 	swapMaxWait   = 7_093_790 * 10 // insert after 10 s regardless
 )
 
-// SwapDisk ejects the current disk and inserts data (from file path, or
-// "" for an image with no file) once the Amiga has noticed the drive is
-// empty.
-func (d *DiskDrive) SwapDisk(data []byte, path string) error {
-	if len(data) != ADFSize {
-		return fmt.Errorf("invalid ADF size: %d bytes (expected %d)", len(data), ADFSize)
-	}
-	d.Eject()
-	d.pending = &pendingDisk{data: data, path: path}
-	d.pendingWait = swapMaxWait
-	d.pendingElapsed = 0
-	return nil
-}
-
-// Swapping reports whether a SwapDisk is waiting to insert its disk.
-func (d *DiskDrive) Swapping() bool { return d.pending != nil }
-
-// insertPending puts the disk queued by SwapDisk in the drive.
-func (d *DiskDrive) insertPending() {
-	p := d.pending
-	d.InsertDisk(p.data)
-	d.path = p.path
-}
-
-// Eject removes the disk. /DSKCHANGE goes low and stays low until the head
-// is stepped with a disk in the drive; trackdisk polls for that by
-// stepping, which is how it notices a swap. A DMA already running still
-// completes, as the controller does not know the disk has gone.
-func (d *DiskDrive) Eject() {
-	d.adf = nil
-	d.path = ""
-	d.diskChange = true
-}
-
-// Inserted reports whether a disk is in the drive.
-func (d *DiskDrive) Inserted() bool { return d.adf != nil }
-
-// HandleCIABWrite processes CIA-B PRB writes for drive control signals.
-// PRB bit layout: 7=/MTR, 6=/SEL3, 5=/SEL2, 4=/SEL1, 3=/SEL0, 2=/SIDE, 1=/DIR, 0=/STEP
-// DF0 select = bit 3 (/SEL0). Unit select mask $77 = motor ON + DF0 selected.
+// HandleCIABWrite processes CIA-B PRB writes for the drive signals.
+// PRB: 7=/MTR, 6=/SEL3, 5=/SEL2, 4=/SEL1, 3=/SEL0, 2=/SIDE, 1=/DIR, 0=/STEP.
+// Each drive latches /MTR when it is selected (falling edge of its /SELn),
+// and only selected drives respond to /STEP.
 func (d *DiskDrive) HandleCIABWrite(old, new byte) {
-	// Drive select: DF0 uses /SEL0 (bit 3), active low
-	wasSelected := d.selected
-	d.selected = new&0x08 == 0
-	if d.selected && !wasSelected {
-		d.SelectCount++
-	} else if !d.selected && wasSelected {
-		d.DeselectCount++
-	}
-
-	// Motor control: direct-set latch. When /SELn has a falling edge,
-	// the motor state is SET (not toggled) to the /MTR level:
-	// /MTR LOW (bit 7=0) at select time → motor ON
-	// /MTR HIGH (bit 7=1) at select time → motor OFF
-	if !wasSelected && d.selected {
-		d.motor = new&0x80 == 0
-	}
-
-	// Side select: 0=upper head, 1=lower head (active low)
-	if new&0x04 == 0 {
-		d.side = 1 // upper
-	} else {
-		d.side = 0 // lower
-	}
-
-	// Step: falling edge on bit 0
-	if old&0x01 != 0 && new&0x01 == 0 {
-		if new&0x02 == 0 {
-			// DIR=0: step toward center (higher cylinder)
-			if d.cylinder < 79 {
-				d.cylinder++
-			}
-		} else {
-			// DIR=1: step toward track 0 (lower cylinder)
-			if d.cylinder > 0 {
-				d.cylinder--
+	for n, dr := range d.drives {
+		if dr == nil {
+			continue
+		}
+		was := dr.selected
+		dr.selected = new&(0x08<<n) == 0
+		if n == 0 {
+			if dr.selected && !was {
+				d.SelectCount++
+			} else if !dr.selected && was {
+				d.DeselectCount++
 			}
 		}
-		if d.adf != nil {
-			d.diskChange = false // stepping clears disk change only when disk is present
-		} else if d.pending != nil && !d.motor && d.pendingWait > swapAfterPoll {
-			d.pendingWait = swapAfterPoll // trackdisk polled the empty drive
+		if dr.selected && !was {
+			on := new&0x80 == 0
+			switch {
+			case dr.motor && !on:
+				dr.idBit = 0 // stopping the motor resets the ID shift register
+			case !on:
+				dr.idBit++ // each select with the motor off clocks an ID bit
+			}
+			dr.motor = on
+		}
+	}
+
+	if new&0x04 == 0 {
+		d.side = 1 // upper head
+	} else {
+		d.side = 0
+	}
+
+	if old&0x01 != 0 && new&0x01 == 0 { // /STEP falling edge
+		in := new&0x02 == 0 // /DIR low: towards the centre
+		for _, dr := range d.drives {
+			if dr != nil && dr.selected {
+				dr.step(in)
+			}
 		}
 	}
 }
 
-// ReadStatus modifies CIA-A PRA on read to reflect drive status.
-// CIA-A PRA ($BFE001) bits:
-// Bit 5: /DKRDY (low when motor on + selected)
-// Bit 4: /DKTRACK0 (low when cylinder==0)
-// Bit 3: /DKPROT (low = write protected, always set when disk present)
-// Bit 2: /DKCHANGE (low when disk was changed = diskChange==true)
+// ReadStatus returns CIA-A PRA with the drive status bits: selected drives
+// pull /DSKRDY (5), /DSKTRACK0 (4), /DSKPROT (3) and /DSKCHANGE (2) low
+// (the drives' outputs are wired together).
 func (d *DiskDrive) ReadStatus(regVal byte) byte {
-	val := regVal | 0x3C // set bits 5-2 high (inactive) by default
+	val := regVal | 0x3C // inactive (high) unless a selected drive pulls low
 	d.StatusReads++
-	if d.selected {
+	if d.drives[0].selected {
 		d.StatusSelectedTrue++
 	} else {
 		d.StatusSelectedFalse++
 	}
-
-	if d.selected {
-		if d.motor && d.adf != nil {
-			val &^= 0x20 // /DSKRDY = low (ready)
-		}
-		if d.cylinder == 0 {
-			val &^= 0x10 // /DSKTRACK0 = low
-		}
-		if d.adf != nil && d.WriteProtected {
-			val &^= 0x08 // /DSKPROT = low (write protected)
-		}
-		if d.adf == nil || d.diskChange {
-			val &^= 0x04 // /DKCHANGE = low when no disk or disk was recently changed
+	for _, dr := range d.drives {
+		if dr != nil && dr.selected {
+			val &^= dr.status()
 		}
 	}
-
 	return val
 }
 
@@ -286,7 +250,7 @@ func (d *DiskDrive) ReadADKCONR() uint16 {
 // Bit 12: WORDEQUAL (sync word matched)
 func (d *DiskDrive) ReadDSKBYTR() uint16 {
 	var val uint16
-	if d.motor {
+	if dr := d.active(); dr != nil && dr.motor {
 		val |= 0x8000 // DSKBYT
 	}
 	if d.wordequal {
@@ -298,7 +262,8 @@ func (d *DiskDrive) ReadDSKBYTR() uint16 {
 // startDMA performs a disk DMA transfer. Data lands in chip RAM immediately,
 // but completion interrupts are deferred (see TickCycles).
 func (d *DiskDrive) startDMA() {
-	if d.adf == nil || !d.motor || !d.selected {
+	dr := d.active()
+	if dr == nil || dr.adf == nil || !dr.motor {
 		return
 	}
 
@@ -313,15 +278,15 @@ func (d *DiskDrive) startDMA() {
 		// Writes start at the head position without waiting for a sync
 		// word, and take one word time per word. A write-protected drive
 		// ignores the data but the DMA still runs to completion.
-		if !d.WriteProtected {
-			d.writeTrack(wordCount)
+		if !dr.WriteProtected {
+			d.writeTrack(dr, wordCount)
 		}
 		d.completionCycles = wordCount * DiskCyclesPerWord
 		return
 	}
 
-	track := d.cylinder*2 + d.side
-	mfm := d.encodeMFMTrack(track)
+	track := dr.cylinder*2 + d.side
+	mfm := dr.encodeMFMTrack(track)
 	if mfm == nil {
 		return
 	}
@@ -363,12 +328,12 @@ func (d *DiskDrive) startDMA() {
 // writeTrack decodes the MFM sectors in a write DMA buffer of words words
 // at DSKPT and stores them in the image on the track under the head, then
 // saves that track to the image file if there is one.
-func (d *DiskDrive) writeTrack(words int) {
+func (d *DiskDrive) writeTrack(dr *Drive, words int) {
 	buf := make([]byte, 2*words)
 	for i := 0; i < len(buf); i += 2 {
 		d.amiga.ChipRAM.Read(int(d.dskpt)+i, buf[i:i+2])
 	}
-	track := d.cylinder*2 + d.side
+	track := dr.cylinder*2 + d.side
 	n := 0
 	for _, sec := range decodeMFMSectors(buf) {
 		if !sec.ok || sec.sector >= SectorsPerTrack {
@@ -378,25 +343,25 @@ func (d *DiskDrive) writeTrack(words int) {
 		if sec.track != track {
 			d.TrackMismatches++
 		}
-		copy(d.adf[track*TrackSize+sec.sector*BytesPerSector:], sec.data[:])
+		copy(dr.adf[track*TrackSize+sec.sector*BytesPerSector:], sec.data[:])
 		n++
 	}
 	d.SectorsWritten += n
-	if n > 0 && d.path != "" {
-		d.SaveErr = d.saveTrack(track)
+	if n > 0 && dr.path != "" {
+		d.SaveErr = dr.saveTrack(track)
 		if d.SaveErr != nil {
-			fmt.Fprintf(os.Stderr, "goamiga: saving track %d to %s: %v\n", track, d.path, d.SaveErr)
+			fmt.Fprintf(os.Stderr, "goamiga: saving track %d to %s: %v\n", track, dr.path, d.SaveErr)
 		}
 	}
 }
 
 // saveTrack writes one track of the image back to its file.
-func (d *DiskDrive) saveTrack(track int) error {
-	f, err := os.OpenFile(d.path, os.O_WRONLY, 0)
+func (dr *Drive) saveTrack(track int) error {
+	f, err := os.OpenFile(dr.path, os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
-	_, err = f.WriteAt(d.adf[track*TrackSize:(track+1)*TrackSize], int64(track*TrackSize))
+	_, err = f.WriteAt(dr.adf[track*TrackSize:(track+1)*TrackSize], int64(track*TrackSize))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -469,7 +434,8 @@ func (d *DiskDrive) headWord() int {
 // spinning reports whether the drive is feeding the disk signals (index,
 // data) to the controller: selected, motor on, disk in.
 func (d *DiskDrive) spinning() bool {
-	return d.selected && d.motor && d.adf != nil
+	dr := d.active()
+	return dr != nil && dr.motor && dr.adf != nil
 }
 
 // TickCycles advances disk DMA timing and the index pulse. Called from
@@ -490,12 +456,9 @@ func (d *DiskDrive) TickCycles(cpuCycles int) {
 			d.amiga.Custom.SetIntreq(1 << 1) // DSKBLK
 		}
 	}
-	if d.pending != nil {
-		d.pendingWait -= cpuCycles
-		d.pendingElapsed += cpuCycles
-		idle := !d.motor && d.pendingElapsed >= swapIdleWait
-		if d.pendingWait <= 0 || idle || d.pendingElapsed >= swapMaxWait {
-			d.insertPending()
+	for _, dr := range d.drives {
+		if dr != nil {
+			dr.tickPending(cpuCycles)
 		}
 	}
 	// Index pulse once per revolution on CIA-B FLG.
@@ -519,11 +482,13 @@ func (d *DiskDrive) CyclesToNextEvent() int {
 	}
 	consider(d.syncCycles)
 	consider(d.completionCycles)
-	if d.pending != nil {
-		consider(d.pendingWait)
-		consider(swapMaxWait - d.pendingElapsed)
-		if !d.motor {
-			consider(swapIdleWait - d.pendingElapsed)
+	for _, dr := range d.drives {
+		if dr != nil && dr.pending != nil {
+			consider(dr.pendingWait)
+			consider(swapMaxWait - dr.pendingElapsed)
+			if !dr.motor {
+				consider(swapIdleWait - dr.pendingElapsed)
+			}
 		}
 	}
 	if d.spinning() && d.amiga.CIAB.icrMask&0x10 != 0 {
@@ -538,13 +503,13 @@ func (d *DiskDrive) CyclesToNextEvent() int {
 // bits (30,28,...,0) go into another.
 // Header (info + labels): INTERLEAVED — odd then even for each source longword.
 // Data (512 bytes): BLOCK-SPLIT — all 128 odd longs first, then all 128 even longs.
-func (d *DiskDrive) encodeMFMTrack(track int) []byte {
+func (dr *Drive) encodeMFMTrack(track int) []byte {
 	if track < 0 || track >= TracksPerDisk {
 		return nil
 	}
 
 	trackOffset := track * TrackSize
-	rawTrack := d.adf[trackOffset : trackOffset+TrackSize]
+	rawTrack := dr.adf[trackOffset : trackOffset+TrackSize]
 
 	// Allocate MFM buffer: each sector ~1088 words, 11 sectors + gaps
 	mfm := make([]byte, 0, 13000)

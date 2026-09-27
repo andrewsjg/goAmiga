@@ -12,17 +12,19 @@ A500/A600/A2000 (512KB) runs too, but wants Workbench 3.2 disks.
 
 ```bash
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --disk "disks/Workbench1.3.adf"
-go run ./cmd/goamiga --rom ROMS/Kick32.rom --disk disks/Install3.2.adf --disk disks/Workbench3.2.adf
+go run ./cmd/goamiga --rom ROMS/Kick32.rom --df0 disks/Install3.2.adf --df1 disks/Workbench3.2.adf
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --headless --cycles 10000000
 ```
 
-Give `--disk` more than once to swap disks while running: F11 puts the
-next disk in DF0: (the Amiga sees the drive empty for about a second, as
-with a real swap), Shift+F11 ejects. The window title shows what's in the
-drive.
+Up to four drives: `--df0` (or `--disk`) to `--df3`, each repeatable to
+give that drive a list of disks. The first goes in at start; F11 swaps DF0:
+to the next, Alt+F11 DF1:, Ctrl+F11 DF2:, Ctrl+Alt+F11 DF3:, and holding
+Shift ejects instead. A swap waits until the Amiga has seen the drive empty,
+as with a real disk change. `--drives N` connects drives with no disk yet.
+The window title shows what is in each drive.
 
 ```bash
-go run ./cmd/goamiga --rom ROMS/Kick13.rom --disk disks/wb13.adf --disk disks/extras13.adf --disk disks/blank.adf
+go run ./cmd/goamiga --rom ROMS/Kick13.rom --df0 disks/wb13.adf --df1 disks/extras13.adf --df1 disks/blank.adf
 ```
 
 The machine has 512 KB chip RAM plus 512 KB slow RAM by default, like an

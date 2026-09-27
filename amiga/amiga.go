@@ -704,15 +704,25 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 // the drive is write-protected, sectors the Amiga writes are saved back to
 // the file.
 func (a *Amiga) LoadDisk(path string) error {
+	return a.LoadDiskUnit(0, path)
+}
+
+// LoadDiskUnit inserts the ADF at path into drive DFunit: (0-3),
+// connecting that drive if needed. Tracks the Amiga writes are saved back to
+// the file unless the drive is write-protected.
+func (a *Amiga) LoadDiskUnit(unit int, path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read ADF: %w", err)
 	}
-	if err := a.Disk.InsertDisk(data); err != nil {
+	dr := a.Disk.DF(0)
+	if unit > 0 {
+		dr = a.Disk.ConnectDrive(unit)
+	}
+	if err := dr.InsertDisk(data); err != nil {
 		return err
 	}
-	// Tracks the Amiga writes are saved back to this file.
-	a.Disk.path = path
+	dr.path = path
 	return nil
 }
 
@@ -720,11 +730,20 @@ func (a *Amiga) LoadDisk(path string) error {
 // Amiga has noticed the drive is empty (see DiskDrive.SwapDisk). Writes to
 // the new disk are saved to path.
 func (a *Amiga) SwapDisk(path string) error {
+	return a.SwapDiskUnit(0, path)
+}
+
+// SwapDiskUnit is SwapDisk for drive DFunit:, which must be connected.
+func (a *Amiga) SwapDiskUnit(unit int, path string) error {
+	dr := a.Disk.DF(unit)
+	if dr == nil {
+		return fmt.Errorf("DF%d: is not connected", unit)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read ADF: %w", err)
 	}
-	return a.Disk.SwapDisk(data, path)
+	return dr.SwapDisk(data, path)
 }
 
 // ROMChecksum returns the Kickstart checksum of a ROM image: the sum of its

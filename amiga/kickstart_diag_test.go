@@ -75,6 +75,15 @@ func TestKickstartDiag(t *testing.T) {
 			t.Fatal(err)
 		}
 		a.Disk.WriteProtected = true
+		// $GOAMIGA_DF1: a disk for DF1: (connects the drive).
+		if df1 := os.Getenv("GOAMIGA_DF1"); df1 != "" {
+			d1, err := os.ReadFile(df1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.Disk.ConnectDrive(1).InsertDisk(d1)
+		}
+		a.Disk.SetWriteProtected(true)
 	}
 	a.Reset()
 	a.Video.DisplayActive = true

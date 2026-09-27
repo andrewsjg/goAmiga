@@ -11,11 +11,18 @@ import (
 
 func main() {
 	romPath := flag.String("rom", "", "Path to Kickstart ROM file")
-	var disks diskList
-	flag.Var(&disks, "disk", "ADF floppy image for DF0:; repeat to list more disks, F11 swaps to the next")
+	// Per-drive disk lists: the first goes in at start, the swap key
+	// cycles through the rest.
+	var drives [4]diskList
+	flag.Var(&drives[0], "df0", "ADF for DF0:; repeat to list more disks (F11 swaps to the next)")
+	flag.Var(&drives[0], "disk", "same as --df0")
+	flag.Var(&drives[1], "df1", "ADF for DF1: (connects the drive); repeat for more (Alt+F11 swaps)")
+	flag.Var(&drives[2], "df2", "ADF for DF2: (connects the drive); repeat for more (Ctrl+F11 swaps)")
+	flag.Var(&drives[3], "df3", "ADF for DF3: (connects the drive); repeat for more (Ctrl+Alt+F11 swaps)")
+	numDrives := flag.Int("drives", 0, "Number of drives to connect (1-4), even without disks for them")
 	maxCycles := flag.Uint64("cycles", 0, "Maximum CPU cycles to execute (headless mode)")
 	headless := flag.Bool("headless", false, "Run without display window")
-	writeProtect := flag.Bool("write-protect", false, "Write-protect the floppy: the Amiga cannot change the ADF file")
+	writeProtect := flag.Bool("write-protect", false, "Write-protect every drive: the Amiga cannot change the ADF files")
 	mute := flag.Bool("mute", false, "No sound")
 	slowRAM := flag.Int("slowram", 512, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
 	fastRAM := flag.Int("fastram", 0, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
@@ -24,7 +31,7 @@ func main() {
 	flag.Parse()
 
 	if *romPath == "" {
-		fmt.Fprintf(os.Stderr, "Usage: goamiga --rom <kickstart.rom> [--disk a.adf [--disk b.adf ...]] [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: goamiga --rom <kickstart.rom> [--df0 a.adf ...] [--df1 b.adf ...] [flags]\n")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -58,29 +65,32 @@ func main() {
 	}
 	fmt.Printf("Memory: 512 KB chip, %d KB slow, %d KB fast\n", *slowRAM, *fastRAM)
 
-	// Load the first disk; the others are for F11 to swap in. Check them
-	// all now so a typo fails at startup, not at the swap.
-	a.Disk.WriteProtected = *writeProtect
-	for _, p := range disks {
-		if _, err := os.Stat(p); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: disk %v\n", err)
-			os.Exit(1)
-		}
+	// Connect drives and load each one's first disk; the rest are for the
+	// swap keys. Check every file now so a typo fails at startup.
+	for n := 1; n < *numDrives && n < 4; n++ {
+		a.Disk.ConnectDrive(n)
 	}
-	if len(disks) > 0 {
-		diskPath := disks[0]
-		if err := a.LoadDisk(diskPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading disk: %v\n", err)
+	for n, list := range drives {
+		for _, p := range list {
+			if _, err := os.Stat(p); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: DF%d: disk %v\n", n, err)
+				os.Exit(1)
+			}
+		}
+		if len(list) == 0 {
+			continue
+		}
+		if err := a.LoadDiskUnit(n, list[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading DF%d: %v\n", n, err)
 			os.Exit(1)
 		}
-		if *writeProtect {
-			fmt.Printf("Loaded disk: %s (write-protected)\n", diskPath)
-		} else {
-			fmt.Printf("Loaded disk: %s (writes are saved to this file)\n", diskPath)
-		}
-		if len(disks) > 1 {
-			fmt.Printf("F11 swaps DF0: to the next of %d disks; Shift+F11 ejects\n", len(disks))
-		}
+		fmt.Printf("DF%d: %s\n", n, list[0])
+	}
+	a.Disk.SetWriteProtected(*writeProtect)
+	if *writeProtect {
+		fmt.Println("All drives write-protected")
+	} else {
+		fmt.Println("Disk writes are saved to the ADF files")
 	}
 
 	// Reset
@@ -109,10 +119,12 @@ func main() {
 	fmt.Println("Starting display (50fps PAL)...")
 	a.Video.SetOverscan(*overscan)
 	display := amiga.NewDisplay(a)
-	display.Disks = disks
 	display.Mute = *mute
-	if len(disks) > 0 {
-		display.DiskIndex = 0
+	for n, list := range drives {
+		display.Disks[n] = list
+		if len(list) > 0 {
+			display.DiskIndex[n] = 0
+		}
 	}
 	if err := display.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Display error: %v\n", err)

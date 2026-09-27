@@ -23,13 +23,53 @@ Sound plays through Paula; floppies can be written and swapped.
    potentiometer/second-button inputs are not implemented. Audio DMA slots
    are not charged against the blitter.
 4. **Machine.** 512 KB chip RAM (no 1 MB Agnus), optional slow and Zorro II
-   fast RAM. One floppy drive (DF0:). Kickstart 3.2 (Hyperion,
+   fast RAM. Up to four floppy drives. Kickstart 3.2 (Hyperion,
    47.96, A500 build) boots the Install 3.2 disk to Workbench. 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
    The CPU does not raise address errors for word/long accesses at odd
    addresses.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-27 — Up to four floppy drives
+
+**Hardware model.**
+- **Select lines:** each drive has its own `/SELn` on CIA-B PRB (bits
+  3–6). It latches `/MTR` when selected (falling edge) and responds to
+  `/STEP` only while selected. `/SIDE` and `/DIR` are shared.
+- **Status lines:** the selected drives pull their status lines low on
+  CIA-A PRA, wired together.
+- **DMA:** there is one controller, and DMA and the index pulse come from
+  the selected drive.
+- **External drive detection:** Kickstart detects DF1:–DF3: by their ID.
+  Turning the motor off resets a shift register, and each later select
+  with the motor off clocks out one bit on `/RDY` (low = 1). A 3.5" DD
+  drive answers `$FFFFFFFF`, an empty port `0`. DF0: is never asked, so it
+  keeps its old `/RDY` behaviour.
+
+**Code.** The per-drive state moved into `Drive` (`amiga/drive.go`): image,
+file path, write-protect, motor latch, head, select, change latch, pending
+swap and ID counter. `DiskDrive` is now the controller. It embeds DF0:'s
+`*Drive`, so `a.Disk.InsertDisk`, `a.Disk.motor` etc. still mean DF0: and the
+existing tests were unaffected. `ConnectDrive(n)` and `DF(n)` reach the
+others, and `active()` picks the selected drive for DMA/status/index.
+`Amiga.LoadDiskUnit` and `SwapDiskUnit` take a drive number.
+
+**UI.** `--df0`…`--df3` (repeatable; `--disk` = `--df0`), `--drives N`,
+and `--write-protect` for all drives. F11 / Alt / Ctrl / Ctrl+Alt+F11 swap
+DF0:–DF3:, and Shift ejects. The title lists each drive's disk.
+
+**The Workbench 3.2 Clock, revisited.** With Install 3.2 in DF0: and
+Workbench 3.2 in DF1:, both volumes mount. With
+`Assign LIBS: DF1:Libs DF1:Classes` (amigaguide.library needs
+`Classes/DataTypes/amigaguide.datatype`), Clock opens and draws its face;
+no requesters, no swapping.
+
+**Tests.** `drive_test.go`: the ID protocol (DF1: `$FFFFFFFF`, absent DF2:
+`0`), independent motors and heads, DMA from the selected drive, and
+Kickstart 1.3 mounting a second (renamed) disk in DF1: at boot.
+`TestKS32TwoDrivesClock` covers the scenario above. The diagnostic takes
+`GOAMIGA_DF1`. Full suite passes.
 
 ## 2026-09-26 — Clock "error #8000000B"; disk swaps while the drive is busy
 
