@@ -35,6 +35,36 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-27 — Sound stutters and skips under load: pace by the audio clock
+
+Sound stuttered and then seemed to speed up whenever there was a lot of
+animation. It wasn't emulation speed. With the display on during a busy
+Kickstart 3.2 boot, a frame took a median of 2.8 ms of host time and at
+most 5.3 ms, against a 20 ms budget.
+
+**Cause.** Each 50 Hz Ebitengine tick ran exactly one emulated frame. A PAL
+frame is 49.92 Hz, so Paula produced about 0.16% more sound than the host
+played, and the 100 ms buffer sat permanently full.
+- Whenever Ebitengine delivered ticks back to back (it catches up in bursts
+  under drawing load), a frame's worth of the oldest samples was dropped.
+  That is the "speed up".
+- A late tick drained the buffer and played silence. That is the stutter.
+
+**Fix.** The audio clock now sets the emulation speed (`framesToRun`,
+`paceFrames`). Each tick runs one frame, none if the buffer is more than a
+frame above its 60 ms target, or two if it is more than a frame below. A
+burst of ticks therefore runs nothing extra. The buffer never has to drop
+samples, and emulation runs at exactly the host's audio rate. The 0.16%
+drift now shows up as a repeated or skipped video frame about every 12 s
+instead of an audible glitch. The buffer's hard cap went up to 500 ms and
+is only a safety net. `AudioBuffer.Read` reuses its scratch slice rather
+than allocating on every pull. With `--mute` it is one frame per tick as
+before.
+
+`TestPaceFramesJitter` simulates two minutes of bursty ticks (gaps of 0 to
+60 ms, averaging 20) against a 48 kHz consumer. The buffer stays between
+20 and 100 ms, never empties, and emulation runs at ~49.9 frames/s.
+
 ## 2026-09-27 — Bottom of a 16-colour Workbench missing: Copper vs bitplane DMA
 
 After installing Workbench 3.2 to a hard disk, the bottom fifth of the screen

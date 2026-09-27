@@ -89,10 +89,29 @@ func (d *Display) Update() error {
 	// Never tear down the window on a single-frame CPU fault. Step() already
 	// converts access violations to bus errors; if anything still leaks out,
 	// keep presenting frames so the user can see a Guru/requester.
-	if err := d.amiga.RunFrame(); err != nil {
-		return nil
+	for n := d.framesToRun(); n > 0; n-- {
+		if err := d.amiga.RunFrame(); err != nil {
+			return nil
+		}
 	}
 	return nil
+}
+
+// framesToRun paces the emulation. With sound on, the host's audio clock
+// sets the speed: each tick runs whatever keeps Paula's buffer near
+// audioTarget - usually one frame, none if it is ahead, two if behind.
+// Running one frame per 50 Hz tick regardless let the buffer overflow
+// (the PAL frame is 49.92 Hz, so Paula produces slightly more than the
+// host plays, and Ebitengine sometimes delivers ticks in bursts) and
+// underrun when ticks came late: the sound skipped ahead and stuttered.
+// Now the drift costs a repeated or dropped video frame every ~12 s
+// instead, and a burst of ticks just runs nothing.
+func (d *Display) framesToRun() int {
+	out := d.amiga.Paula.Output
+	if d.audioPlayer == nil || out == nil {
+		return 1
+	}
+	return paceFrames(out.Frames(), audioTargetFrames)
 }
 
 func (d *Display) pollKeyboard() {
@@ -409,19 +428,20 @@ func (d *Display) windowScale(w, h int) int {
 
 // Host audio. Paula writes 48 kHz stereo into an AudioBuffer as the
 // emulator runs; Ebitengine's player pulls from it on its own goroutine.
-// The buffer holds at most audioLatency: the emulated frame (313 lines,
-// 49.92 Hz) is slightly longer than the 50 Hz tick, so Paula produces a
-// little more than the host plays and the oldest samples are dropped
-// rather than letting latency grow. Underruns play silence.
+// framesToRun keeps the buffer near audioTarget. The buffer can hold
+// audioMax, and only drops the oldest samples beyond that (a safety net,
+// e.g. when the host player stops pulling). Underruns play silence.
 const (
-	audioLatency       = 100 * time.Millisecond
-	audioPlayerBuffer  = 50 * time.Millisecond
-	audioLatencyFrames = int(audioLatency * AudioSampleRate / time.Second)
+	audioTarget       = 60 * time.Millisecond
+	audioMax          = 500 * time.Millisecond
+	audioPlayerBuffer = 40 * time.Millisecond
+	audioTargetFrames = int(audioTarget * AudioSampleRate / time.Second)
+	audioMaxFrames    = int(audioMax * AudioSampleRate / time.Second)
 )
 
 func (d *Display) startAudio() error {
 	ctx := audio.NewContext(AudioSampleRate)
-	d.amiga.Paula.Output = NewAudioBuffer(audioLatencyFrames)
+	d.amiga.Paula.Output = NewAudioBuffer(audioMaxFrames)
 	p, err := ctx.NewPlayerF32(d.amiga.Paula.Output)
 	if err != nil {
 		d.amiga.Paula.Output = nil

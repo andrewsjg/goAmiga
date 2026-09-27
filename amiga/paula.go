@@ -378,6 +378,7 @@ type AudioBuffer struct {
 	mu   sync.Mutex
 	buf  []float32 // interleaved L, R
 	r, n int       // read position and frames held
+	tmp  []float32 // Read's scratch, reused to spare the GC
 }
 
 // NewAudioBuffer holds up to frames stereo frames; when full, the oldest
@@ -426,7 +427,11 @@ func (b *AudioBuffer) ReadFrames(dst []float32) int {
 // the emulator has fallen behind it pads with silence rather than block.
 func (b *AudioBuffer) Read(p []byte) (int, error) {
 	frames := len(p) / 8
-	tmp := make([]float32, 2*frames)
+	if cap(b.tmp) < 2*frames {
+		b.tmp = make([]float32, 2*frames)
+	}
+	tmp := b.tmp[:2*frames]
+	clear(tmp)
 	b.ReadFrames(tmp)
 	for i, v := range tmp {
 		binary.LittleEndian.PutUint32(p[4*i:], math.Float32bits(v))
@@ -469,4 +474,20 @@ func (f *biquad) step(x float64) float64 {
 	f.x2, f.x1 = f.x1, x
 	f.y2, f.y1 = f.y1, y
 	return y
+}
+
+// samplesPerFrame is how many host samples one emulated PAL frame makes.
+const samplesPerFrame = AudioSampleRate * CyclesPerFrame / (2 * PaulaClock) // ~961
+
+// paceFrames is how many emulated frames to run in a host tick so that
+// an audio buffer holding fill frames stays near target: none when a
+// frame ahead, two when a frame behind, otherwise one.
+func paceFrames(fill, target int) int {
+	switch {
+	case fill > target+samplesPerFrame:
+		return 0
+	case fill < target-samplesPerFrame:
+		return 2
+	}
+	return 1
 }

@@ -145,3 +145,44 @@ func TestAudioNextInterrupt(t *testing.T) {
 		t.Fatal("interrupt not raised when predicted")
 	}
 }
+
+// Pacing by the audio buffer keeps it from overflowing or running dry when
+// host ticks arrive irregularly: the player pulls 48 kHz exactly, ticks
+// come on average at 50 Hz but in bursts of up to three and with gaps.
+func TestPaceFramesJitter(t *testing.T) {
+	const target = 2880 // 60 ms
+	fill := 0
+	produced := 0
+	minFill, maxFill := 1<<30, 0
+	// Tick pattern in ms between ticks: bursty but averaging 20 ms.
+	gaps := []int{20, 20, 0, 0, 60, 20, 35, 5, 20, 40, 0, 20}
+	pulled := 0.0
+	for tick := 0; tick < 50*120; tick++ { // two minutes
+		gap := gaps[tick%len(gaps)]
+		pulled += float64(gap) * AudioSampleRate / 1000
+		for pulled >= 1 && fill > 0 {
+			fill--
+			pulled--
+		}
+		pulled = min(pulled, 1) // an underrun plays silence, not debt
+		if tick > 50 {          // after the start-up fill
+			minFill, maxFill = min(minFill, fill), max(maxFill, fill)
+		}
+		for n := paceFrames(fill, target); n > 0; n-- {
+			fill += samplesPerFrame
+			produced++
+		}
+	}
+	t.Logf("buffer stayed between %d and %d frames (%.0f-%.0f ms); %d emulated frames in 120 s",
+		minFill, maxFill, float64(minFill)/48, float64(maxFill)/48, produced)
+	if minFill == 0 {
+		t.Error("buffer ran dry (stutter)")
+	}
+	if maxFill > 24000 {
+		t.Error("buffer exceeded 500 ms (would drop samples)")
+	}
+	// Emulation runs at the PAL rate, 49.92 frames/s.
+	if rate := float64(produced) / 120; rate < 49.7 || rate > 50.1 {
+		t.Errorf("emulated %.2f frames/s, want ~49.92", rate)
+	}
+}
