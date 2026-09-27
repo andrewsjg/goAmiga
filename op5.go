@@ -134,6 +134,8 @@ func opDBcc(c *Processor) (t stepTrace) {
 	c.D[reg] = c.D[reg]&0xFFFF0000 | uint32(n)
 
 	// branch if n != -1
+	c.tim.expired = n == 0xFFFF
+	c.tim.taken = !c.tim.expired
 	if n != 0xFFFF {
 		c.PC = uint32(int32(c.PC) + disp - 2)
 	}

@@ -153,6 +153,7 @@ func opMovem(c *Processor) (t stepTrace) {
 	}
 	c.PC += 2
 	regl, _, _ := c.readImmWord() // register list
+	c.tim.count = popcount16(regl)
 	toRegs := c.op&0x0400 != 0
 	mode, reg := c.op>>3&7, c.op&7
 	size := uint32(2)
@@ -421,7 +422,9 @@ func opJsr(c *Processor) (t stepTrace) {
 	// An odd target faults on the prefetch from it, before the return
 	// address is pushed.
 	if jmp&1 != 0 && !c.NoAddressErrors {
-		panic(&addressError{addr: jmp, program: true, pc: jmp - 4, sr: c.SR})
+		// Timed as JSR less its push and final prefetch, plus 50.
+		cyc := 50 + controlCycles(c.op&0x3F, [7]int{16, 18, 22, 18, 20, 18, 22}) - 16
+		panic(&addressError{addr: jmp, program: true, pc: jmp - 4, sr: c.SR, cycles: cyc})
 	}
 
 	// push return address (current PC) to stack
@@ -942,6 +945,7 @@ func opScc(c *Processor) (t stepTrace) {
 	var val byte
 	if testCond(c, cc) {
 		val = 0xFF
+		c.tim.taken = true
 	}
 	t.dst, t.err = c.writeByte(ea, val)
 	return
@@ -1039,6 +1043,9 @@ func opChk(c *Processor) (t stepTrace) {
 	c.SR &^= StatusZero | StatusOverflow | StatusCarry
 	if dn == 0 {
 		c.SR |= StatusZero
+	}
+	if dn < 0 && dn <= ub {
+		c.tim.count = 1 // trapped on the sign test, not the bound (2 more cycles)
 	}
 	switch {
 	case dn < 0:

@@ -114,6 +114,7 @@ func opMulu(c *Processor) (t stepTrace) {
 		return
 	}
 
+	c.tim.count = popcount16(src)
 	result := uint32(uint16(c.D[reg])) * uint32(src)
 	c.D[reg] = result
 
@@ -146,6 +147,7 @@ func opMuls(c *Processor) (t stepTrace) {
 		return
 	}
 
+	c.tim.count = mulsPatterns(src)
 	result := int32(int16(c.D[reg])) * int32(int16(src))
 	c.D[reg] = uint32(result)
 

@@ -71,6 +71,7 @@ func opBcc(c *Processor) (t stepTrace) {
 	if !testCond(c, cc) {
 		return
 	}
+	c.tim.taken = true
 	c.PC = uint32((int32(t.addr+2) + disp))
 	if cc == 0 && c.PC == t.addr {
 		// this is a branch to self - a common pattern to terminate a program by

@@ -811,6 +811,7 @@ func opBchg(c *Processor) (t stepTrace) {
 			return
 		}
 		bit := bitNum % 32
+		c.tim.count = int(bit)
 		if v&(1<<bit) == 0 {
 			c.SR |= StatusZero
 		} else {
@@ -861,6 +862,7 @@ func opBclr(c *Processor) (t stepTrace) {
 			return
 		}
 		bit := bitNum % 32
+		c.tim.count = int(bit)
 		if v&(1<<bit) == 0 {
 			c.SR |= StatusZero
 		} else {
@@ -911,6 +913,7 @@ func opBset(c *Processor) (t stepTrace) {
 			return
 		}
 		bit := bitNum % 32
+		c.tim.count = int(bit)
 		if v&(1<<bit) == 0 {
 			c.SR |= StatusZero
 		} else {

@@ -11,6 +11,10 @@ type Decoder struct {
 	// installs it while executing an instruction.
 	OnOddAccess func(addr int, write bool)
 
+	// Accesses counts bus cycles (one per byte or word, two per long)
+	// completed through this Decoder; the CPU uses it to time exceptions.
+	Accesses int
+
 	buf [4]byte
 }
 
@@ -18,6 +22,7 @@ func (m *Decoder) checkOdd(addr int, size int, write bool) {
 	if size > 1 && addr&1 != 0 && m.OnOddAccess != nil {
 		m.OnOddAccess(addr, write)
 	}
+	m.Accesses += (size + 1) / 2
 }
 
 // NewDecoder returns a new Decoder for the given Memory interface.
@@ -44,6 +49,7 @@ func (m *Decoder) Reset() (err error) {
 
 // Byte reads a single byte from the underlying Memory interface.
 func (m *Decoder) Byte(addr int) (b byte, err error) {
+	m.Accesses++
 	_, err = m.M.Read(addr, m.buf[:1])
 	b = m.buf[0]
 	return

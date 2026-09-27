@@ -67,6 +67,7 @@ func (c *Processor) setSR(newSR uint32) {
 // 4. Read new PC from exception vector table
 // 5. Clear trace bit
 func (c *Processor) RaiseException(vector int) error {
+	c.tim.exception, c.tim.trapped = vector, true
 	return c.raiseInterruptException(vector, 0)
 }
 
@@ -185,11 +186,13 @@ func (c *Processor) CheckInterrupts() error {
 
 // addressError describes a word or long access at an odd address.
 type addressError struct {
-	addr    uint32 // the faulting address (full 32 bits)
-	write   bool
-	program bool   // an instruction fetch (prefetch from an odd PC)
-	pc      uint32 // PC value to stack
-	sr      uint32 // SR at the fault
+	addr     uint32 // the faulting address (full 32 bits)
+	write    bool
+	program  bool   // an instruction fetch (prefetch from an odd PC)
+	pc       uint32 // PC value to stack
+	sr       uint32 // SR at the fault
+	accesses int    // bus cycles completed before the fault
+	cycles   int    // total clock periods, if known (program faults)
 }
 
 // oddAccess is the Decoder's OnOddAccess hook during an instruction: it
@@ -201,7 +204,7 @@ func (c *Processor) oddAccess(addr int, write bool) {
 	if write {
 		pc += c.faultPCAdjust
 	}
-	panic(&addressError{addr: uint32(addr), write: write, pc: pc, sr: c.SR})
+	panic(&addressError{addr: uint32(addr), write: write, pc: pc, sr: c.SR, accesses: c.M.Accesses})
 }
 
 // raiseAddressError takes exception 3 with the 68000's group 0 frame (14
@@ -256,11 +259,35 @@ func (c *Processor) raiseAddressError(ae *addressError) error {
 	push(ae.addr, 4)
 	push(uint32(ssw), 2)
 
+	// 50 clock periods, plus the bus cycles the instruction completed
+	// before the fault (4 each, not counting the opcode fetch) and the
+	// internal time of -(An) and indexed address calculations.
+	cyc := ae.cycles
+	if cyc == 0 {
+		cyc = 50 + 4*(ae.accesses-1)
+		m := c.op >> 3 & 7
+		predecX := c.op&0xB130 == 0x9100 && c.op&0x08 != 0 // ADDX/SUBX/ABCD/SBCD -(An)
+		movem := c.op&0xFB80 == 0x4880
+		if (m == 4 && !movem) || m == 6 || c.op&0x3F == 0x3B || predecX {
+			cyc += 2
+		}
+		if g := c.op >> 12; g >= 1 && g <= 3 && ae.write {
+			if c.op>>6&7 == 6 { // MOVE to (d8,An,Xn)
+				cyc += 2
+			}
+			switch c.faultPCAdjust {
+			case ^uint32(1): // written before the last extension word
+				cyc -= 4
+			case 2: // -(An): the next instruction was prefetched first
+				cyc += 4
+			}
+		}
+	}
 	newPC, err := c.M.Long(VecAddressError * 4)
 	if err != nil {
 		return err
 	}
 	c.PC = newPC
-	c.LastCycles = 50
+	c.LastCycles = cyc
 	return nil
 }

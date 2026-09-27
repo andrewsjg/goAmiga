@@ -27,8 +27,8 @@ import (
 //	SINGLESTEP_STRICT=1 ...                           # fail on any mismatch
 //
 // By default it reports a pass rate per file (and cycle-count agreement) and
-// only fails if a file has more failures than recorded for it in
-// testdata/singlestep_baseline.txt.
+// only fails if a file has more failures, or more cycle-count mismatches,
+// than recorded for it in testdata/singlestep_baseline.txt.
 
 type ssState struct {
 	D0       uint32      `json:"d0"`
@@ -91,6 +91,11 @@ func (m sparseMem) Reset() error { return nil }
 // runSingleStep runs one test and returns a description of each mismatch,
 // and whether the cycle count matched.
 func runSingleStep(tc *ssTest) (diffs []string, cyclesOK bool) {
+	diffs, cyclesOK, _ = runSingleStepCycles(tc)
+	return
+}
+
+func runSingleStepCycles(tc *ssTest) (diffs []string, cyclesOK bool, cycles int) {
 	in, out := &tc.Initial, &tc.Final
 	mem := sparseMem{}
 	for _, b := range in.RAM {
@@ -163,7 +168,7 @@ func runSingleStep(tc *ssTest) (diffs []string, cyclesOK bool) {
 	if nram > 4 {
 		diffs = append(diffs, fmt.Sprintf("... %d RAM bytes differ", nram))
 	}
-	return diffs, p.LastCycles == tc.Length
+	return diffs, p.LastCycles == tc.Length, p.LastCycles
 }
 
 // disputed reports tests whose expected result contradicts the 68000
@@ -233,6 +238,7 @@ func TestSingleStep(t *testing.T) {
 	type result struct {
 		name                          string
 		pass, total, cycles, disputed int
+		emuCycles, realCycles         int
 	}
 	var results []result
 	totalPass, total := 0, 0
@@ -244,7 +250,7 @@ func TestSingleStep(t *testing.T) {
 			continue
 		}
 		r := result{name: name, total: len(tests)}
-		shown := 0
+		shown, cycShown := 0, 0
 		for i := range tests {
 			diffs, cyc := func() (d []string, c bool) {
 				defer func() {
@@ -252,7 +258,15 @@ func TestSingleStep(t *testing.T) {
 						d = []string{fmt.Sprintf("panic: %v", e)}
 					}
 				}()
-				return runSingleStep(&tests[i])
+				var n int
+				d, c, n = runSingleStepCycles(&tests[i])
+				r.emuCycles += n
+				r.realCycles += tests[i].Length
+				if !c && cycShown < 6 && os.Getenv("SINGLESTEP_CYCLES") != "" {
+					t.Logf("  cycles %s: %d want %d", tests[i].Name, n, tests[i].Length)
+					cycShown++
+				}
+				return d, c
 			}()
 			if cyc {
 				r.cycles++
@@ -279,13 +293,18 @@ func TestSingleStep(t *testing.T) {
 		if r.disputed > 0 {
 			note = fmt.Sprintf(" (%d disputed)", r.disputed)
 		}
-		t.Logf("%-14s %5d/%5d pass (%5.1f%%), cycles match %5.1f%%%s", name, r.pass, r.total, pct,
-			100*float64(r.cycles)/float64(r.total), note)
+		t.Logf("%-14s %5d/%5d pass (%5.1f%%), cycles match %5.1f%% [%d off] (emulated/real %.2f)%s", name, r.pass, r.total, pct,
+			100*float64(r.cycles)/float64(r.total), r.total-r.cycles, float64(r.emuCycles)/float64(max(r.realCycles, 1)), note)
 		if strict && r.pass != r.total {
 			t.Errorf("%s: %d failures", name, r.total-r.pass)
 		}
-		if limit, ok := baseline[name]; ok && r.total-r.pass > limit {
-			t.Errorf("%s: %d failures, baseline allows %d", name, r.total-r.pass, limit)
+		if limit, ok := baseline[name]; ok {
+			if r.total-r.pass > limit[0] {
+				t.Errorf("%s: %d failures, baseline allows %d", name, r.total-r.pass, limit[0])
+			}
+			if r.total-r.cycles > limit[1] {
+				t.Errorf("%s: %d cycle-count mismatches, baseline allows %d", name, r.total-r.cycles, limit[1])
+			}
 		}
 	}
 	sort.Slice(results, func(i, j int) bool {
@@ -294,19 +313,19 @@ func TestSingleStep(t *testing.T) {
 	t.Logf("TOTAL %d/%d pass (%.2f%%)", totalPass, total, 100*float64(totalPass)/float64(max(total, 1)))
 }
 
-// readBaseline reads "NAME failures" lines: the most failures allowed per
-// file.
-func readBaseline(path string) map[string]int {
+// readBaseline reads "NAME failures cycleMismatches" lines: the most of
+// each allowed per file.
+func readBaseline(path string) map[string][2]int {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
-	out := map[string]int{}
+	out := map[string][2]int{}
 	for _, line := range strings.Split(string(b), "\n") {
 		var name string
-		var n int
-		if k, _ := fmt.Sscanf(line, "%s %d", &name, &n); k == 2 {
-			out[name] = n
+		var n, c int
+		if k, _ := fmt.Sscanf(line, "%s %d %d", &name, &n, &c); k == 3 {
+			out[name] = [2]int{n, c}
 		}
 	}
 	return out

@@ -47,6 +47,7 @@ func opShiftReg(c *Processor) (t stepTrace) {
 	}
 
 	val := c.D[reg] & sizeFilter[sz]
+	c.tim.count = int(count)
 
 	var result uint32
 	switch typ {

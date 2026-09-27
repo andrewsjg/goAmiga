@@ -102,6 +102,7 @@ func opDivu(c *Processor) (t stepTrace) {
 	}
 
 	dividend := c.D[reg]
+	c.tim.divCycles = divuCycles(dividend, divisor)
 	quotient := dividend / uint32(divisor)
 	remainder := dividend % uint32(divisor)
 
@@ -150,6 +151,7 @@ func opDivs(c *Processor) (t stepTrace) {
 	}
 
 	dividend := int32(c.D[reg])
+	c.tim.divCycles = divsCycles(dividend, int16(divisor))
 	quotient := dividend / divisor
 	remainder := dividend % divisor
 

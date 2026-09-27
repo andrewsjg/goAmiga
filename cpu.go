@@ -128,6 +128,9 @@ type Processor struct {
 	// instructions whose prefetch is not simply 2 behind (MOVE's write).
 	faultPCAdjust uint32
 
+	// tim collects what the current instruction's timing depends on.
+	tim timingInfo
+
 	// LastCycles holds the cycle count of the most recently executed instruction.
 	// Minimum is 4 for the fastest 68000 instructions.
 	LastCycles int
@@ -287,6 +290,8 @@ func (c *Processor) Step() (err error) {
 		}()
 	}
 
+	c.M.Accesses = 0
+
 	// read from program pointer into op
 	// TODO: consider prefetching a whole page of instructions and measure
 	if _, err = c.M.Read(int(c.PC), c.buf[0:2]); err != nil {
@@ -330,13 +335,11 @@ func (c *Processor) Step() (err error) {
 		err = c.RaiseException(VecIllegal)
 		return
 	}
+	c.tim = timingInfo{}
 	t := fn(c)
 
-	// Store cycle count for external consumers (minimum 4 for any 68000 instruction)
-	c.LastCycles = t.n
-	if c.LastCycles < 4 {
-		c.LastCycles = 4
-	}
+	// Clock periods for the instruction (see timing.go).
+	c.LastCycles = c.cycles()
 
 	// Only format and write trace when tracing is enabled
 	if c.TraceWriter != nil {
@@ -361,7 +364,10 @@ func (c *Processor) Step() (err error) {
 	// from the new PC, still within this instruction.
 	if c.PC&1 != 0 && !c.NoAddressErrors {
 		c.M.OnOddAccess = nil
-		err = c.raiseAddressError(&addressError{addr: c.PC, program: true, pc: c.PC - 4, sr: c.SR})
+		// Timed as the instruction's own time less the final prefetch
+		// (8 clock periods), plus 50 for the exception.
+		err = c.raiseAddressError(&addressError{addr: c.PC, program: true, pc: c.PC - 4, sr: c.SR,
+			cycles: 50 + c.cycles() - 8})
 		return
 	}
 
