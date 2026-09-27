@@ -26,10 +26,70 @@ Sound plays through Paula; floppies can be written and swapped.
    fast RAM. Up to four floppy drives. Kickstart 3.2 (Hyperion,
    47.96, A500 build) boots the Install 3.2 disk to Workbench. 512KB ROMs are truncated to their upper half, so only
    256KB Kickstarts (1.x) work.
-   The CPU does not raise address errors for word/long accesses at odd
-   addresses.
+   CPU instruction timing is only partly accurate (cycle counts match the
+   SingleStepTests for a minority of cases).
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-27 — CPU checked against the SingleStepTests 68000 suite
+
+**Suite.** github.com/SingleStepTests/680x0 (formerly Tom Harte's
+ProcessorTests): about 8,000 randomly generated tests per 68000 operation,
+1,000,060 in all. Each gives full register and memory state before and after
+one instruction, from an implementation verified against real hardware.
+The data (193 MB) is downloaded into go-m68k's git-ignored
+`testdata/680x0/`. `singlestep_test.go` runs it in ~13 s and reports a pass
+rate per file plus cycle-count agreement. `testdata/singlestep_baseline.txt`
+records the failures allowed per file, so a regression fails the test.
+
+**Result: 76.4% → 99.999%** (1,000,059 / 1,000,060) in go-m68k `e86428c`.
+The fixes, largest first:
+- **Address errors** (exception 3) were not implemented at all, and
+  accounted for most failures. A Decoder hook catches word and long
+  accesses at odd addresses, and the CPU builds the 14-byte group-0
+  frame: SSW = IR & $FFE0 | R/W | I/N | FC, then address, IR, SR, PC.
+  The details were read off the test data:
+  - Stacked PC: the PC at the fault − 2, or the target − 4 for an odd
+    jump/branch/return target.
+  - JSR faults before pushing its return address; BSR after.
+  - MOVE prefetches before a −(An) write (+2) and after a memory →
+    (xxx).L write (−2), and sets flags before its write.
+  - Long writes to −(An), and ADDX/SUBX long operands, go low word first,
+    so a fault leaves An decremented by 2.
+  - (An)+ reads increment before the access.
+  - MOVEM writes An back only at the end.
+- **Missing instructions:** CHK, NBCD, RTR, TRAPV.
+- **BCD:** ABCD/SBCD/NBCD use flamewing's formulas measured on hardware
+  (invalid digits, "undefined" N and V). `-(A7)` byte accesses move by 2,
+  and the source is read first.
+- **Read before write:** CLR and MOVE from SR read their destination
+  first (a 68000 quirk). TAS and CLR now compute their effective address
+  once.
+- **Bcc/BSR** displacement `$FF` is −1 on the 68000. It was treated as the
+  68020's 32-bit form, and BSR `$61FF` was even illegal.
+- **UNLK A7** keeps the popped value.
+- **DIVU/DIVS:** overflow sets V, clears C, and leaves N, Z and Dn alone.
+  Divide by zero raised a host error that would stop the emulator; it now
+  takes exception 5.
+
+**Disputed test data** (counted separately in the harness, not
+"fixed"):
+- ASR by a register count larger than the operand size, on a negative
+  value: the data expects C = X = 0. The Programmer's Reference Manual and
+  MAME set them from the last bit shifted out, which is the sign (1).
+  3,736 tests, all following this one rule.
+- Two ASL.b tests reported as wrong in the suite's issue #4.
+- One DIVU zero-divide test stacks the instruction's own address as PC.
+  Left as the single allowed failure.
+
+**Amiga.** Address errors are live, and the whole goAmiga suite passes.
+`TestOpenBusReadFFFFFF`, which noted that address errors were missing, now
+expects exception 3. Boot is 2,586 frames (was 2,584); host time for the
+boot is 2.1 s (was 1.9, from the per-instruction fault handler).
+
+**Not done: cycle counts.** They match for a minority of tests (0–50% per
+instruction). The CPU's timing is only roughly right, which affects
+emulated speed but not correctness. A candidate for later.
 
 ## 2026-09-27 — Up to four floppy drives
 
