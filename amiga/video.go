@@ -261,7 +261,7 @@ func (v *Video) RenderLine(vpos int) {
 	draw := v.DisplayActive && vpos >= v.top && vpos < v.top+v.rows
 	if fetch && draw {
 		for p := 0; p < numPlanes; p++ {
-			v.amiga.ChipRAM.Read(int(v.bplpt[p]&0x7FFFF), v.planeBuf[p][:2*words])
+			v.amiga.ChipRAM.Read(int(v.bplpt[p]), v.planeBuf[p][:2*words])
 		}
 	}
 	if fetch {

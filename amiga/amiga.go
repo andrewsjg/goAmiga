@@ -11,12 +11,11 @@ import (
 )
 
 const (
-	ChipRAMSize = 512 * 1024 // 512KB chip RAM
+	ChipRAMSize = 512 * 1024 // default chip RAM; SetChipRAM fits 1MB
 	ROMSize     = 256 * 1024 // Kickstart 1.x ROM; 2.x/3.x ROMs are twice this
 
 	// Memory map addresses
 	ChipRAMBase  = 0x000000
-	ChipRAMEnd   = 0x07FFFF
 	CIASpaceBase = 0xBF0000 // both CIAs, partially decoded (see ciaSpace)
 	CIASpaceEnd  = 0xBFFFFF
 	CIABBase     = 0xBFD000
@@ -90,7 +89,8 @@ type Amiga struct {
 	// E clock divider: CIAs tick every 10 CPU cycles
 	eClockCounter int
 
-	romSize int // 256KB or 512KB
+	romSize  int // 256KB or 512KB
+	chipSize int // chip RAM fitted, in bytes
 
 	// ROM overlay: when true, ROM is mapped to $000000-$03FFFF (256KB mirror)
 	overlay bool
@@ -138,6 +138,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 
 	// Create memory devices
 	a.ChipRAM = newChipRAM(ChipRAMSize)
+	a.chipSize = ChipRAMSize
 	a.ROM = m68kmem.NewROM(romData)
 	a.romSize = len(romData)
 	a.Custom = NewCustomChips(logger, a)
@@ -237,7 +238,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 			a.ChipRAM.Read(4, buf)
 			execBase := uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3])
 			fmt.Fprintf(a.logger, "RESET handler: ChipRAM[$4]=$%08X\n", execBase)
-			if execBase > 0 && execBase < ChipRAMSize {
+			if execBase > 0 && execBase < uint32(a.ChipRAMSize()) {
 				// Compute LowMemChkSum: sum words from ExecBase+$22, count=25
 				var sum uint16
 				wbuf := make([]byte, 2)
@@ -276,7 +277,7 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		// so the CPU finds its reset vectors at $000000.
 		a.mapROM(0x000000)
 	} else {
-		a.Mapper.Map(&busCounter{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMEnd)
+		a.Mapper.Map(&busCounter{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMBase+a.ChipRAMSize()-1)
 	}
 
 	// Zorro II boards: fast RAM, the hard disk controller.

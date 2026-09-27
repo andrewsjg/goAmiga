@@ -46,6 +46,12 @@ func TestHardfileBootKS32(t *testing.T) {
 // bootHardfile boots from adf as a hardfile until Workbench starts.
 func bootHardfile(t *testing.T, romPath, adf string) *Amiga {
 	t.Helper()
+	return bootHardfileMem(t, romPath, adf, 512, 512, 1024)
+}
+
+// bootHardfileMem is bootHardfile with the given chip, slow and fast RAM.
+func bootHardfileMem(t *testing.T, romPath, adf string, chipKB, slowKB, fastKB int) *Amiga {
+	t.Helper()
 	rom, err := LoadROM(romPath)
 	if err != nil {
 		t.Skip(err)
@@ -53,7 +59,10 @@ func bootHardfile(t *testing.T, romPath, adf string) *Amiga {
 	hdf := hardfileFromADF(t, adf)
 	a, _ := New(rom, nil)
 	// Fast RAM too: two boards in the Autoconfig chain.
-	if err := a.ConfigureMemory(512, 1024); err != nil {
+	if err := a.SetChipRAM(chipKB); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ConfigureMemory(slowKB, fastKB); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.AttachHardfile(hdf, false); err != nil {
@@ -68,9 +77,9 @@ func bootHardfile(t *testing.T, romPath, adf string) *Amiga {
 			name := readCStrMem(a, uint32(np), 24)
 			t.Logf("AddTask %q", name)
 			if name == "workbench.task" || name == "Workbench" {
-				t.Logf("%s started after %.0f frames; fast RAM at $%06X, controller at $%06X", name,
-					float64(a.cycles)/CyclesPerFrame, a.FastRAM.Configured(), a.HardDisk.Configured())
-				if a.FastRAM.Configured() == 0 {
+				t.Logf("%s started after %.0f frames; controller at $%06X", name,
+					float64(a.cycles)/CyclesPerFrame, a.HardDisk.Configured())
+				if a.FastRAM != nil && a.FastRAM.Configured() == 0 {
 					t.Error("fast RAM board not configured")
 				}
 				return a

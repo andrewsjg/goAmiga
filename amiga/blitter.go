@@ -238,7 +238,7 @@ func (b *Blitter) executeBlit(size uint16) {
 
 			// Fetch source words
 			if useA {
-				b.amiga.ChipRAM.Read(int(apt&0x7FFFE), buf)
+				b.amiga.ChipRAM.Read(int(apt&^1), buf)
 				aWord = uint16(buf[0])<<8 | uint16(buf[1])
 				b.adat = aWord
 
@@ -296,7 +296,7 @@ func (b *Blitter) executeBlit(size uint16) {
 			}
 
 			if useB {
-				b.amiga.ChipRAM.Read(int(bpt&0x7FFFE), buf)
+				b.amiga.ChipRAM.Read(int(bpt&^1), buf)
 				bWord = uint16(buf[0])<<8 | uint16(buf[1])
 				b.bdat = bWord
 
@@ -321,7 +321,7 @@ func (b *Blitter) executeBlit(size uint16) {
 			}
 
 			if useC {
-				b.amiga.ChipRAM.Read(int(cpt&0x7FFFE), buf)
+				b.amiga.ChipRAM.Read(int(cpt&^1), buf)
 				cWord = uint16(buf[0])<<8 | uint16(buf[1])
 				b.cdat = cWord
 				if desc {
@@ -357,7 +357,7 @@ func (b *Blitter) executeBlit(size uint16) {
 			if useD {
 				buf[0] = byte(dWord >> 8)
 				buf[1] = byte(dWord)
-				writeAddr := int(dpt & 0x7FFFE)
+				writeAddr := int(dpt &^ 1)
 				b.amiga.ChipRAM.Write(writeAddr, buf)
 				if b.DebugWriteHook != nil {
 					b.DebugWriteHook(writeAddr, dWord, aWord, bWord, cWord, minterm)
@@ -528,7 +528,7 @@ func (b *Blitter) executeLine(size uint16) {
 		}
 
 		// C channel: destination word
-		b.amiga.ChipRAM.Read(int(cpt&0x7FFFE), buf)
+		b.amiga.ChipRAM.Read(int(cpt&^1), buf)
 		cWord := uint16(buf[0])<<8 | uint16(buf[1])
 
 		dWord := applyMinterm(minterm, aWord, bWord, cWord)
@@ -541,7 +541,7 @@ func (b *Blitter) executeLine(size uint16) {
 			buf[1] = byte(dWord)
 			// Write through DPT, then D tracks C (hardware behaviour)
 			dpt = cpt
-			writeAddr := int(dpt & 0x7FFFE)
+			writeAddr := int(dpt &^ 1)
 			b.amiga.ChipRAM.Write(writeAddr, buf)
 			if b.DebugWriteHook != nil {
 				b.DebugWriteHook(writeAddr, dWord, aWord, bWord, cWord, minterm)

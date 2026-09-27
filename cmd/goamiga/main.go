@@ -27,8 +27,9 @@ func main() {
 	headless := flag.Bool("headless", false, "Run without display window")
 	writeProtect := flag.Bool("write-protect", false, "Write-protect every drive and hardfile: the Amiga cannot change the image files")
 	mute := flag.Bool("mute", false, "No sound")
-	slowRAM := flag.Int("slowram", 512, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
-	fastRAM := flag.Int("fastram", 0, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
+	chipRAM := flag.Int("chipram", 1024, "Chip RAM in KB: 512 (original Agnus) or 1024 (8372A Fat Agnus)")
+	slowRAM := flag.Int("slowram", 0, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
+	fastRAM := flag.Int("fastram", 2048, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	joyKeys := flag.Bool("joy-keys", false, "Start with the arrow keys and Right Ctrl/Alt (fire) as the port 2 joystick; Ctrl+F12 toggles")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
@@ -63,11 +64,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := a.SetChipRAM(*chipRAM); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 	if err := a.ConfigureMemory(*slowRAM, *fastRAM); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Memory: 512 KB chip, %d KB slow, %d KB fast\n", *slowRAM, *fastRAM)
+	fmt.Printf("Memory: %d KB chip, %d KB slow, %d KB fast\n", *chipRAM, *slowRAM, *fastRAM)
 
 	// Connect drives and load each one's first disk; the rest are for the
 	// swap keys. Check every file now so a typo fails at startup.

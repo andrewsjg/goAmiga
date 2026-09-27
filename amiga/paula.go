@@ -169,7 +169,7 @@ func (p *Paula) fetch(n int) {
 	}
 	var buf [2]byte
 	if p.amiga != nil && p.amiga.ChipRAM != nil {
-		p.amiga.ChipRAM.Read(int(c.ptr&0x7FFFF), buf[:])
+		p.amiga.ChipRAM.Read(int(c.ptr), buf[:])
 	}
 	c.word = binary.BigEndian.Uint16(buf[:])
 	c.ptr += 2

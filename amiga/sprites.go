@@ -124,7 +124,7 @@ func (se *SpriteEngine) SetDATB(sprite int, val uint16) {
 }
 
 func (se *SpriteEngine) readWord(addr uint32) uint16 {
-	se.amiga.ChipRAM.Read(int(addr&0x7FFFF), se.buf[:])
+	se.amiga.ChipRAM.Read(int(addr), se.buf[:])
 	return uint16(se.buf[0])<<8 | uint16(se.buf[1])
 }
 

@@ -29,11 +29,34 @@ verified. Longer investigations get their own write-up in `docs/`.
 3. **Paula (other).** No serial port (UART). The POTxDAT proportional
    counters (analogue joysticks, paddles) are not implemented. Audio DMA
    slots are not charged against the blitter.
-4. **Machine.** 512 KB chip RAM (no 1 MB Agnus), optional slow and Zorro II
-   fast RAM. OCS only (no ECS/AGA). Hardfiles use Kickstart's filesystem;
+4. **Machine.** 512 KB or 1 MB chip RAM, optional slow and Zorro II fast
+   RAM. OCS only (no ECS/AGA): Agnus identifies as OCS even with 1 MB. Hardfiles use Kickstart's filesystem;
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-27 — 1 MB chip RAM; more memory by default
+
+The Workbench 3.2 installer ran out of memory. The default machine had
+512 KB chip and 512 KB slow RAM, and 3.2 wants more than 1 MB.
+
+- `SetChipRAM(1024)` / `--chipram 1024` fits a megabyte of chip RAM, as the
+  8372A "Fat Agnus" does in later A500s. The chip RAM device already wrapped
+  addresses at its own size. However, the Copper, bitplane, sprite, audio
+  and blitter fetches each masked their pointers to 19 bits ($7FFFF), so
+  those masks are gone. DMA now reaches the whole megabyte and wraps at
+  the fitted size.
+- Agnus still reports the OCS ID in VPOSR. Kickstart sizes chip RAM by
+  probing, not from the ID. An ECS ID would make 2.0+ use BLTSIZV/BLTSIZH
+  and BEAMCON0, which goAmiga doesn't implement.
+- The new defaults are `--chipram 1024 --slowram 0 --fastram 2048`. On an
+  A500 the trapdoor RAM is what becomes the second chip megabyte, hence no
+  slow RAM.
+
+Tests boot both Kickstarts with 1 MB chip (`TestChipRAM1MBKS13`,
+`TestChipRAM1MBKS32`). On 1.3, exec's chip region ends at $0FE800 because
+its supervisor stack sits at the top, with 835 KB free at Workbench. On 3.2
+it ends at $100000, with 621 KB free.
 
 ## 2026-09-27 — Hard disks: an autobooting hardfile controller
 

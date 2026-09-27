@@ -54,7 +54,7 @@ faults on the Amiga bus).
 
 | Range | Device |
 |---|---|
-| `$000000-$07FFFF` | Chip RAM (`chipram.go`; addresses wrap at 512KB like Agnus). ROM while the CIA-A OVL bit is set at reset |
+| `$000000-$0FFFFF` | Chip RAM, 512 KB or 1 MB (`chipram.go`, `SetChipRAM`, `--chipram`). Addresses wrap at the fitted size as Agnus's do, so DMA pointers wrap too. ROM appears here while the CIA-A OVL bit is set at reset |
 | `$200000-$9FFFFF` | Zorro II fast RAM once Autoconfig has placed it (`--fastram`; normally at `$200000`) |
 | `$BF0000-$BFFFFF` | Both CIAs, partially decoded (`ciaSpace`): CIA-A when A12 is low, odd bytes (`$BFE001`: OVL, LED, disk status, keyboard serial, mouse button, TOD = frame counter); CIA-B when A13 is low, even bytes (`$BFD000`: disk control, index pulse on /FLAG, TOD = scanline counter) |
 | `$C00000-$D7FFFF` | Slow RAM (`--slowram`, on the chip bus) |

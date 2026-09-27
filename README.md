@@ -27,9 +27,12 @@ The window title shows what is in each drive.
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --df0 disks/wb13.adf --df1 disks/extras13.adf --df1 disks/blank.adf
 ```
 
-The machine has 512 KB chip RAM plus 512 KB slow RAM by default, like an
-A500 with a trapdoor expansion. `--slowram 0|512|1024|1536` and
-`--fastram <KB>` (Zorro II, up to 8192) change that.
+By default the machine has 1 MB chip RAM and 2 MB Zorro II fast RAM, enough
+for Workbench 3.2 and its installer. That's an A500 with the 8372A "Fat
+Agnus" and a side expansion. `--chipram 512|1024`, `--slowram
+0|512|1024|1536` (trapdoor RAM at $C00000) and `--fastram <KB>` (0, or a
+power of two up to 8192) change it. For an original 512 KB A500, pass
+`--chipram 512 --fastram 0`. Some old games want exactly that.
 
 Sound plays through the host's audio output (`--mute` to turn it off).
 

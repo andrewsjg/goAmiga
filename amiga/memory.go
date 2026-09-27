@@ -36,6 +36,26 @@ type zorroRAM struct {
 	mem *ram
 }
 
+// SetChipRAM fits kb of chip RAM: 512, or 1024 as on an A500 with the
+// 8372A "Fat Agnus", which drives one more address line so DMA reaches
+// the whole megabyte. Call it before Reset.
+//
+// Agnus still identifies as OCS in VPOSR: an ECS ID makes Kickstart 2.0+
+// use ECS-only registers (BLTSIZV/BLTSIZH, BEAMCON0) that goAmiga does not
+// have. Kickstart sizes chip RAM by probing, not from the ID.
+func (a *Amiga) SetChipRAM(kb int) error {
+	if kb != 512 && kb != 1024 {
+		return fmt.Errorf("chip RAM must be 512 or 1024 KB, not %d", kb)
+	}
+	a.ChipRAM = newChipRAM(kb * 1024)
+	a.chipSize = kb * 1024
+	a.wireMemoryMap(a.overlay)
+	return nil
+}
+
+// ChipRAMSize is the chip RAM fitted, in bytes. DMA pointers wrap at it.
+func (a *Amiga) ChipRAMSize() int { return a.chipSize }
+
 // ConfigureMemory fits slowKB of slow RAM (0, 512, 1024 or 1536) and a
 // fastKB Zorro II fast RAM board (0 or a power of two from 64 to 8192).
 // Call it before Reset.

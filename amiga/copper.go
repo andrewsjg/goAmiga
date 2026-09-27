@@ -175,7 +175,7 @@ func (c *Copper) Step(hpos, vpos int) {
 	}
 
 	// Fetch 32-bit instruction from chip RAM
-	_, err := c.amiga.ChipRAM.Read(int(c.pc&0x7FFFF), c.buf[:4])
+	_, err := c.amiga.ChipRAM.Read(int(c.pc), c.buf[:4])
 	if err != nil {
 		return
 	}
