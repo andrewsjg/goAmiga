@@ -45,11 +45,12 @@ type Display struct {
 	framesSinceRecapture int
 	zeroMotionFrames     int
 
-	// Disks[n] are the ADF files the swap key cycles DFn: through, and
-	// DiskIndex[n] is the one in the drive (-1 = none). F11 swaps DF0:,
-	// Alt+F11 DF1:, Ctrl+F11 DF2:, Ctrl+Alt+F11 DF3:; with Shift, ejects.
+	// Disks[n] are the ADF files Cmd/Win+F11 cycles DFn: through (the
+	// command line's, plus any chosen with F11), and DiskIndex[n] is the one
+	// in the drive (-1 = none). See display_disk.go.
 	Disks     [4][]string
 	DiskIndex [4]int
+	chooser   chan diskChoice // result of an open file dialog, or nil
 
 	lastTitle string
 
@@ -145,41 +146,6 @@ func (d *Display) applyGrab(grab bool) {
 // pollDiskKeys handles the disk keys: F11 swaps DF0: to the next disk in
 // its list, Alt+F11 DF1:, Ctrl+F11 DF2:, Ctrl+Alt+F11 DF3:; holding Shift
 // ejects instead.
-func (d *Display) pollDiskKeys() {
-	if !inpututil.IsKeyJustPressed(ebiten.KeyF11) {
-		return
-	}
-	unit := 0
-	if ebiten.IsKeyPressed(ebiten.KeyAlt) {
-		unit++
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyControl) {
-		unit += 2
-	}
-	dr := d.amiga.Disk.DF(unit)
-	if dr == nil {
-		fmt.Printf("DF%d: not connected\n", unit)
-		return
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyShift) {
-		dr.Eject()
-		d.DiskIndex[unit] = -1
-		fmt.Printf("DF%d: ejected\n", unit)
-		return
-	}
-	disks := d.Disks[unit]
-	if len(disks) == 0 {
-		return
-	}
-	next := (d.DiskIndex[unit] + 1) % len(disks)
-	if err := d.amiga.SwapDiskUnit(unit, disks[next]); err != nil {
-		fmt.Printf("DF%d: %v\n", unit, err)
-		return
-	}
-	d.DiskIndex[unit] = next
-	fmt.Printf("DF%d: %s\n", unit, disks[next])
-}
-
 // updateTitle shows each connected drive's disk and the mouse state in the
 // title bar.
 func (d *Display) updateTitle() {

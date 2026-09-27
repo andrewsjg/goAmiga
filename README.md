@@ -16,12 +16,26 @@ go run ./cmd/goamiga --rom ROMS/Kick32.rom --df0 disks/Install3.2.adf --df1 disk
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --headless --cycles 10000000
 ```
 
-Up to four drives: `--df0` (or `--disk`) to `--df3`, each repeatable to
-give that drive a list of disks. The first goes in at start; F11 swaps DF0:
-to the next, Alt+F11 DF1:, Ctrl+F11 DF2:, Ctrl+Alt+F11 DF3:, and holding
-Shift ejects instead. A swap waits until the Amiga has seen the drive empty,
-as with a real disk change. `--drives N` connects drives with no disk yet.
-The window title shows what is in each drive.
+Up to four drives: `--df0` (or `--disk`) to `--df3`. `--drives N` connects
+drives with no disk yet. The window title shows what is in each drive.
+
+While it runs, **F11 opens a file dialog** to choose an ADF for DF0:. The
+modifiers pick another drive, and Shift ejects instead:
+
+| Keys | Drive |
+|---|---|
+| F11 | DF0: |
+| Alt+F11 | DF1: |
+| Ctrl+F11 | DF2: |
+| Ctrl+Alt+F11 | DF3: |
+
+A new disk waits until the Amiga has seen the drive empty, as with a real
+disk change. The emulation keeps running while the dialog is open.
+
+Each `--dfN` flag can be repeated to give that drive a list of disks. The
+first goes in at start, and Cmd+F11 (the Windows key on a PC) swaps to the
+next. Disks chosen in the dialog join the list. On Linux the dialog needs
+`zenity` or `kdialog` installed.
 
 ```bash
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --df0 disks/wb13.adf --df1 disks/extras13.adf --df1 disks/blank.adf

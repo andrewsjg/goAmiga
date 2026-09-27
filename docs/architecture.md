@@ -82,7 +82,7 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `hdboard.go`, `hardfile.go` | Hard disk | Autoboot Zorro II board and `goamiga.device`. Go generates the 68000 boot ROM (DiagArea, RomTag, BootPoint, driver glue) for the board's address. The code writes trap numbers to the board and Go performs the request. Hardfiles are plain or RDB (`AttachHardfile`, `--hdf`) |
 | `paula.go` | Paula audio | 4 DMA/manual channels, interrupts, ADKCON modulation; 48 kHz box-filtered stereo mix with A500 fixed and LED filters into an `AudioBuffer` (played by `display.go`) |
 | `keyboard.go`, `mouse.go`, `joystick.go` | Input | Keyboard serial handshake via CIA-A. Mouse counters in JOY0DAT. Port 2 joystick in JOY1DAT. Fire buttons on CIA-A PRA. Second and third buttons on the POTGO pins |
-| `display.go`, `display_joystick.go`, `keyboard_ebiten.go` | Host window | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
+| `display.go`, `display_joystick.go`, `display_disk.go`, `keyboard_ebiten.go` | Host window (F11 disk dialog via zenity) | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
 
 ## Tests
 

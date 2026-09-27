@@ -35,6 +35,25 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-27 — Choosing a disk while running
+
+F11 now opens a file dialog to pick an ADF for the drive, with the existing
+modifiers: Alt, Ctrl and Ctrl+Alt for DF1:-DF3:, Shift to eject. Cycling
+through the command-line disk list moved to Cmd/Win+F11. Chosen disks join
+that list, so the title and later swaps know them.
+
+The dialog is `github.com/ncruces/zenity`. It is pure Go: osascript on
+macOS, Win32 on Windows, zenity or kdialog on Linux. It runs on its own
+goroutine and posts the result on a channel that `Update` polls, so the
+Ebitengine loop and the emulation don't stall. The mouse is released from
+capture first so the dialog can be used. Insertion goes through the same
+`SwapDiskUnit` path as before, which waits for trackdisk to see the drive
+empty.
+
+I considered dropping files onto the window as well. Ebitengine's
+`DroppedFiles` only offers an `fs.FS`, which hides the host path, so a
+dropped disk couldn't be written back to its ADF. Left out for now.
+
 ## 2026-09-27 — 1 MB chip RAM; more memory by default
 
 The Workbench 3.2 installer ran out of memory. The default machine had
