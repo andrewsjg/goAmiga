@@ -85,7 +85,10 @@ Amiga keyboard.
 
 ### Display
 
-The window shows the standard PAL display area (640×256, doubled
+The window opens at twice the size of the emulated screen (`--scale N`
+changes that, and it is reduced if it wouldn't fit the monitor). The
+emulated resolution doesn't change. The window can also be resized
+freely. It shows the standard PAL display area (640×256, doubled
 vertically). Add `--overscan` to see the full overscan area (720×284),
 for software that draws into the border.
 

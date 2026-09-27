@@ -31,6 +31,7 @@ func main() {
 	slowRAM := flag.Int("slowram", 0, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
 	fastRAM := flag.Int("fastram", 2048, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
+	scale := flag.Int("scale", 2, "Window size multiplier (the emulated resolution is unchanged); reduced if it doesn't fit the screen")
 	joyKeys := flag.Bool("joy-keys", false, "Start with the arrow keys and Right Ctrl/Alt (fire) as the port 2 joystick; Ctrl+F12 toggles")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	flag.Parse()
@@ -154,6 +155,7 @@ func main() {
 	a.Video.SetOverscan(*overscan)
 	display := amiga.NewDisplay(a)
 	display.Mute = *mute
+	display.Scale = *scale
 	display.JoyKeys = *joyKeys
 	for n, list := range drives {
 		display.Disks[n] = list

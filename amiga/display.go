@@ -60,7 +60,11 @@ type Display struct {
 	gamepads []ebiten.GamepadID
 
 	// Mute turns off host audio (Paula still runs).
-	Mute        bool
+	Mute bool
+
+	// Scale multiplies the window size (the emulated screen stays the
+	// same); Run lowers it if the window would not fit the monitor.
+	Scale       int
 	audioPlayer *audio.Player
 }
 
@@ -370,11 +374,37 @@ func (d *Display) Run() error {
 			fmt.Printf("audio disabled: %v\n", err)
 		}
 	}
-	ebiten.SetWindowSize(d.amiga.Video.DisplaySize())
+	w, h := d.amiga.Video.DisplaySize()
+	s := d.windowScale(w, h)
+	ebiten.SetWindowSize(w*s, h*s)
+	// Resizing scales the picture; the emulated screen size is fixed by
+	// Layout.
+	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetTPS(50)
 	ebiten.SetScreenClearedEveryFrame(false)
 	d.applyGrab(false)
 	return ebiten.RunGame(d)
+}
+
+// windowScale is the largest scale up to d.Scale at which a w×h screen
+// fits the monitor, leaving room for the title bar and menus.
+func (d *Display) windowScale(w, h int) int {
+	s := max(d.Scale, 1)
+	m := ebiten.Monitor()
+	if m == nil {
+		return s
+	}
+	mw, mh := m.Size()
+	if mw == 0 || mh == 0 {
+		return s
+	}
+	for s > 1 && (w*s > mw*95/100 || h*s > mh*90/100) {
+		s--
+	}
+	if s < d.Scale {
+		fmt.Printf("window scale %d does not fit the %dx%d monitor; using %d\n", d.Scale, mw, mh, s)
+	}
+	return s
 }
 
 // Host audio. Paula writes 48 kHz stereo into an AudioBuffer as the

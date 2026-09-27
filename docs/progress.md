@@ -35,6 +35,15 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-27 — Bigger window
+
+The window now opens at twice the emulated screen's size: 1280×1024 for the
+standard 640×512 view, 1440×1136 with overscan. `Layout` still returns the
+emulated size, so Ebitengine scales the picture and the emulated resolution
+doesn't change. `--scale N` sets the multiplier. If the window wouldn't fit
+the monitor it is reduced (`windowScale` uses 95% of the width and 90% of
+the height). The window can also be resized freely.
+
 ## 2026-09-27 — Choosing a disk while running
 
 F11 now opens a file dialog to pick an ADF for the drive, with the existing
