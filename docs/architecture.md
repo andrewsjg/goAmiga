@@ -72,7 +72,7 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 |---|---|---|
 | `custom.go` | Custom register file | Set/clear registers (DMACON, INTENA, INTREQ, ADKCON), interrupt priority → IPL, register dispatch to other components |
 | `copper.go` | Copper | MOVE / WAIT / SKIP, COPJMP1/2, run per scanline; OCS register protection (illegal MOVE halts until VBLANK) |
-| `blitter.go` | Blitter | Area mode (both directions, minterms, shifts, masks, fill) and line mode. Blits complete instantly at the BLTSIZE write; busy/interrupt are deferred |
+| `blitter.go` | Blitter | Area mode (both directions, minterms, shifts, masks, fill) and line mode. An area blit moves word by word on the bus slots it gets (`blitRun`); line mode completes at once. BBUSY, BZERO, BLIT interrupt at the real end |
 | `video.go` | Bitplane DMA + Denise | Per-scanline fetch inside the vertical DIW; `drawLine` composes a view of the beam — standard 640×256 (hires columns from H `$81`, lines 44–299) or overscan 720×284 (`SetOverscan`, `--overscan`): DIW clipping, DDFSTRT placement, BPLCON1 scroll, dual playfield, EHB, HAM, BPLCON2 sprite priority, collisions (CLXDAT), mid-line COLOR/BPLCON1/BPLCON2 writes (`noteWrite`), interlace (640×512, fields woven by LOF) |
 | `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes; `lineBuffer` gives per-column sprite colour and pair, with attached sprites |
 | `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard), CPU address decoding and E-clock access timing |

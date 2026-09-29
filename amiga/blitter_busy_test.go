@@ -89,7 +89,8 @@ func TestStoppedCPUWakesForBlit(t *testing.T) {
 	a := createTestAmiga(t)
 	a.vpos, a.hpos = 100, 0
 	a.cpuStopped = true
-	a.Blitter.con0 = 0x0100 // D only
+	a.Custom.Write(0x096, []byte{0x82, 0x40}) // DMAEN + BLTEN
+	a.Blitter.con0 = 0x0100                   // D only
 	a.Blitter.Execute(10<<6 | 10)
 	want := a.Blitter.completionCycles
 
@@ -106,5 +107,90 @@ func TestStoppedCPUWakesForBlit(t *testing.T) {
 	}
 	if a.Blitter.busy || a.Custom.ReadReg16(0x09C)&0x0040 == 0 {
 		t.Fatal("blit not complete / BLIT INTREQ not raised after idle step")
+	}
+}
+
+// An area blit moves its words as it gets bus slots: halfway through its
+// time, about half the destination is written and DPT has advanced that
+// far; the rest is written by the time BBUSY clears.
+func TestBlitIsIncremental(t *testing.T) {
+	a := createTestAmiga(t)
+	a.wireMemoryMap(false)
+	a.Custom.Write(0x096, []byte{0x82, 0x40}) // DMAEN + BLTEN
+	b := a.Blitter
+	b.con0 = 0x01FF // D only, minterm $FF: all ones
+	b.dptH, b.dptL = 0, 0x4000
+	b.Execute(10<<6 | 10) // 100 words
+	total := b.completionCycles
+	written := func() int {
+		n := 0
+		for i := 0; i < 100; i++ {
+			if a.peek16(0x4000+uint32(2*i)) == 0xFFFF {
+				n++
+			}
+		}
+		return n
+	}
+	if n := written(); n != 0 {
+		t.Errorf("%d words written at the BLTSIZE write, want 0", n)
+	}
+	b.TickCycles(total / 2)
+	n := written()
+	if n < 40 || n > 55 {
+		t.Errorf("%d of 100 words written halfway through, want ~50", n)
+	}
+	if dpt := b.ptr(b.dptH, b.dptL); dpt != 0x4000+uint32(2*n) {
+		t.Errorf("DPT = $%06X mid-blit, want $%06X", dpt, 0x4000+2*n)
+	}
+	for b.busy {
+		b.TickCycles(CPUClocksPerLine)
+	}
+	if n := written(); n != 100 {
+		t.Errorf("%d words written after the blit, want 100", n)
+	}
+	var buf [2]byte
+	a.Custom.Read(0x002, buf[:])
+	if buf[0]&0x20 != 0 {
+		t.Error("BZERO set after a blit that produced ones")
+	}
+}
+
+// The blitter reads each source word when it gets to it: the CPU changing
+// source data ahead of a running blit changes what is copied.
+func TestBlitReadsSourceWhenReached(t *testing.T) {
+	a := createTestAmiga(t)
+	a.wireMemoryMap(false)
+	a.Custom.Write(0x096, []byte{0x82, 0x40})
+	b := a.Blitter
+	b.con0 = 0x09F0 // A -> D, minterm A
+	b.aptH, b.aptL = 0, 0x5000
+	b.dptH, b.dptL = 0, 0x6000
+	b.Execute(1<<6 | 40)
+	b.TickCycles(b.completionCycles / 4)
+	a.poke16(0x5000+2*39, 0x1234) // last source word, not yet read
+	for b.busy {
+		b.TickCycles(CPUClocksPerLine)
+	}
+	if got := a.peek16(0x6000 + 2*39); got != 0x1234 {
+		t.Errorf("last word copied $%04X, want the CPU's later $1234", got)
+	}
+	var buf [2]byte
+	a.Custom.Read(0x002, buf[:])
+	if buf[0]&0x20 != 0 {
+		t.Error("BZERO set though a word was non-zero")
+	}
+}
+
+func TestBZERO(t *testing.T) {
+	a := createTestAmiga(t)
+	a.wireMemoryMap(false)
+	b := a.Blitter
+	b.con0 = 0x0100 // D only, minterm 0
+	b.dptH, b.dptL = 0, 0x4000
+	blitNow(a, 1<<6|4)
+	var buf [2]byte
+	a.Custom.Read(0x002, buf[:])
+	if buf[0]&0x20 == 0 {
+		t.Error("BZERO clear after an all-zero blit")
 	}
 }

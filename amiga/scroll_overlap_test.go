@@ -65,7 +65,7 @@ func TestScrollOverlapDown(t *testing.T) {
 	// If 2*width == bpr (full width), amod = 0 for DESC full-width scroll!
 	a.Blitter.amod = 0
 	a.Blitter.dmod = 0
-	a.Blitter.Execute(49<<6 | 40) // 49 lines, 40 words
+	blitNow(a, 49<<6 | 40) // 49 lines, 40 words
 
 	// Row 0 should still be 1 (untouched if we only scrolled 0..48 -> 1..49)
 	// Row 49 should be old row 48 = 49
@@ -103,7 +103,7 @@ func TestScrollOverlapDown(t *testing.T) {
 	a.Blitter.dptL = uint16(plane + bpr)
 	a.Blitter.amod = 0
 	a.Blitter.dmod = 0
-	a.Blitter.Execute(49<<6 | 40)
+	blitNow(a, 49<<6 | 40)
 	a.ChipRAM.Read(plane+25*bpr, buf)
 	t.Logf("ASC overlap row25 value=%d (often corrupted to 1 if bug-like smear)", buf[0])
 }

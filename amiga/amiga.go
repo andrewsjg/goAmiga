@@ -465,6 +465,10 @@ func (a *Amiga) Step() error {
 		blitCycles := elapsed
 		if a.Blitter.busy {
 			blitCycles = a.blitterSlots(elapsed) * CPUCyclesPerColorClock
+			// With blitter DMA off (DMAEN or BLTEN clear) it pauses.
+			if a.Custom.ReadReg16(0x096)&0x0240 != 0x0240 {
+				blitCycles = 0
+			}
 		}
 		a.Blitter.TickCycles(blitCycles)
 	}

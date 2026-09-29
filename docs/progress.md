@@ -19,9 +19,8 @@ verified. Longer investigations get their own write-up in `docs/`.
 **Not yet implemented / known gaps** (roughly in planned order):
 
 1. **Timing (remaining).** Copper, audio and disk DMA slots are not
-   charged against the CPU/blitter; blit and disk data still land in chip
-   RAM at the start of the transfer (only BBUSY and interrupt timing are
-   real); no drive motor spin-up time. The CPU's bus cycles are counted per
+   charged against the CPU/blitter. Line-mode blits and disk DMA still
+   write their data at the start. There's no drive motor spin-up time. The CPU's bus cycles are counted per
    instruction rather than placed within it.
 2. **Display.** A resolution change (hires bit) partway through a line
    isn't shown, and neither are sprite data rewrites while a sprite is
@@ -35,6 +34,49 @@ verified. Longer investigations get their own write-up in `docs/`.
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-29 — The blitter works word by word; BZERO
+
+The blitter's timing was already modelled:
+- BBUSY lasts the blit's real duration from the HRM cycle table;
+- only bus slots free of bitplane, refresh and sprite DMA count;
+- the CPU waits for it, in nasty mode or when a blit uses every slot.
+
+But all the data moved at the BLTSIZE write. For as long as BBUSY stayed
+set, the CPU could already read a finished destination, and the blit had
+read its source before the CPU could change it. Code that races the
+blitter (writing just behind it, or preparing the next source while it
+runs) saw the wrong thing.
+
+**Now** an area blit is a `blitRun`: its pointers, x/y position, shift
+history, fill carry, and the control registers, modulos and masks latched
+at BLTSIZE.
+- `TickCycles` gives it the bus slots it got (`step`). After the pipeline
+  startup, each word costs the HRM's cycles for its USEx combination.
+- Each word reads its sources when it is reached and writes D straight
+  away, and the BLTxPT registers follow it.
+- When BBUSY's timer ends (`finish`), or a new BLTSIZE supersedes a running
+  blit, any remaining words are done first.
+
+The word loop is the old `executeBlit` body, unchanged apart from keeping
+its state in the run. Line mode is still done at once; lines are short
+and rarely raced.
+
+**Blitter DMA off pauses it.** With DMAEN or BLTEN clear, the blitter
+now gets no slots, as on the real machine. Before, a blit completed
+regardless.
+
+**BZERO** (DMACONR bit 13) is set when every word the last blit produced
+(area or line) was zero. Games use it for blitter collision tests. It was
+never set before.
+
+**Tests.** The tests of what blits produce now finish the blit first
+(`blitNow`); the timing tests keep the real behaviour.
+`TestStoppedCPUWakesForBlit` now switches blitter DMA on. New tests:
+`TestBlitIsIncremental` (halfway through its time, about half the words
+are written and DPT matches), `TestBlitReadsSourceWhenReached`, and
+`TestBZERO`. The full suite passes. Your installed Workbench 3.2 renders
+identically before and after.
 
 ## 2026-09-29 — Reset, pause, fullscreen, screenshot
 

@@ -34,7 +34,7 @@ func TestBlitterCopy(t *testing.T) {
 	a.Blitter.dmod = 0
 
 	// Execute: 1 line of 2 words
-	a.Blitter.Execute(1<<6 | 2)
+	blitNow(a, 1<<6 | 2)
 
 	// Verify destination at $2000
 	dst := make([]byte, 4)
@@ -62,7 +62,7 @@ func TestBlitterClear(t *testing.T) {
 	a.Blitter.dmod = 0
 
 	// Execute: 1 line of 2 words
-	a.Blitter.Execute(1<<6 | 2)
+	blitNow(a, 1<<6 | 2)
 
 	// Verify all zeros
 	dst := make([]byte, 4)
@@ -96,7 +96,7 @@ func TestBlitterMinterm_AorC(t *testing.T) {
 	a.Blitter.cmod = 0
 	a.Blitter.dmod = 0
 
-	a.Blitter.Execute(1<<6 | 1)
+	blitNow(a, 1<<6 | 1)
 
 	dst := make([]byte, 2)
 	a.ChipRAM.Read(0x2000, dst)
@@ -125,7 +125,7 @@ func TestBlitterSignedModulo(t *testing.T) {
 	a.Blitter.dmod = 0
 
 	// 2 lines of 1 word
-	a.Blitter.Execute(2<<6 | 1)
+	blitNow(a, 2<<6 | 1)
 
 	// First word should be $AA55
 	dst := make([]byte, 2)
@@ -180,7 +180,7 @@ func TestBlitterLineDraw(t *testing.T) {
 	a.Blitter.dmod = 40
 
 	// BLTSIZE: 8 lines (= 8 pixels for line draw), width=2
-	a.Blitter.Execute(8<<6 | 2)
+	blitNow(a, 8<<6 | 2)
 
 	// Read destination word at $2000
 	dst := make([]byte, 2)
@@ -218,7 +218,7 @@ func TestBlitterAreaFill(t *testing.T) {
 	a.Blitter.dmod = 0
 
 	// 1 line of 1 word
-	a.Blitter.Execute(1<<6 | 1)
+	blitNow(a, 1<<6 | 1)
 
 	// Read result
 	dst := make([]byte, 2)
@@ -302,7 +302,7 @@ func TestBlitterSetRastEA(t *testing.T) {
 	a.Blitter.dmod = 0
 
 	// 2 lines of 20 words (smaller version of the 200x20 real blit)
-	a.Blitter.Execute(2<<6 | 20)
+	blitNow(a, 2<<6 | 20)
 
 	// Check result - should be all $FF
 	buf := make([]byte, 2)
@@ -323,10 +323,17 @@ func TestBlitterSetRastEA(t *testing.T) {
 	a.Blitter.cptL = 0xA572
 	a.Blitter.dptH = 0x0000
 	a.Blitter.dptL = 0xA572
-	a.Blitter.Execute(2<<6 | 20)
+	blitNow(a, 2<<6 | 20)
 
 	a.ChipRAM.Read(0xA572, buf)
 	if buf[0] != 0x00 || buf[1] != 0x00 {
 		t.Errorf("SetRast $2A: first word got $%02X%02X, want $0000", buf[0], buf[1])
 	}
+}
+
+// blitNow runs a blit to completion at once: the tests of what a blit
+// produces don't care that the real one takes time (see blitter_busy_test).
+func blitNow(a *Amiga, size uint16) {
+	a.Blitter.Execute(size)
+	a.Blitter.completeRun()
 }

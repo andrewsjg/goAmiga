@@ -50,7 +50,7 @@ func TestXORHorizontalEdgeTwice(t *testing.T) {
 		a.Blitter.cptL = uint16(start)
 		a.Blitter.dptH = uint16(start >> 16)
 		a.Blitter.dptL = uint16(start)
-		a.Blitter.Execute(uint16(1<<6 | nwords))
+		blitNow(a, uint16(1<<6 | nwords))
 	}
 
 	// Draw then erase a segment
@@ -102,7 +102,7 @@ func TestXORVerticalLineTwice(t *testing.T) {
 		a.Blitter.dptL = uint16(start)
 		// For pure vertical, BLTCON0 start bit selects pixel; octant +Y major
 		// con1 = LINE | octant encoding for +Y major +X minor = $01
-		a.Blitter.Execute(40<<6 | 2) // length 40, width 2 for line mode
+		blitNow(a, 40<<6 | 2) // length 40, width 2 for line mode
 	}
 
 	xorV()

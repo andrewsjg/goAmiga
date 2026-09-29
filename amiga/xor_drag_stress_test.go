@@ -87,7 +87,7 @@ func xorLine(a *Amiga, plane, bpr int, x0, y0, x1, y1 int, sing bool) {
 	if length < 1 {
 		length = 1
 	}
-	a.Blitter.Execute(uint16(length<<6 | 2))
+	blitNow(a, uint16(length<<6 | 2))
 }
 
 func xorRect(a *Amiga, plane, bpr int, x, y, w, h int, sing bool) {
@@ -346,7 +346,7 @@ func TestXOR4AMinterm(t *testing.T) {
 		a.Blitter.cptL = uint16(start)
 		a.Blitter.dptH = uint16(start >> 16)
 		a.Blitter.dptL = uint16(start)
-		a.Blitter.Execute(uint16((maj+1)<<6 | 2))
+		blitNow(a, uint16((maj+1)<<6 | 2))
 	}
 
 	// Many lines draw+erase

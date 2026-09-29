@@ -40,7 +40,7 @@ func TestShiftedCopyStability(t *testing.T) {
 	a.Blitter.aptL = uint16(plane)
 	a.Blitter.dptH = uint16(temp >> 16)
 	a.Blitter.dptL = uint16(temp)
-	a.Blitter.Execute(uint16(rows<<6 | 40))
+	blitNow(a, uint16(rows<<6 | 40))
 
 	// Check temp row 0: pixel 0 should have moved to pixel 1
 	buf := make([]byte, 4)
@@ -65,7 +65,7 @@ func TestShiftedCopyStability(t *testing.T) {
 	// earlier analysis: amod = -bpr + 2*width; width words 40, 2*width=80=bpr, amod=0
 	a.Blitter.amod = 0
 	a.Blitter.dmod = 0
-	a.Blitter.Execute(uint16(rows<<6 | 40))
+	blitNow(a, uint16(rows<<6 | 40))
 
 	a.ChipRAM.Read(plane, buf)
 	t.Logf("after DESC shift-1 back: %02X %02X %02X %02X", buf[0], buf[1], buf[2], buf[3])
@@ -98,7 +98,7 @@ func TestDescFullWidthIdentity(t *testing.T) {
 	a.Blitter.aptL = uint16(plane)
 	a.Blitter.dptH = uint16(temp >> 16)
 	a.Blitter.dptL = uint16(temp)
-	a.Blitter.Execute(uint16(rows<<6 | 40))
+	blitNow(a, uint16(rows<<6 | 40))
 
 	// DESC copy temp back to plane
 	srcLast := uint32(temp + rows*bpr - 2)
@@ -108,7 +108,7 @@ func TestDescFullWidthIdentity(t *testing.T) {
 	a.Blitter.aptL = uint16(srcLast)
 	a.Blitter.dptH = uint16(dstLast >> 16)
 	a.Blitter.dptL = uint16(dstLast)
-	a.Blitter.Execute(uint16(rows<<6 | 40))
+	blitNow(a, uint16(rows<<6 | 40))
 
 	got := make([]byte, bpr*rows)
 	a.ChipRAM.Read(plane, got)

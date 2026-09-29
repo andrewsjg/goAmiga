@@ -39,8 +39,10 @@ type Blitter struct {
 
 	// State
 	busy             bool
-	completionCycles int // cycles until BBUSY clears
-	pendingIRQs      int // BLIT completions not yet signaled via INTREQ
+	run              *blitRun // area blit in progress (nil: none, or line mode)
+	zero             bool     // BZERO: every word the last blit produced was 0
+	completionCycles int      // cycles until BBUSY clears
+	pendingIRQs      int      // BLIT completions not yet signaled via INTREQ
 	lastSize         uint16
 	// Pointers at the start of the last blit (before write-back), for
 	// diagnostics.
@@ -65,9 +67,10 @@ func (b *Blitter) ptr(hi, lo uint16) uint32 {
 	return uint32(hi)<<16 | uint32(lo)
 }
 
-// Execute runs the blitter operation triggered by writing BLTSIZE.
-// Data transfer is immediate; BBUSY stays set for the blit's real duration
-// (blitDuration) and the BLIT interrupt is raised when it ends.
+// Execute starts the blitter operation triggered by writing BLTSIZE. An
+// area blit then moves its words as it gets bus slots (TickCycles), and
+// BBUSY stays set for the blit's real duration (blitDuration); the BLIT
+// interrupt is raised when it ends.
 //
 // BLIT INTREQ is never raised from inside Execute. Raising it here (or from a
 // supersede of a still-busy blit) re-enters the QBlit softint while the CPU is
@@ -79,6 +82,7 @@ func (b *Blitter) Execute(size uint16) {
 	// Previous blit already finished its data. Free BBUSY and remember that
 	// QBlit still needs a completion IRQ — but do not SetIntreq here.
 	if b.busy {
+		b.completeRun()
 		b.busy = false
 		b.completionCycles = 0
 		b.pendingIRQs++
@@ -103,11 +107,13 @@ func (b *Blitter) Execute(size uint16) {
 		b.OnExecute(size, b.con0, b.con1, b.ptr(b.dptH, b.dptL))
 	}
 
-	// Check for line-draw mode (BLTCON1 bit 0)
+	// Line mode is done at once (its data still lands at the start); area
+	// blits proceed word by word as the blitter gets bus slots (step).
 	if b.con1&0x0001 != 0 {
+		b.zero = true
 		b.executeLine(size)
 	} else {
-		b.executeBlit(size)
+		b.beginBlit(size)
 	}
 
 	b.completionCycles = blitDuration(b.con0, b.con1, width, height)
@@ -149,6 +155,7 @@ func blitDuration(con0, con1 uint16, width, height int) int {
 // finish marks one blit complete: BBUSY clear + queue a BLIT INTREQ for
 // TickCycles to deliver when idle.
 func (b *Blitter) finish() {
+	b.completeRun()
 	b.busy = false
 	b.completionCycles = 0
 	b.pendingIRQs++
@@ -159,6 +166,7 @@ func (b *Blitter) finish() {
 // instruction that wrote BLTSIZE).
 func (b *Blitter) TickCycles(cpuCycles int) {
 	if b.busy {
+		b.step(cpuCycles)
 		if b.completionCycles <= 0 {
 			b.finish()
 		} else {
@@ -179,8 +187,26 @@ func (b *Blitter) TickCycles(cpuCycles int) {
 	}
 }
 
-// executeBlit performs a normal area blit with optional fill.
-func (b *Blitter) executeBlit(size uint16) {
+// blitRun is an area blit in progress. The blitter works through it a
+// word at a time as it gets bus slots (step), so the CPU sees the
+// destination fill in, and source words are read when the blitter
+// reaches them, as on the real machine.
+type blitRun struct {
+	width, height      int
+	x, y               int
+	apt, bpt, cpt, dpt uint32
+	prevA, prevB       uint16
+	fillCarry          uint16
+	credit             int // CPU cycles of bus slots not yet spent on words
+	wordCost           int // CPU cycles per word
+	// Latched at the BLTSIZE write.
+	con0, con1             uint16
+	afwm, alwm             uint16
+	amod, bmod, cmod, dmod int16
+}
+
+// beginBlit starts an area blit; the words are done by step.
+func (b *Blitter) beginBlit(size uint16) {
 	height := int(size >> 6)
 	width := int(size & 0x3F)
 	if height == 0 {
@@ -189,187 +215,221 @@ func (b *Blitter) executeBlit(size uint16) {
 	if width == 0 {
 		width = 64
 	}
+	r := &blitRun{
+		width: width, height: height,
+		apt: b.ptr(b.aptH, b.aptL), bpt: b.ptr(b.bptH, b.bptL),
+		cpt: b.ptr(b.cptH, b.cptL), dpt: b.ptr(b.dptH, b.dptL),
+		wordCost: blitCyclesPerWord[(b.con0>>8)&0xF] * CPUCyclesPerColorClock,
+		credit:   -blitStartupCycles * CPUCyclesPerColorClock,
+		con0:     b.con0, con1: b.con1, afwm: b.afwm, alwm: b.alwm,
+		amod: b.amod, bmod: b.bmod, cmod: b.cmod, dmod: b.dmod,
+	}
+	if b.logger != nil {
+		fmt.Fprintf(b.logger, "BLITTER: %dx%d con0=$%04X con1=$%04X min=$%02X A=$%08X B=$%08X C=$%08X D=$%08X\n",
+			width, height, b.con0, b.con1, byte(b.con0), r.apt, r.bpt, r.cpt, r.dpt)
+	}
+	b.run = r
+	b.zero = true
+}
 
-	minterm := byte(b.con0 & 0xFF)
-	useA := b.con0&0x0800 != 0
-	useB := b.con0&0x0400 != 0
-	useC := b.con0&0x0200 != 0
-	useD := b.con0&0x0100 != 0
+// step spends cpuCycles of bus slots on the blit in progress.
+func (b *Blitter) step(cpuCycles int) {
+	r := b.run
+	if r == nil {
+		return
+	}
+	r.credit += cpuCycles
+	for r.credit >= r.wordCost && b.run != nil {
+		r.credit -= r.wordCost
+		b.blitWord()
+	}
+}
 
-	shiftA := (b.con0 >> 12) & 0xF
-	shiftB := (b.con1 >> 12) & 0xF
+// completeRun does whatever words remain (BBUSY is ending).
+func (b *Blitter) completeRun() {
+	for b.run != nil {
+		b.blitWord()
+	}
+}
 
+// executeBlit performs a whole area blit at once.
+func (b *Blitter) executeBlit(size uint16) {
+	b.beginBlit(size)
+	b.completeRun()
+}
+
+// blitWord processes the next word of the blit in progress, and at the end
+// of the blit clears b.run. The pointer registers follow the blit, so
+// software reading them mid-blit sees how far it has got.
+func (b *Blitter) blitWord() {
+	r := b.run
+	minterm := byte(r.con0 & 0xFF)
+	useA := r.con0&0x0800 != 0
+	useB := r.con0&0x0400 != 0
+	useC := r.con0&0x0200 != 0
+	useD := r.con0&0x0100 != 0
+	shiftA := (r.con0 >> 12) & 0xF
+	shiftB := (r.con1 >> 12) & 0xF
 	// Descending mode (bit 1 of BLTCON1)
-	desc := b.con1&0x0002 != 0
-
+	desc := r.con1&0x0002 != 0
 	// Fill mode bits in BLTCON1:
 	//   Bit 3 (0x0008): IFE — Inclusive Fill Enable
 	//   Bit 4 (0x0010): EFE — Exclusive Fill Enable
 	// Fill requires descending mode (bit 1) to be set as well.
-	inclusiveFill := b.con1&0x0008 != 0
-	exclusiveFill := b.con1&0x0010 != 0
+	inclusiveFill := r.con1&0x0008 != 0
+	exclusiveFill := r.con1&0x0010 != 0
 	fillEnable := inclusiveFill || exclusiveFill
+	var buf [2]byte
+	x, width := r.x, r.width
 
-	apt := b.ptr(b.aptH, b.aptL)
-	bpt := b.ptr(b.bptH, b.bptL)
-	cpt := b.ptr(b.cptH, b.cptL)
-	dpt := b.ptr(b.dptH, b.dptL)
-
-	if b.logger != nil {
-		fmt.Fprintf(b.logger, "BLITTER: %dx%d con0=$%04X con1=$%04X min=$%02X A=$%08X B=$%08X C=$%08X D=$%08X\n",
-			width, height, b.con0, b.con1, minterm, apt, bpt, cpt, dpt)
+	if x == 0 {
+		r.prevA, r.prevB, r.fillCarry = 0, 0, 0
 	}
 
-	var prevA uint16 // previous A word for shifting
-	var prevB uint16 // previous B word for shifting
-	buf := make([]byte, 2)
+	// When a channel is not enabled (USEx=0), the minterm still uses
+	// the channel's data register value (xDAT) rather than zero.
+	aWord := b.adat
+	bWord := b.bdat
+	cWord := b.cdat
 
-	for y := 0; y < height; y++ {
-		prevA = 0
-		prevB = 0
-		var fillCarry uint16 // fill carry bit per line
+	// Fetch source words
+	if useA {
+		b.amiga.ChipRAM.Read(int(r.apt&^1), buf[:])
+		aWord = uint16(buf[0])<<8 | uint16(buf[1])
+		b.adat = aWord
 
-		for x := 0; x < width; x++ {
-			// When a channel is not enabled (USEx=0), the minterm still uses
-			// the channel's data register value (xDAT) rather than zero.
-			aWord := b.adat
-			bWord := b.bdat
-			cWord := b.cdat
-
-			// Fetch source words
-			if useA {
-				b.amiga.ChipRAM.Read(int(apt&^1), buf)
-				aWord = uint16(buf[0])<<8 | uint16(buf[1])
-				b.adat = aWord
-
-				// Apply first/last word masks before shift (HRM order).
-				if x == 0 {
-					aWord &= b.afwm
-				}
-				if x == width-1 {
-					aWord &= b.alwm
-				}
-
-				// Barrel shift A
-				if shiftA != 0 {
-					var combined uint32
-					if desc {
-						// Descending mode: shift direction reverses (left shift).
-						// prevA holds the word from the higher address (processed earlier).
-						combined = uint32(aWord)<<16 | uint32(prevA)
-						aWord = uint16(combined >> (16 - shiftA))
-					} else {
-						combined = uint32(prevA)<<16 | uint32(aWord)
-						aWord = uint16(combined >> shiftA)
-					}
-				}
-				prevA = b.adat
-
-				if desc {
-					apt -= 2
-				} else {
-					apt += 2
-				}
-			} else {
-				// USEA=0: A is the constant in BLTADAT, but AFWM/ALWM still
-				// apply. graphics.library Draw uses this for pure-horizontal
-				// lines (1-row area blit, ADAT=$FFFF): without the masks,
-				// whole words light up and lines overrun past the true
-				// endpoints to 16-pixel boundaries.
-				if x == 0 {
-					aWord &= b.afwm
-				}
-				if x == width-1 {
-					aWord &= b.alwm
-				}
-				if shiftA != 0 {
-					var combined uint32
-					if desc {
-						combined = uint32(aWord)<<16 | uint32(prevA)
-						aWord = uint16(combined >> (16 - shiftA))
-					} else {
-						combined = uint32(prevA)<<16 | uint32(aWord)
-						aWord = uint16(combined >> shiftA)
-					}
-					prevA = b.adat
-				}
-			}
-
-			if useB {
-				b.amiga.ChipRAM.Read(int(bpt&^1), buf)
-				bWord = uint16(buf[0])<<8 | uint16(buf[1])
-				b.bdat = bWord
-
-				// Barrel shift B
-				if shiftB != 0 {
-					var combined uint32
-					if desc {
-						combined = uint32(bWord)<<16 | uint32(prevB)
-						bWord = uint16(combined >> (16 - shiftB))
-					} else {
-						combined = uint32(prevB)<<16 | uint32(bWord)
-						bWord = uint16(combined >> shiftB)
-					}
-				}
-				prevB = b.bdat
-
-				if desc {
-					bpt -= 2
-				} else {
-					bpt += 2
-				}
-			}
-
-			if useC {
-				b.amiga.ChipRAM.Read(int(cpt&^1), buf)
-				cWord = uint16(buf[0])<<8 | uint16(buf[1])
-				b.cdat = cWord
-				if desc {
-					cpt -= 2
-				} else {
-					cpt += 2
-				}
-			}
-
-			// Apply minterm logic
-			dWord := applyMinterm(minterm, aWord, bWord, cWord)
-
-			// Apply area fill if enabled (process bits right-to-left)
-			if fillEnable {
-				var filled uint16
-				for bit := uint(0); bit < 16; bit++ {
-					srcBit := (dWord >> bit) & 1
-					if srcBit != 0 {
-						fillCarry ^= 1
-					}
-					if exclusiveFill {
-						// Exclusive fill: output the XOR of original bit and carry
-						filled |= (srcBit ^ fillCarry) << bit
-					} else {
-						// Inclusive fill: output carry (carry already toggled by srcBit)
-						filled |= fillCarry << bit
-					}
-				}
-				dWord = filled
-			}
-
-			// Write result
-			if useD {
-				buf[0] = byte(dWord >> 8)
-				buf[1] = byte(dWord)
-				writeAddr := int(dpt &^ 1)
-				b.amiga.ChipRAM.Write(writeAddr, buf)
-				if b.DebugWriteHook != nil {
-					b.DebugWriteHook(writeAddr, dWord, aWord, bWord, cWord, minterm)
-				}
-				if desc {
-					dpt -= 2
-				} else {
-					dpt += 2
-				}
-			}
+		// Apply first/last word masks before shift (HRM order).
+		if x == 0 {
+			aWord &= r.afwm
+		}
+		if x == width-1 {
+			aWord &= r.alwm
 		}
 
+		// Barrel shift A
+		if shiftA != 0 {
+			var combined uint32
+			if desc {
+				// Descending mode: shift direction reverses (left shift).
+				// prevA holds the word from the higher address (processed earlier).
+				combined = uint32(aWord)<<16 | uint32(r.prevA)
+				aWord = uint16(combined >> (16 - shiftA))
+			} else {
+				combined = uint32(r.prevA)<<16 | uint32(aWord)
+				aWord = uint16(combined >> shiftA)
+			}
+		}
+		r.prevA = b.adat
+
+		if desc {
+			r.apt -= 2
+		} else {
+			r.apt += 2
+		}
+	} else {
+		// USEA=0: A is the constant in BLTADAT, but AFWM/ALWM still
+		// apply. graphics.library Draw uses this for pure-horizontal
+		// lines (1-row area blit, ADAT=$FFFF): without the masks,
+		// whole words light up and lines overrun past the true
+		// endpoints to 16-pixel boundaries.
+		if x == 0 {
+			aWord &= r.afwm
+		}
+		if x == width-1 {
+			aWord &= r.alwm
+		}
+		if shiftA != 0 {
+			var combined uint32
+			if desc {
+				combined = uint32(aWord)<<16 | uint32(r.prevA)
+				aWord = uint16(combined >> (16 - shiftA))
+			} else {
+				combined = uint32(r.prevA)<<16 | uint32(aWord)
+				aWord = uint16(combined >> shiftA)
+			}
+			r.prevA = b.adat
+		}
+	}
+
+	if useB {
+		b.amiga.ChipRAM.Read(int(r.bpt&^1), buf[:])
+		bWord = uint16(buf[0])<<8 | uint16(buf[1])
+		b.bdat = bWord
+
+		// Barrel shift B
+		if shiftB != 0 {
+			var combined uint32
+			if desc {
+				combined = uint32(bWord)<<16 | uint32(r.prevB)
+				bWord = uint16(combined >> (16 - shiftB))
+			} else {
+				combined = uint32(r.prevB)<<16 | uint32(bWord)
+				bWord = uint16(combined >> shiftB)
+			}
+		}
+		r.prevB = b.bdat
+
+		if desc {
+			r.bpt -= 2
+		} else {
+			r.bpt += 2
+		}
+	}
+
+	if useC {
+		b.amiga.ChipRAM.Read(int(r.cpt&^1), buf[:])
+		cWord = uint16(buf[0])<<8 | uint16(buf[1])
+		b.cdat = cWord
+		if desc {
+			r.cpt -= 2
+		} else {
+			r.cpt += 2
+		}
+	}
+
+	// Apply minterm logic
+	dWord := applyMinterm(minterm, aWord, bWord, cWord)
+
+	// Apply area fill if enabled (process bits right-to-left)
+	if fillEnable {
+		var filled uint16
+		for bit := uint(0); bit < 16; bit++ {
+			srcBit := (dWord >> bit) & 1
+			if srcBit != 0 {
+				r.fillCarry ^= 1
+			}
+			if exclusiveFill {
+				// Exclusive fill: output the XOR of original bit and carry
+				filled |= (srcBit ^ r.fillCarry) << bit
+			} else {
+				// Inclusive fill: output carry (carry already toggled by srcBit)
+				filled |= r.fillCarry << bit
+			}
+		}
+		dWord = filled
+	}
+	if dWord != 0 {
+		b.zero = false
+	}
+
+	// Write result
+	if useD {
+		buf[0] = byte(dWord >> 8)
+		buf[1] = byte(dWord)
+		writeAddr := int(r.dpt &^ 1)
+		b.amiga.ChipRAM.Write(writeAddr, buf[:])
+		if b.DebugWriteHook != nil {
+			b.DebugWriteHook(writeAddr, dWord, aWord, bWord, cWord, minterm)
+		}
+		if desc {
+			r.dpt -= 2
+		} else {
+			r.dpt += 2
+		}
+	}
+
+	r.x++
+	if r.x == width {
 		// Apply modulos at end of each line (signed arithmetic).
 		// Per the Amiga HRM, in ascending mode modulos are ADDED to the
 		// pointers; in DESCENDING mode the hardware SUBTRACTS them (just as
@@ -380,48 +440,37 @@ func (b *Blitter) executeBlit(size uint16) {
 		// pointers diagonally (2×mod error per row) — window-drag release
 		// blits sprayed garbage across the screen and, for tall blits,
 		// far outside the bitmap into OS structures.
-		if useA {
+		mod := func(pt uint32, m int16) uint32 {
 			if desc {
-				apt = uint32(int32(apt) - int32(b.amod))
-			} else {
-				apt = uint32(int32(apt) + int32(b.amod))
+				return uint32(int32(pt) - int32(m))
 			}
+			return uint32(int32(pt) + int32(m))
+		}
+		if useA {
+			r.apt = mod(r.apt, r.amod)
 		}
 		if useB {
-			if desc {
-				bpt = uint32(int32(bpt) - int32(b.bmod))
-			} else {
-				bpt = uint32(int32(bpt) + int32(b.bmod))
-			}
+			r.bpt = mod(r.bpt, r.bmod)
 		}
 		if useC {
-			if desc {
-				cpt = uint32(int32(cpt) - int32(b.cmod))
-			} else {
-				cpt = uint32(int32(cpt) + int32(b.cmod))
-			}
+			r.cpt = mod(r.cpt, r.cmod)
 		}
 		if useD {
-			if desc {
-				dpt = uint32(int32(dpt) - int32(b.dmod))
-			} else {
-				dpt = uint32(int32(dpt) + int32(b.dmod))
-			}
+			r.dpt = mod(r.dpt, r.dmod)
 		}
+		r.x = 0
+		r.y++
 	}
 
-	// Write back updated pointer registers. On real hardware, the blitter
-	// updates APT/BPT/CPT/DPT as it processes each word. After completion,
-	// the registers reflect the final position. ROM code (e.g., QBlit handler,
-	// multi-pass BltBitMap) may read these to determine blit state.
-	b.aptH = uint16(apt >> 16)
-	b.aptL = uint16(apt)
-	b.bptH = uint16(bpt >> 16)
-	b.bptL = uint16(bpt)
-	b.cptH = uint16(cpt >> 16)
-	b.cptL = uint16(cpt)
-	b.dptH = uint16(dpt >> 16)
-	b.dptL = uint16(dpt)
+	// The pointer registers follow the blit. ROM code (e.g. the QBlit
+	// handler, multi-pass BltBitMap) reads them to continue.
+	b.aptH, b.aptL = uint16(r.apt>>16), uint16(r.apt)
+	b.bptH, b.bptL = uint16(r.bpt>>16), uint16(r.bpt)
+	b.cptH, b.cptL = uint16(r.cpt>>16), uint16(r.cpt)
+	b.dptH, b.dptL = uint16(r.dpt>>16), uint16(r.dpt)
+	if r.y == r.height {
+		b.run = nil
+	}
 }
 
 // executeLine performs Bresenham line drawing using the blitter.
@@ -537,6 +586,9 @@ func (b *Blitter) executeLine(size uint16) {
 		writePixel := !singleMode || !onedot
 		if writePixel {
 			onedot = true
+			if dWord != 0 {
+				b.zero = false
+			}
 			buf[0] = byte(dWord >> 8)
 			buf[1] = byte(dWord)
 			// Write through DPT, then D tracks C (hardware behaviour)

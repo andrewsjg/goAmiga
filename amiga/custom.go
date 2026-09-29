@@ -85,9 +85,16 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 	switch offset {
 	case 0x002: // DMACONR
 		copy(p, c.regs[0x096:0x098]) // mirror DMACON write register
-		// Set bit 14 (BBUSY) when blitter is actively running
-		if c.amiga != nil && c.amiga.Blitter != nil && c.amiga.Blitter.busy {
-			p[0] |= 0x40
+		// BBUSY (bit 14) while the blitter runs; BZERO (bit 13) when every
+		// word the last blit produced was zero (blitter collision checks).
+		p[0] &^= 0x60
+		if c.amiga != nil && c.amiga.Blitter != nil {
+			if c.amiga.Blitter.busy {
+				p[0] |= 0x40
+			}
+			if c.amiga.Blitter.zero {
+				p[0] |= 0x20
+			}
 		}
 	case 0x07C: // DENISEID: OCS Denise has no ID register; the read floats
 		// high. ECS Denise returns $xxFC and AGA Lisa $xxF8, and SetPatch 3.x
