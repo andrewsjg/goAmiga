@@ -14,3 +14,4 @@
 /*.ppm
 /amiga/*.png
 __pycache__/
+goamiga.conf

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cavaliercoder/goAmiga/amiga"
+	"github.com/cavaliercoder/goAmiga/internal/config"
 )
 
 func main() {
@@ -14,11 +15,11 @@ func main() {
 	// Per-drive disk lists: the first goes in at start, the swap key
 	// cycles through the rest.
 	var drives [4]diskList
-	flag.Var(&drives[0], "df0", "ADF for DF0:; repeat to list more disks (F11 swaps to the next)")
+	flag.Var(&drives[0], "df0", "ADF for DF0:; repeat to list more disks (Cmd+F11 swaps to the next, F11 chooses a file)")
 	flag.Var(&drives[0], "disk", "same as --df0")
-	flag.Var(&drives[1], "df1", "ADF for DF1: (connects the drive); repeat for more (Alt+F11 swaps)")
-	flag.Var(&drives[2], "df2", "ADF for DF2: (connects the drive); repeat for more (Ctrl+F11 swaps)")
-	flag.Var(&drives[3], "df3", "ADF for DF3: (connects the drive); repeat for more (Ctrl+Alt+F11 swaps)")
+	flag.Var(&drives[1], "df1", "ADF for DF1: (connects the drive); repeat for more")
+	flag.Var(&drives[2], "df2", "ADF for DF2: (connects the drive); repeat for more")
+	flag.Var(&drives[3], "df3", "ADF for DF3: (connects the drive); repeat for more")
 	var hardfiles diskList
 	flag.Var(&hardfiles, "hdf", "Hard disk image (.hdf, plain or RDB) as the next unit of goamiga.device; repeat for more")
 	hdfCreate := flag.Int("hdf-create", 0, "Create any --hdf file that does not exist, blank, this many MB (format it from the Amiga)")
@@ -36,7 +37,15 @@ func main() {
 	warp := flag.Bool("warp", false, "Start in warp mode (as fast as possible, no sound); Cmd+W toggles")
 	joyKeys := flag.Bool("joy-keys", false, "Start with the arrow keys and Right Ctrl/Alt (fire) as the port 2 joystick; Ctrl+F12 toggles")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
+	configPath := flag.String("config", "", "Settings file (key = value per line, keys are these flag names); default ./goamiga.conf or ~/.config/goamiga/goamiga.conf")
 	flag.Parse()
+	if conf := config.Find(*configPath); conf != "" {
+		if err := config.Apply(flag.CommandLine, conf); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Settings from %s\n", conf)
+	}
 
 	if *romPath == "" {
 		fmt.Fprintf(os.Stderr, "Usage: goamiga --rom <kickstart.rom> [--df0 a.adf ...] [--df1 b.adf ...] [flags]\n")
@@ -152,25 +161,23 @@ func main() {
 		return
 	}
 
-	// Windowed mode: open Ebitengine display
+	// Windowed mode: open the Ebitengine display
 	fmt.Println("Starting display (50fps PAL)...")
 	a.Video.SetOverscan(*overscan)
-	display := amiga.NewDisplay(a)
-	display.Mute = *mute
-	display.Scale = *scale
-	display.StatusBar = *statusBar
-	display.StartWarp = *warp
-	display.JoyKeys = *joyKeys
-	for n, list := range drives {
-		display.Disks[n] = list
-		if len(list) > 0 {
-			display.DiskIndex[n] = 0
-		}
-	}
-	if err := display.Run(); err != nil {
+	err = runDisplay(a, displayOptions{
+		mute: *mute, scale: *scale, statusBar: *statusBar, warp: *warp, joyKeys: *joyKeys, drives: drives,
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Display error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// displayOptions are the window's settings from the command line.
+type displayOptions struct {
+	mute, statusBar, warp, joyKeys bool
+	scale                          int
+	drives                         [4]diskList
 }
 
 // diskList collects repeated --disk flags.

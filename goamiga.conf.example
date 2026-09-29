@@ -1,0 +1,24 @@
+# goAmiga settings. Copy to goamiga.conf (read from the current folder) or
+# ~/.config/goamiga/goamiga.conf, or pass --config FILE.
+#
+# One "key = value" per line; keys are the command-line flag names
+# (goamiga -h lists them). Keys like df0 and hdf may repeat. A bare key
+# turns a switch on. Relative paths are from this file's folder. Anything
+# given on the command line overrides this file.
+
+rom      = ROMS/Kick32.rom
+
+# Hard disk (created blank at 100 MB the first time)
+hdf        = dh0.hdf
+hdf-create = 100
+
+# DF0: starts with the first disk; Cmd+F11 cycles, F11 chooses any file
+df0      = disks/Install3.2.adf
+df0      = disks/Extras3.2.adf
+
+chipram  = 1024
+fastram  = 8192
+scale    = 2
+# overscan
+# mute
+# joy-keys

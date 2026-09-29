@@ -55,6 +55,24 @@ The floppy is writable: anything the Amiga saves to DF0: is written back
 into the ADF file. Keep a copy of disks you care about, or pass
 `--write-protect`.
 
+### Settings file
+
+Rather than typing flags each time, put them in `goamiga.conf`. Copy
+`goamiga.conf.example` to start. The file is `key = value` per line, where
+the keys are the flag names, and `df0` or `hdf` can repeat. A bare key
+turns a switch on, and relative paths are from the file's folder.
+
+goAmiga reads `./goamiga.conf`, then `~/.config/goamiga/goamiga.conf`, or
+the file given with `--config FILE`. Flags on the command line override
+the file.
+
+```
+rom     = ROMS/Kick32.rom
+hdf     = dh0.hdf
+df0     = disks/Install3.2.adf
+fastram = 8192
+```
+
 ### Hard disks
 
 `--hdf file.hdf` attaches a hard disk image as the next unit of

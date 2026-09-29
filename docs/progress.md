@@ -36,6 +36,35 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-29 — Settings file; the command line builds without Ebitengine
+
+**`goamiga.conf`.** The format is `key = value` lines whose keys are the
+flag names, so there's no new vocabulary and no TOML dependency
+(`internal/config`).
+- Keys can repeat where the flag can (`df0`, `hdf`).
+- A bare key sets a boolean. `#` starts a comment, and quotes are
+  optional.
+- Relative paths (`rom`, `dfN`, `hdf`) are resolved from the file's folder,
+  so a config next to the ROMs works from anywhere.
+- Flags given on the command line win: `Apply` skips any flag
+  `flag.Visit` reports as set.
+- Lookup order: `--config`, `./goamiga.conf`,
+  `~/.config/goamiga/goamiga.conf`.
+- An unknown key, or a bad value, stops with the file and line number.
+- `goamiga.conf.example` documents it. The personal `goamiga.conf` is
+  git-ignored.
+
+**A test gotcha.** The parser first lived in `cmd/goamiga`, but that test
+binary crashed during Ebitengine's package init on macOS. `currentMouseLocation`
+dereferences nil when there is no window-server session, for example with
+the screen locked. That's why it moved to its own package. The same crash
+happens for `amiga` tests and the binary whenever the screen is locked, so
+`go test -tags noebitengine ./amiga/` is the way to run tests then.
+
+**`-tags noebitengine` builds the command line again.** The window code
+moved into `cmd/goamiga/display.go`. With the tag, a stub reports that
+there is no display and suggests `--headless`.
+
 ## 2026-09-29 — BPLCON0 and sprite registers changed mid-line
 
 Until now only colour, BPLCON1 and BPLCON2 writes took effect at their
