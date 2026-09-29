@@ -134,3 +134,9 @@ func (dr *Drive) status() byte {
 	}
 	return low
 }
+
+// MotorOn reports whether the drive's motor (and so its LED) is on.
+func (dr *Drive) MotorOn() bool { return dr.motor }
+
+// Cylinder is the head's current cylinder.
+func (dr *Drive) Cylinder() int { return dr.cylinder }

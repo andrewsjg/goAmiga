@@ -62,6 +62,16 @@ type Display struct {
 	// Mute turns off host audio (Paula still runs).
 	Mute bool
 
+	// StatusBar shows the activity lights below the picture.
+	StatusBar bool
+	// StartWarp starts in warp mode.
+	StartWarp bool
+
+	warp       bool      // Cmd+W: run flat out (display_host.go)
+	warpFrames int       // frames since warpSince
+	warpSince  time.Time //
+	warpSpeed  float64   // multiple of real time, measured each second
+
 	// Scale multiplies the window size (the emulated screen stays the
 	// same); Run lowers it if the window would not fit the monitor.
 	Scale       int
@@ -72,6 +82,7 @@ type Display struct {
 func NewDisplay(a *Amiga) *Display {
 	return &Display{
 		amiga:     a,
+		StatusBar: true,
 		DiskIndex: [4]int{-1, -1, -1, -1},
 		screen:    ebiten.NewImage(LowResWidth, PALVisibleLines),
 		prevKeys:  make(map[ebiten.Key]bool),
@@ -80,6 +91,7 @@ func NewDisplay(a *Amiga) *Display {
 
 // Update runs one PAL frame worth of CPU cycles.
 func (d *Display) Update() error {
+	d.pollHostKeys()
 	d.pollMouseGrab()
 	d.pollDiskKeys()
 	d.updateTitle()
@@ -89,6 +101,10 @@ func (d *Display) Update() error {
 	// Never tear down the window on a single-frame CPU fault. Step() already
 	// converts access violations to bus errors; if anything still leaks out,
 	// keep presenting frames so the user can see a Guru/requester.
+	if d.warp {
+		d.runWarp()
+		return nil
+	}
 	for n := d.framesToRun(); n > 0; n-- {
 		if err := d.amiga.RunFrame(); err != nil {
 			return nil
@@ -134,6 +150,9 @@ func (d *Display) pollKeyboard() {
 		}
 		pressed := ebiten.IsKeyPressed(eKey)
 		wasPrev := d.prevKeys[eKey]
+		if pressed && !wasPrev && hostKey() {
+			continue // a host command (Cmd+key), not for the Amiga
+		}
 		if pressed && !wasPrev {
 			kb.EnqueueKey(amigaCode, true)
 		} else if !pressed && wasPrev {
@@ -373,16 +392,21 @@ func (d *Display) Draw(screen *ebiten.Image) {
 	d.screen.WritePixels(v.Pixels[:need])
 
 	op := &ebiten.DrawImageOptions{}
+	picH := screen.Bounds().Dy() - d.statusBarHeight()
 	sw := float64(screen.Bounds().Dx()) / float64(v.Width)
-	sh := float64(screen.Bounds().Dy()) / float64(v.Height)
+	sh := float64(picH) / float64(v.Height)
 	op.GeoM.Scale(sw, sh)
 	screen.DrawImage(d.screen, op)
+	if d.StatusBar {
+		d.drawStatus(screen, picH)
+	}
 }
 
 // Layout returns the logical screen size: the framebuffer width and two
 // rows per non-interlaced line (Video.DisplaySize).
 func (d *Display) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return d.amiga.Video.DisplaySize()
+	w, h := d.amiga.Video.DisplaySize()
+	return w, h + d.statusBarHeight()
 }
 
 // Run starts the Ebitengine game loop at 50fps (PAL).
@@ -393,7 +417,11 @@ func (d *Display) Run() error {
 			fmt.Printf("audio disabled: %v\n", err)
 		}
 	}
+	if d.StartWarp {
+		d.setWarp(true)
+	}
 	w, h := d.amiga.Video.DisplaySize()
+	h += d.statusBarHeight()
 	s := d.windowScale(w, h)
 	ebiten.SetWindowSize(w*s, h*s)
 	// Resizing scales the picture; the emulated screen size is fixed by

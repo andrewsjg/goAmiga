@@ -32,6 +32,8 @@ func main() {
 	fastRAM := flag.Int("fastram", 2048, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	scale := flag.Int("scale", 2, "Window size multiplier (the emulated resolution is unchanged); reduced if it doesn't fit the screen")
+	statusBar := flag.Bool("statusbar", true, "Show the activity lights (power, drives, hard disk) and warp speed below the picture")
+	warp := flag.Bool("warp", false, "Start in warp mode (as fast as possible, no sound); Cmd+W toggles")
 	joyKeys := flag.Bool("joy-keys", false, "Start with the arrow keys and Right Ctrl/Alt (fire) as the port 2 joystick; Ctrl+F12 toggles")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	flag.Parse()
@@ -156,6 +158,8 @@ func main() {
 	display := amiga.NewDisplay(a)
 	display.Mute = *mute
 	display.Scale = *scale
+	display.StatusBar = *statusBar
+	display.StartWarp = *warp
 	display.JoyKeys = *joyKeys
 	for n, list := range drives {
 		display.Disks[n] = list

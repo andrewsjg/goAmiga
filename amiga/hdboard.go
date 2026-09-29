@@ -75,6 +75,22 @@ type hdBoard struct {
 
 	// Trace, if set, logs driver activity.
 	Trace io.Writer
+
+	lastIO    uint64 // Amiga.cycles at the last read or write
+	lastWrite bool
+}
+
+// hdLEDHold keeps the activity light on after a transfer: transfers are
+// instant here, so without it the light would never be seen.
+const hdLEDHold = 3 * CyclesPerFrame
+
+// Activity reports whether the disk was read or written recently, and if
+// so whether the last transfer was a write.
+func (h *hdBoard) Activity() (active, write bool) {
+	if h.lastIO == 0 {
+		return false, false
+	}
+	return h.amiga.cycles-h.lastIO < hdLEDHold, h.lastWrite
 }
 
 type hdPart struct {
@@ -553,6 +569,7 @@ func (h *hdBoard) beginIO(io uint32) uint32 {
 	}
 	switch cmd {
 	case 2: // CMD_READ
+		h.lastIO, h.lastWrite = a.cycles|1, false
 		buf := make([]byte, length)
 		if err := f.ReadAt(buf, offset); err != nil {
 			errCode = ioErr(err)
@@ -561,6 +578,7 @@ func (h *hdBoard) beginIO(io uint32) uint32 {
 			actual = length
 		}
 	case 3, 11: // CMD_WRITE, TD_FORMAT
+		h.lastIO, h.lastWrite = a.cycles|1, true
 		buf := make([]byte, length)
 		a.peekBytes(data, buf)
 		if err := f.WriteAt(buf, offset); err != nil {

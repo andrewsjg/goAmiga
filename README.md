@@ -75,6 +75,23 @@ QUICK`), then install onto it. Writes go straight into the image file;
 Kickstart ROM has: OFS on 1.3, OFS or FFS on 2.0 and later. Filesystems
 stored in an RDB are not loaded.
 
+### Warp and activity lights
+
+**Cmd+W** (the Windows key + W on a PC) toggles warp mode. The emulator runs
+as fast as the host allows, about 20× real time, with sound off. It's handy
+for floppy loading and installs. `--warp` starts in warp mode.
+
+A status bar under the picture shows the activity lights:
+- **POWER:** bright or dimmed, as the A500's LED is with the audio filter.
+- **Each drive:** its motor LED and the head's cylinder.
+- **HD:** green for reads, orange for writes.
+- **Warp speed**, while warp is on.
+
+`--statusbar=false` hides the status bar.
+
+Host commands all use Cmd (Windows key). It isn't an Amiga key, so a
+command never types anything on the Amiga.
+
 ### Joystick
 
 A joystick is always plugged into port 2 (the mouse stays in port 1). Any

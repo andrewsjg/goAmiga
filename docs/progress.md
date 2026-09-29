@@ -35,6 +35,33 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-29 — Warp mode and activity lights
+
+**Host commands on Cmd.** Alt/Option proved unreliable on macOS (F11 saw it
+held), and Cmd (the Windows key on a PC) isn't an Amiga key. So host
+commands are Cmd+key, and `pollKeyboard` drops any key pressed while Cmd is
+held so nothing reaches the Amiga.
+
+**Warp (Cmd+W, `--warp`).**
+- Each tick emulates for 14 ms of host time instead of pacing by the audio
+  clock.
+- Every frame but the last runs with `Video.DisplayActive` off, which uses
+  the fast headless path. Only the last frame is drawn.
+- Paula's output buffer is muted and emptied (`AudioBuffer.SetMuted`), so
+  nothing plays sped up or late when warp ends.
+- Speed is measured each second as a multiple of the PAL frame rate. Boot
+  profiling suggests about 20-25× real time.
+
+**Status bar (`--statusbar`, on by default).** Layout adds 18 logical pixels
+below the picture, drawn with Ebitengine's debug font and filled rects:
+- POWER: CIA-A PRA bit 1, bright or dim like the A500 LED that follows the
+  audio filter.
+- Each connected drive's motor LED and head cylinder (`Drive.MotorOn`,
+  `Drive.Cylinder`).
+- The hard disk light (`hdBoard.Activity`): green for a read, orange for a
+  write. Transfers are instant, so the light is held for 3 frames.
+- The warp speed, while warp is on.
+
 ## 2026-09-27 — Sound stutters and skips under load: pace by the audio clock
 
 Sound stuttered and then seemed to speed up whenever there was a lot of

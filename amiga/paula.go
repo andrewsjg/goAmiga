@@ -327,6 +327,10 @@ func (p *Paula) emit() {
 	p.Output.Write(float32(l), float32(r))
 }
 
+// PowerLEDBright reports whether the power LED is bright: CIA-A PRA bit 1
+// low, which also switches the audio filter on.
+func (a *Amiga) PowerLEDBright() bool { return a.Paula.ledFilter() }
+
 // ledFilter reports whether the LED low-pass filter is on: CIA-A PRA bit 1
 // low (power LED bright).
 func (p *Paula) ledFilter() bool {
@@ -379,6 +383,15 @@ type AudioBuffer struct {
 	buf  []float32 // interleaved L, R
 	r, n int       // read position and frames held
 	tmp  []float32 // Read's scratch, reused to spare the GC
+	mute bool      // drop writes (warp mode)
+}
+
+// SetMuted drops everything written while on, and empties the buffer when
+// switched either way, so nothing queued plays late.
+func (b *AudioBuffer) SetMuted(on bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.mute, b.r, b.n = on, 0, 0
 }
 
 // NewAudioBuffer holds up to frames stereo frames; when full, the oldest
@@ -391,6 +404,9 @@ func NewAudioBuffer(frames int) *AudioBuffer {
 func (b *AudioBuffer) Write(l, r float32) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.mute {
+		return
+	}
 	frames := len(b.buf) / 2
 	if b.n == frames {
 		b.r = (b.r + 1) % frames
