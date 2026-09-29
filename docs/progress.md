@@ -23,9 +23,10 @@ verified. Longer investigations get their own write-up in `docs/`.
    RAM at the start of the transfer (only BBUSY and interrupt timing are
    real); no drive motor spin-up time. The CPU's bus cycles are counted per
    instruction rather than placed within it.
-2. **Display.** Missing: BPLCON0 and
-   sprite register changes partway through a line; collisions are only
-   detected on lines that are drawn (not in headless mode).
+2. **Display.** A resolution change (hires bit) partway through a line
+   isn't shown, and neither are sprite data rewrites while a sprite is
+   being shifted out. Collisions are only detected on lines that are drawn
+   (not in headless mode).
 3. **Paula (other).** No serial port (UART). The POTxDAT proportional
    counters (analogue joysticks, paddles) are not implemented. Audio DMA
    slots are not charged against the blitter.
@@ -34,6 +35,48 @@ verified. Longer investigations get their own write-up in `docs/`.
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-29 — BPLCON0 and sprite registers changed mid-line
+
+Until now only colour, BPLCON1 and BPLCON2 writes took effect at their
+column. Everything else used the register's end-of-line value for the whole
+line.
+
+**BPLCON0.** It is read by two chips, at different times:
+- **Agnus** fetches with the value in force when the fetch starts
+  (DDFSTRT). `RenderLine` rewinds any BPLCON0 write made at or after that
+  colour clock to get it. Before, a Copper list switching the display off
+  at the end of a line (after the fetch) stopped that line from being
+  fetched, and its pointers from advancing.
+- **Denise** shows the planes BPLCON0 names, capped by what was fetched,
+  and its dual playfield, HAM and EHB modes from each write's column.
+  `drawLine` recomputes a plane mask and the mode flags at each change. A
+  change of the hires bit mid-line is not shown; the layout stays as
+  fetched.
+
+`regChange` now records the write's colour clock as well as its column.
+
+**Sprites.** There were two problems:
+- Sprite DMA ran at the end of each line (just before `RenderLine`), so it
+  overwrote anything the Copper wrote to the sprite registers during the
+  line. It now runs just after `nextLine`, at the start of the line, where
+  the real DMA slots are ($15-$33).
+- Each sprite was drawn once at its final position. Now `FetchLine` ends
+  with `startLine`, which snapshots the eight sprites, and each
+  SPRxPOS/CTL/DATA/DATB write during the line is recorded with its column
+  (`SpriteEngine.note`, called from the custom register writes with
+  `writeHpos`). `paint` replays the line from the snapshot: an armed
+  sprite (DATA written, not since disarmed by a CTL write) shows when the
+  beam reaches its HSTART. If the Copper then moves HSTART right and
+  rearms it, it shows again there. That is the horizontal sprite reuse
+  games use.
+
+With no writes to a sprite in a line, the current registers are used, so
+direct pokes (and CPU writes with the display off) behave as before.
+
+New tests: `TestMidLineBPLCON0`, `TestLateBPLCON0KeepsFetch`,
+`TestSpriteReusedMidLine`, `TestSpriteDMABeforeCopperWrites`. The full
+suite passes.
 
 ## 2026-09-29 — Warp mode and activity lights
 

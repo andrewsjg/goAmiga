@@ -1,5 +1,7 @@
 package amiga
 
+import "math"
+
 // Sprite DMA / display states (OCS).
 const (
 	// sprFetchCtl: next DMA slot loads SPRxPOS/SPRxCTL from the pointer.
@@ -55,6 +57,43 @@ type SpriteEngine struct {
 	px      [8][MaxOutputWidth]byte // per-sprite pixels of the current line
 	amiga   *Amiga
 	buf     [2]byte
+
+	// start holds the sprites as the line began (after its DMA), and
+	// events the register writes made during it, so paint can replay them
+	// left to right: a sprite whose SPRxPOS and data are rewritten after it
+	// has been shown appears again further along the same line.
+	start  [8]Sprite
+	events []sprEvent
+}
+
+// sprEvent is a write to a sprite register during the current line.
+type sprEvent struct {
+	col, sprite, reg int // output column; sprPOS, sprCTL, sprDATA or sprDATB
+	val              uint16
+}
+
+const (
+	sprPOS = iota
+	sprCTL
+	sprDATA
+	sprDATB
+)
+
+// note records a sprite register write made at beam position hpos (CPU
+// cycles) during the current line.
+func (se *SpriteEngine) note(sprite, reg int, val uint16, hpos int) {
+	v := se.amiga.Video
+	if v == nil || !v.DisplayActive || sprite < 0 || sprite >= 8 {
+		return
+	}
+	lores := 2*(hpos/CPUCyclesPerColorClock) + writeColumnOffset
+	se.events = append(se.events, sprEvent{col: 2 * (lores - v.left), sprite: sprite, reg: reg, val: val})
+}
+
+// startLine records the sprites' state at the start of a line.
+func (se *SpriteEngine) startLine() {
+	se.start = se.sprites
+	se.events = se.events[:0]
 }
 
 // NewSpriteEngine creates a new sprite engine.
@@ -152,6 +191,7 @@ func (se *SpriteEngine) fetchData(s *Sprite) {
 //   - On VSTOP, stop displaying and fetch the next control word pair
 //     (sprite multiplexing); (0,0) ends the sprite until SPRxPT is reloaded.
 func (se *SpriteEngine) FetchLine(vpos int) {
+	defer se.startLine()
 	dmacon := se.amiga.Custom.ReadReg16(0x096)
 	if dmacon&0x0220 != 0x0220 {
 		return
@@ -225,7 +265,7 @@ func (se *SpriteEngine) lineBuffer(col, pair, present *[MaxOutputWidth]byte, lef
 	var painted [8]bool
 	anyPainted := false
 	for i := range se.sprites {
-		painted[i] = se.paint(&se.sprites[i], &se.px[i], left, width)
+		painted[i] = se.paint(i, &se.px[i], left, width)
 		anyPainted = anyPainted || painted[i]
 	}
 	if !anyPainted {
@@ -270,24 +310,68 @@ func (se *SpriteEngine) lineBuffer(col, pair, present *[MaxOutputWidth]byte, lef
 	return true
 }
 
-// paint draws sprite s's 2-bit pixels on the current line into bits,
+// paint draws sprite i's 2-bit pixels on the current line into bits,
 // reporting false (and leaving bits untouched) if it shows nothing.
-func (se *SpriteEngine) paint(s *Sprite, bits *[MaxOutputWidth]byte, left, width int) bool {
-	if s.state != sprActive || s.data|s.datb == 0 {
-		return false
-	}
-	*bits = [MaxOutputWidth]byte{}
-	x0 := 2 * (s.hstart() - left)
-	for i := 0; i < 16; i++ {
-		v := byte(s.data>>(15-i)&1 | s.datb>>(15-i)&1<<1)
-		if v == 0 {
-			continue
+//
+// It replays the line: the sprite starts as it was after the line's DMA,
+// and each write during the line takes effect from its column. An armed
+// sprite (DATA written, by DMA or otherwise, and not since disarmed by a
+// CTL write) is shown when the beam reaches its HSTART; if HSTART is then
+// moved further right and the sprite rearmed, it is shown again there.
+func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int) bool {
+	// With no writes this line, start and current state are the same (or
+	// the registers were set outside emulated time, as tests do).
+	s := se.sprites[i]
+	for _, ev := range se.events {
+		if ev.sprite == i {
+			s = se.start[i]
+			break
 		}
-		for _, x := range [2]int{x0 + 2*i, x0 + 2*i + 1} {
-			if x >= 0 && x < width {
-				bits[x] = v
+	}
+	armed := s.state == sprActive
+	painted := false
+	draw := func(from, to int) {
+		if !armed || s.data|s.datb == 0 {
+			return
+		}
+		x0 := 2 * (s.hstart() - left)
+		if x0 < from || x0 >= to {
+			return
+		}
+		if !painted {
+			*bits = [MaxOutputWidth]byte{}
+			painted = true
+		}
+		for b := 0; b < 16; b++ {
+			v := byte(s.data>>(15-b)&1 | s.datb>>(15-b)&1<<1)
+			if v == 0 {
+				continue
+			}
+			for _, x := range [2]int{x0 + 2*b, x0 + 2*b + 1} {
+				if x >= 0 && x < width {
+					bits[x] = v
+				}
 			}
 		}
 	}
-	return true
+	from := math.MinInt
+	for _, ev := range se.events {
+		if ev.sprite != i {
+			continue
+		}
+		draw(from, ev.col)
+		from = ev.col
+		switch ev.reg {
+		case sprPOS:
+			s.pos = ev.val
+		case sprCTL:
+			s.ctl, armed = ev.val, false
+		case sprDATA:
+			s.data, armed = ev.val, true
+		case sprDATB:
+			s.datb = ev.val
+		}
+	}
+	draw(from, math.MaxInt)
+	return painted
 }

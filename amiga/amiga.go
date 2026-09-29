@@ -596,16 +596,17 @@ func (a *Amiga) advanceBeamPerCycle(elapsed int) {
 		a.hpos++
 
 		if a.hpos >= CPUClocksPerLine {
-			// Fetch sprite data for this scanline
-			if a.Sprites != nil {
-				a.Sprites.FetchLine(a.vpos)
-			}
 			// Render the completed scanline
 			if a.Video != nil {
 				a.Video.RenderLine(a.vpos)
 			}
 
 			a.nextLine()
+			// Sprite DMA comes early in the line, before anything the
+			// Copper or CPU writes to the sprite registers during it.
+			if a.Sprites != nil {
+				a.Sprites.FetchLine(a.vpos)
+			}
 		}
 
 		// E clock divider: CIA ticks every 10 CPU cycles (~709KHz)
@@ -693,14 +694,14 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 		a.hpos += lineRemain
 
 		if a.hpos >= CPUClocksPerLine {
-			if a.Sprites != nil {
-				a.Sprites.FetchLine(a.vpos)
-			}
 			a.Video.RenderLine(a.vpos)
 
 			if a.nextLine() {
 				dmacon = a.Custom.ReadReg16(0x096)
 				copperEnabled = dmacon&0x0280 == 0x0280
+			}
+			if a.Sprites != nil {
+				a.Sprites.FetchLine(a.vpos)
 			}
 		}
 	}

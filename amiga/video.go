@@ -234,10 +234,13 @@ func (v *Video) window() displayWindow {
 // bitplaneFetchLine reports whether Agnus fetches bitplanes on line vpos:
 // bitplane DMA on, at least one plane, and inside the vertical window.
 func (v *Video) bitplaneFetchLine(vpos int) bool {
+	return v.amiga.Custom.ReadReg16(0x100)>>12&7 != 0 && v.bitplaneFetchWindow(vpos)
+}
+
+// bitplaneFetchWindow reports whether bitplane DMA is on and vpos is
+// inside the vertical window.
+func (v *Video) bitplaneFetchWindow(vpos int) bool {
 	if v.amiga.Custom.ReadReg16(0x096)&0x0300 != 0x0300 {
-		return false
-	}
-	if v.amiga.Custom.ReadReg16(0x100)>>12&7 == 0 {
 		return false
 	}
 	w := v.window()
@@ -248,16 +251,24 @@ func (v *Video) bitplaneFetchLine(vpos int) bool {
 // bitplane pointers as the DMA does) and, when the display is active and
 // the line is in the output window, draws it into Pixels.
 func (v *Video) RenderLine(vpos int) {
+	ddfstrt := v.amiga.Custom.ReadReg16(0x092)
+	// Agnus fetches with the BPLCON0 in force when the fetch starts; a
+	// write later in the line (a Copper list setting up the next part of
+	// the screen) changes only what Denise shows from its column on.
 	bplcon0 := v.amiga.Custom.ReadReg16(0x100)
+	for i := len(v.changes) - 1; i >= 0; i-- {
+		if ch := v.changes[i]; ch.reg == 0x100 && ch.cck >= int(ddfstrt&0xFC) {
+			bplcon0 = ch.old
+		}
+	}
 	numPlanes := int((bplcon0 >> 12) & 0x7)
 	if numPlanes > 6 {
 		numPlanes = 6
 	}
 	hires := bplcon0&0x8000 != 0
-	ddfstrt := v.amiga.Custom.ReadReg16(0x092)
 	words := fetchWords(hires, ddfstrt, v.amiga.Custom.ReadReg16(0x094))
 
-	fetch := v.bitplaneFetchLine(vpos)
+	fetch := numPlanes > 0 && v.bitplaneFetchWindow(vpos)
 	draw := v.DisplayActive && vpos >= v.top && vpos < v.top+v.rows
 	if fetch && draw {
 		for p := 0; p < numPlanes; p++ {
@@ -288,13 +299,14 @@ func (v *Video) RenderLine(vpos int) {
 // regChange is a write to a Denise register during the current line.
 type regChange struct {
 	col      int // first output column showing the new value
+	cck      int // colour clock of the write
 	reg      int
 	old, new uint16
 }
 
 // deniseLineReg reports whether writes to reg are applied mid-line.
 func deniseLineReg(reg int) bool {
-	return reg >= 0x180 && reg < 0x1C0 || reg == 0x102 || reg == 0x104
+	return reg >= 0x180 && reg < 0x1C0 || reg == 0x100 || reg == 0x102 || reg == 0x104
 }
 
 // writeColumnOffset places a register write in the picture: a write at
@@ -309,15 +321,17 @@ func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
 	if !v.DisplayActive || old == new {
 		return
 	}
-	lores := 2*(hpos/CPUCyclesPerColorClock) + writeColumnOffset
-	v.changes = append(v.changes, regChange{col: 2 * (lores - v.left), reg: reg, old: old, new: new})
+	cck := hpos / CPUCyclesPerColorClock
+	lores := 2*cck + writeColumnOffset
+	v.changes = append(v.changes, regChange{col: 2 * (lores - v.left), cck: cck, reg: reg, old: old, new: new})
 }
 
 // drawLine composes one output row the way Denise does: playfield pixels
 // placed by DDFSTRT and BPLCON1, colour modes (dual playfield, EHB, HAM),
 // sprites by BPLCON2 priority, collisions, and COLOR00 outside the display
-// window. Colour, BPLCON1 and BPLCON2 writes made during the line take
-// effect from their column (see noteWrite).
+// window. BPLCON0 (planes shown and colour mode), BPLCON1, BPLCON2 and
+// colour writes made during the line take effect from their column (see
+// noteWrite).
 //
 // Horizontal positions are in hires pixels: output column X is beam
 // position 2*v.left+X, and lores pixels are two columns wide.
@@ -334,6 +348,8 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	for i := len(v.changes) - 1; i >= 0; i-- {
 		ch := v.changes[i]
 		switch ch.reg {
+		case 0x100:
+			bplcon0 = ch.old
 		case 0x102:
 			bplcon1 = ch.old
 		case 0x104:
@@ -348,9 +364,19 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 
 	win := v.window()
 	lineVisible := vpos >= win.vstart && vpos < win.vstop
-	dpf := bplcon0&0x0400 != 0
-	ham := bplcon0&0x0800 != 0 && !hires && numPlanes >= 5
-	ehb := numPlanes == 6 && !dpf && !ham
+	// Denise shows the planes and colour mode BPLCON0 names now, which a
+	// write during the line can change; planes it names but Agnus did not
+	// fetch show as 0 (the resolution stays as fetched).
+	var planeMask int
+	var dpf, ham, ehb bool
+	deniseMode := func() {
+		shown := min(int(bplcon0>>12&7), numPlanes)
+		planeMask = 1<<shown - 1
+		dpf = bplcon0&0x0400 != 0
+		ham = bplcon0&0x0800 != 0 && !hires && shown >= 5
+		ehb = shown == 6 && !dpf && !ham
+	}
+	deniseMode()
 
 	// First playfield pixel, in output columns, before scrolling. DDFSTRT
 	// is in colour clocks; the fetch-to-display pipeline adds 17 lores
@@ -396,6 +422,9 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 				nextCol = v.changes[next].col
 			}
 			switch ch.reg {
+			case 0x100:
+				bplcon0 = ch.new
+				deniseMode()
 			case 0x102:
 				bplcon1 = ch.new
 				v.fillPlayfield(pf, x, bplcon1)
@@ -417,7 +446,7 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 			continue
 		}
 
-		idx := int(v.pfIdx[x])
+		idx := int(v.pfIdx[x]) & planeMask
 		pf1, pf2 := oddPlaneBits[idx], evenPlaneBits[idx]
 		if anySprite && v.sprPresent[x] != 0 {
 			v.clxdat |= collisions(clxcon, idx, v.sprPresent[x])

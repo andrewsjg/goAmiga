@@ -470,21 +470,25 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		if c.amiga != nil && c.amiga.Sprites != nil {
 			sprite := (offset - 0x140) / 8
 			c.amiga.Sprites.SetPOS(sprite, uint16(p[0])<<8|uint16(p[1]))
+			c.amiga.Sprites.note(sprite, sprPOS, uint16(p[0])<<8|uint16(p[1]), c.writeHpos())
 		}
 	case 0x142, 0x14A, 0x152, 0x15A, 0x162, 0x16A, 0x172, 0x17A: // SPRxCTL
 		if c.amiga != nil && c.amiga.Sprites != nil {
 			sprite := (offset - 0x142) / 8
 			c.amiga.Sprites.SetCTL(sprite, uint16(p[0])<<8|uint16(p[1]))
+			c.amiga.Sprites.note(sprite, sprCTL, uint16(p[0])<<8|uint16(p[1]), c.writeHpos())
 		}
 	case 0x144, 0x14C, 0x154, 0x15C, 0x164, 0x16C, 0x174, 0x17C: // SPRxDATA
 		if c.amiga != nil && c.amiga.Sprites != nil {
 			sprite := (offset - 0x144) / 8
 			c.amiga.Sprites.SetDATA(sprite, uint16(p[0])<<8|uint16(p[1]))
+			c.amiga.Sprites.note(sprite, sprDATA, uint16(p[0])<<8|uint16(p[1]), c.writeHpos())
 		}
 	case 0x146, 0x14E, 0x156, 0x15E, 0x166, 0x16E, 0x176, 0x17E: // SPRxDATB
 		if c.amiga != nil && c.amiga.Sprites != nil {
 			sprite := (offset - 0x146) / 8
 			c.amiga.Sprites.SetDATB(sprite, uint16(p[0])<<8|uint16(p[1]))
+			c.amiga.Sprites.note(sprite, sprDATB, uint16(p[0])<<8|uint16(p[1]), c.writeHpos())
 		}
 
 	// Disk registers
@@ -602,4 +606,13 @@ func (c *CustomChips) UpdateInterrupts() {
 	}
 
 	c.amiga.CPU.SetInterruptLevel(level)
+}
+
+// writeHpos is the beam position (CPU cycles) of the register write being
+// handled: the Copper's slot, or the CPU's current position.
+func (c *CustomChips) writeHpos() int {
+	if c.copperHpos >= 0 {
+		return c.copperHpos
+	}
+	return c.amiga.hpos
 }

@@ -437,3 +437,94 @@ func TestOverscanView(t *testing.T) {
 		t.Errorf("back to standard (laced): %dx%d, want 640x512", a.Video.Width, a.Video.Height)
 	}
 }
+
+// copperWrite writes a custom register as a Copper MOVE at colour clock cck.
+func copperWrite(a *Amiga, reg int, val uint16, cck int) {
+	a.Custom.copperHpos = CPUCyclesPerColorClock * cck
+	a.Custom.Write(reg, []byte{byte(val >> 8), byte(val)})
+	a.Custom.copperHpos = -1
+}
+
+func solidPlane() []byte {
+	b := make([]byte, 64)
+	for i := range b {
+		b[i] = 0xFF
+	}
+	return b
+}
+
+// BPLCON0 written mid-line: Denise stops showing the planes from the
+// write's column (colour clock $60 -> column 128).
+func TestMidLineBPLCON0(t *testing.T) {
+	a := deniseAmiga(t, 0x1200, solidPlane())
+	setColors(a, 0x00F, 0xF00)
+	copperWrite(a, 0x100, 0x0200, 0x60)
+	a.Video.RenderLine(DisplayTop)
+	if got := rgbAt(a, 127); got != 0xF00 {
+		t.Errorf("column 127 = $%03X, want plane colour $F00", got)
+	}
+	if got := rgbAt(a, 128); got != 0x00F {
+		t.Errorf("column 128 = $%03X, want background $00F after planes off", got)
+	}
+}
+
+// A BPLCON0 write after the fetch has started does not change what Agnus
+// fetches on this line: the planes are still fetched and the pointers
+// advance. (Once the end-of-line value decided the fetch, so a Copper list
+// turning the display off at the end of a line lost that line.)
+func TestLateBPLCON0KeepsFetch(t *testing.T) {
+	a := deniseAmiga(t, 0x1200, solidPlane())
+	setColors(a, 0x00F, 0xF00)
+	copperWrite(a, 0x100, 0x0200, 0xE0)
+	a.Video.RenderLine(DisplayTop)
+	if a.Video.bplpt[0] == 0x1000 {
+		t.Error("plane 1 pointer did not advance: the line was not fetched")
+	}
+	if got := rgbAt(a, 100); got != 0xF00 {
+		t.Errorf("column 100 = $%03X, want plane colour $F00", got)
+	}
+}
+
+// A sprite shown, then moved right and rearmed by Copper writes during the
+// same line, appears twice on that line (horizontal sprite reuse).
+func TestSpriteReusedMidLine(t *testing.T) {
+	a := newTestAmigaSprites()
+	a.Custom.WriteReg16(0x180, 0x0000)
+	a.Custom.WriteReg16(0x1A2, 0x0F00) // COLOR17
+	setSprite(a, 0, 20, 0x8000, 0, false)
+	a.Sprites.startLine()
+	h := OutputLeft + 150
+	copperWrite(a, 0x140, uint16(h>>1), 0x60) // SPR0POS
+	copperWrite(a, 0x144, 0x8000, 0x61)       // SPR0DATA: rearm
+	a.Video.RenderLine(DisplayTop)
+	for _, x := range []int{40, 300} {
+		if got := pixelAt(a, x); got != [3]byte{255, 0, 0} {
+			t.Errorf("sprite at column %d = %v, want red", x, got)
+		}
+	}
+	if got := pixelAt(a, 200); got != [3]byte{0, 0, 0} {
+		t.Errorf("column 200 = %v, want background", got)
+	}
+}
+
+// Sprite DMA happens early in the line, so a Copper write to the sprite's
+// data later in the line is what shows; the DMA must not overwrite it.
+func TestSpriteDMABeforeCopperWrites(t *testing.T) {
+	a := newTestAmigaSprites()
+	a.Custom.WriteReg16(0x096, 0x8220) // DMAEN + SPREN
+	a.Custom.WriteReg16(0x1A2, 0x0F00)
+	h := OutputLeft + 100
+	// Sprite list at $2000: POS/CTL for lines DisplayTop..+10, then data.
+	words := []uint16{uint16(DisplayTop<<8 | h>>1), uint16((DisplayTop+10)<<8 | h&1), 0x0000, 0x0000}
+	for i, w := range words {
+		a.ChipRAM.Write(0x2000+2*i, []byte{byte(w >> 8), byte(w)})
+	}
+	a.Sprites.SetPT(0, true, 0)
+	a.Sprites.SetPT(0, false, 0x2000)
+	a.Sprites.FetchLine(DisplayTop) // start of line: control words and (empty) data
+	copperWrite(a, 0x144, 0x8000, 0x20)
+	a.Video.RenderLine(DisplayTop)
+	if got := pixelAt(a, 200); got != [3]byte{255, 0, 0} {
+		t.Errorf("sprite pixel = %v, want the Copper-written data (red)", got)
+	}
+}
