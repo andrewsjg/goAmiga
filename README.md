@@ -107,8 +107,16 @@ A status bar under the picture shows the activity lights:
 
 `--statusbar=false` hides the status bar.
 
-Host commands all use Cmd (Windows key). It isn't an Amiga key, so a
-command never types anything on the Amiga.
+Host commands all use Cmd (the Windows key on a PC). It isn't an Amiga key,
+so a command never types anything on the Amiga:
+
+| Keys | Action |
+|---|---|
+| Cmd+W | Warp on/off |
+| Cmd+R | Reset, like Ctrl+Amiga+Amiga: Kickstart restarts and disks stay in |
+| Cmd+P | Pause (sound and Amiga input wait too) |
+| Cmd+F | Fullscreen |
+| Cmd+S | Screenshot as a PNG in the current folder (`--screenshot-dir` to change) |
 
 ### Joystick
 

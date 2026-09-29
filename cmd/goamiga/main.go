@@ -35,6 +35,7 @@ func main() {
 	scale := flag.Int("scale", 2, "Window size multiplier (the emulated resolution is unchanged); reduced if it doesn't fit the screen")
 	statusBar := flag.Bool("statusbar", true, "Show the activity lights (power, drives, hard disk) and warp speed below the picture")
 	warp := flag.Bool("warp", false, "Start in warp mode (as fast as possible, no sound); Cmd+W toggles")
+	shotDir := flag.String("screenshot-dir", ".", "Folder for Cmd+S screenshots")
 	joyKeys := flag.Bool("joy-keys", false, "Start with the arrow keys and Right Ctrl/Alt (fire) as the port 2 joystick; Ctrl+F12 toggles")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	configPath := flag.String("config", "", "Settings file (key = value per line, keys are these flag names); default ./goamiga.conf or ~/.config/goamiga/goamiga.conf")
@@ -166,6 +167,7 @@ func main() {
 	a.Video.SetOverscan(*overscan)
 	err = runDisplay(a, displayOptions{
 		mute: *mute, scale: *scale, statusBar: *statusBar, warp: *warp, joyKeys: *joyKeys, drives: drives,
+		screenshotDir: *shotDir,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Display error: %v\n", err)
@@ -178,6 +180,7 @@ type displayOptions struct {
 	mute, statusBar, warp, joyKeys bool
 	scale                          int
 	drives                         [4]diskList
+	screenshotDir                  string
 }
 
 // diskList collects repeated --disk flags.

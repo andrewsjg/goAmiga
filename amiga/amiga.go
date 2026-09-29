@@ -322,6 +322,22 @@ func (a *Amiga) Reset() error {
 		return fmt.Errorf("CPU reset failed: %w", err)
 	}
 
+	// The /RESET line resets the chips too (the same Reset serves power-on
+	// and a reset of a running machine, Cmd+R). Chip RAM keeps its
+	// contents; disks stay in their drives.
+	a.Custom.Reset()
+	a.CIAA.Reset()
+	a.CIAB.Reset()
+	a.Copper = NewCopper(a)
+	a.Blitter = NewBlitter(a)
+	a.Sprites = NewSpriteEngine(a)
+	if a.Disk != nil {
+		a.Disk.resetDMA()
+	}
+	if a.HardDisk != nil {
+		a.HardDisk.lastIO = 0
+	}
+
 	a.hpos = 0
 	a.vpos = 0
 	a.lof = true // non-interlaced frames are long

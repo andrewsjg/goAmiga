@@ -4,7 +4,12 @@ package amiga
 
 import (
 	"fmt"
+	"image"
 	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -18,6 +23,10 @@ import (
 // keys pressed with it).
 //
 //	Cmd+W  warp: run as fast as the host allows, without sound
+//	Cmd+R  reset (as Ctrl+Amiga+Amiga): Kickstart restarts, disks stay in
+//	Cmd+P  pause
+//	Cmd+F  fullscreen
+//	Cmd+S  screenshot: a PNG of the picture in ScreenshotDir
 
 // hostKey reports whether the host command modifier is held.
 func hostKey() bool { return ebiten.IsKeyPressed(ebiten.KeyMeta) }
@@ -26,9 +35,63 @@ func (d *Display) pollHostKeys() {
 	if !hostKey() {
 		return
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyW) {
+	switch {
+	case inpututil.IsKeyJustPressed(ebiten.KeyW):
 		d.setWarp(!d.warp)
+	case inpututil.IsKeyJustPressed(ebiten.KeyR):
+		if err := d.amiga.Reset(); err != nil {
+			d.message("reset failed: %v", err)
+		} else {
+			d.message("reset")
+		}
+	case inpututil.IsKeyJustPressed(ebiten.KeyP):
+		d.paused = !d.paused
+		if out := d.amiga.Paula.Output; out != nil {
+			out.SetMuted(d.paused || d.warp)
+		}
+	case inpututil.IsKeyJustPressed(ebiten.KeyF):
+		ebiten.SetFullscreen(!ebiten.IsFullscreen())
+	case inpututil.IsKeyJustPressed(ebiten.KeyS):
+		if path, err := d.screenshot(); err != nil {
+			d.message("screenshot failed: %v", err)
+		} else {
+			d.message("saved %s", filepath.Base(path))
+		}
 	}
+}
+
+// message shows a note in the status bar for a few seconds (and prints it).
+func (d *Display) message(format string, args ...any) {
+	d.msg = fmt.Sprintf(format, args...)
+	d.msgUntil = time.Now().Add(3 * time.Second)
+	fmt.Println(d.msg)
+}
+
+// screenshot saves the picture as a PNG named by the time. Non-interlaced
+// rows are doubled, as on screen, so the image has the right proportions.
+func (d *Display) screenshot() (string, error) {
+	src := d.amiga.Video.ScreenImage()
+	w, h := d.amiga.Video.DisplaySize()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	sb := src.Bounds()
+	for y := 0; y < h; y++ {
+		sy := y * sb.Dy() / h
+		copy(img.Pix[y*img.Stride:y*img.Stride+4*w], src.Pix[sy*src.Stride:sy*src.Stride+4*min(w, sb.Dx())])
+	}
+	dir := d.ScreenshotDir
+	if dir == "" {
+		dir = "."
+	}
+	path := filepath.Join(dir, time.Now().Format("goamiga-20060102-150405.png"))
+	f, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		return "", err
+	}
+	return path, f.Close()
 }
 
 // ---- Warp ----
@@ -41,9 +104,9 @@ func (d *Display) setWarp(on bool) {
 	d.warp = on
 	d.warpFrames, d.warpSince, d.warpSpeed = 0, time.Now(), 0
 	if out := d.amiga.Paula.Output; out != nil {
-		out.SetMuted(on)
+		out.SetMuted(on || d.paused)
 	}
-	fmt.Printf("warp %s\n", map[bool]string{true: "on", false: "off"}[on])
+	d.message("warp %s", map[bool]string{true: "on", false: "off"}[on])
 }
 
 // runWarp emulates for warpBudget. Only the last frame is drawn: the rest
@@ -133,6 +196,17 @@ func (d *Display) drawStatus(screen *ebiten.Image, y int) {
 			}
 		}
 		led("HD", c)
+	}
+	var notes []string
+	if d.paused {
+		notes = append(notes, "PAUSED (Cmd+P)")
+	}
+	if d.msg != "" && time.Now().Before(d.msgUntil) {
+		notes = append(notes, d.msg)
+	}
+	if len(notes) > 0 {
+		s := strings.Join(notes, "  ")
+		ebitenutil.DebugPrintAt(screen, s, x+8, y+1)
 	}
 	if d.warp {
 		s := fmt.Sprintf("WARP %.0fx", d.warpSpeed)

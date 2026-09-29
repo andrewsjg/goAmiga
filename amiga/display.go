@@ -67,6 +67,12 @@ type Display struct {
 	// StartWarp starts in warp mode.
 	StartWarp bool
 
+	paused   bool      // Cmd+P
+	msg      string    // status bar note, until msgUntil
+	msgUntil time.Time //
+	// ScreenshotDir is where Cmd+S saves (default: the current folder).
+	ScreenshotDir string
+
 	warp       bool      // Cmd+W: run flat out (display_host.go)
 	warpFrames int       // frames since warpSince
 	warpSince  time.Time //
@@ -95,6 +101,9 @@ func (d *Display) Update() error {
 	d.pollMouseGrab()
 	d.pollDiskKeys()
 	d.updateTitle()
+	if d.paused {
+		return nil // Amiga input waits too, rather than arriving in a burst
+	}
 	d.pollKeyboard()
 	d.pollMouse()
 	d.pollJoystick()

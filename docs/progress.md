@@ -36,6 +36,34 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-29 — Reset, pause, fullscreen, screenshot
+
+These are host commands on Cmd:
+- **Cmd+R** resets.
+- **Cmd+P** pauses. The audio buffer is muted, and Amiga input isn't read,
+  so keys don't arrive in a burst on resume.
+- **Cmd+F** toggles fullscreen.
+- **Cmd+S** saves a PNG named by the time to `--screenshot-dir`.
+  Non-interlaced rows are doubled so the image has the on-screen
+  proportions.
+
+The status bar shows PAUSED and a note for three seconds after a command.
+
+**Reset had to become a real /RESET.** `Amiga.Reset` was only ever used at
+power-on, when everything was already zero. It reset the CPU, the memory
+map, the keyboard and Paula. On a running machine that left DMA,
+interrupts, CIA timers and the Copper as they were. It now also:
+- resets the custom registers and both CIAs;
+- replaces the Copper, blitter and sprite engine with new ones;
+- clears the disk controller's DMA state and drive motors, leaving disks
+  in their drives (`DiskDrive.resetDMA`);
+- clears the hard disk light's timer.
+
+Chip RAM keeps its contents, as on the real machine.
+`TestResetRunningMachine` boots Workbench from a hardfile under Kickstart
+1.3 and 3.2, resets, and checks that Workbench starts again. Under 1.3 it
+took 787 frames the second time and 827 the first.
+
 ## 2026-09-29 — Settings file; the command line builds without Ebitengine
 
 **`goamiga.conf`.** The format is `key = value` lines whose keys are the

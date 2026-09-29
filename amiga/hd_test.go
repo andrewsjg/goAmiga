@@ -70,24 +70,8 @@ func bootHardfileMem(t *testing.T, romPath, adf string, chipKB, slowKB, fastKB i
 	}
 	a.HardDisk.Trace = logWriter{t}
 	a.Reset()
-	for i := 0; i < 150_000_000; i++ {
-		eb, _ := a.CPU.M.Long(4)
-		if a.CPU.PC == eb-282 { // AddTask
-			np, _ := a.CPU.M.Long(int(a.CPU.A[1]) + 0x0A)
-			name := readCStrMem(a, uint32(np), 24)
-			t.Logf("AddTask %q", name)
-			if name == "workbench.task" || name == "Workbench" {
-				t.Logf("%s started after %.0f frames; controller at $%06X", name,
-					float64(a.cycles)/CyclesPerFrame, a.HardDisk.Configured())
-				if a.FastRAM != nil && a.FastRAM.Configured() == 0 {
-					t.Error("fast RAM board not configured")
-				}
-				return a
-			}
-		}
-		if err := a.Step(); err != nil {
-			t.Fatalf("boot: %v", err)
-		}
+	if waitWorkbench(t, a) {
+		return a
 	}
 	if os.Getenv("GOAMIGA_DIAG") != "" {
 		a.Video.DisplayActive = true
@@ -255,5 +239,52 @@ func TestHDDeviceWriteProtect(t *testing.T) {
 	}
 	if _, _, n := hdDoIO(a, h, 15, iofQuick, 0, 0, 0); n == 0 {
 		t.Error("TD_PROTSTATUS should report protected")
+	}
+}
+
+// waitWorkbench runs until Workbench's task starts and reports whether it
+// did.
+func waitWorkbench(t *testing.T, a *Amiga) bool {
+	t.Helper()
+	for i := 0; i < 150_000_000; i++ {
+		eb, _ := a.CPU.M.Long(4)
+		if a.CPU.PC == eb-282 { // AddTask
+			np, _ := a.CPU.M.Long(int(a.CPU.A[1]) + 0x0A)
+			name := readCStrMem(a, uint32(np), 24)
+			t.Logf("AddTask %q", name)
+			if name == "workbench.task" || name == "Workbench" {
+				t.Logf("%s started after %.0f frames; controller at $%06X", name,
+					float64(a.cycles)/CyclesPerFrame, a.HardDisk.Configured())
+				if a.FastRAM != nil && a.FastRAM.Configured() == 0 {
+					t.Error("fast RAM board not configured")
+				}
+				return true
+			}
+		}
+		if err := a.Step(); err != nil {
+			t.Fatalf("boot: %v", err)
+		}
+	}
+	return false
+}
+
+// Resetting a running machine (Cmd+R) reboots it: chips, CIAs and
+// expansion boards return to their reset state and Kickstart starts over.
+func TestResetRunningMachine(t *testing.T) {
+	for _, rom := range []struct{ rom, disk string }{
+		{"../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"},
+		{"../ROMS/Kick32.rom", "../disks/Install3.2.adf"},
+	} {
+		a := bootHardfileMem(t, rom.rom, rom.disk, 1024, 0, 2048)
+		a.HardDisk.Trace = nil
+		for i := 0; i < 100; i++ {
+			a.RunFrame()
+		}
+		if err := a.Reset(); err != nil {
+			t.Fatal(err)
+		}
+		if !waitWorkbench(t, a) {
+			t.Fatalf("%s: Workbench did not start again after reset", rom.rom)
+		}
 	}
 }

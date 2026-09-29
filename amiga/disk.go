@@ -607,3 +607,17 @@ func computeMFMChecksum(data []byte) uint32 {
 	}
 	return chk & 0x55555555
 }
+
+// resetDMA returns the controller to its reset state: no DMA in progress,
+// motors off. Disks stay in their drives.
+func (d *DiskDrive) resetDMA() {
+	d.dskpt, d.dsklen, d.dsklenWrites = 0, 0, 0
+	d.dsksync, d.adkcon, d.side = 0x4489, 0, 0
+	d.wordequal = false
+	d.syncCycles, d.completionCycles = 0, 0
+	for _, dr := range d.drives {
+		if dr != nil {
+			dr.motor = false
+		}
+	}
+}

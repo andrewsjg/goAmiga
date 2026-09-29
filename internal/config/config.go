@@ -24,7 +24,7 @@ import (
 //	mute
 
 // pathKeys are the settings that name files.
-var pathKeys = map[string]bool{"rom": true, "df0": true, "disk": true, "df1": true, "df2": true, "df3": true, "hdf": true}
+var pathKeys = map[string]bool{"rom": true, "df0": true, "disk": true, "df1": true, "df2": true, "df3": true, "hdf": true, "screenshot-dir": true}
 
 // Find returns the config file to use: the one named, else
 // ./goamiga.conf, else ~/.config/goamiga/goamiga.conf, else "".
