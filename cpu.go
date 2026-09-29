@@ -1421,3 +1421,25 @@ func (c *Processor) controlAddr(ea uint16) (addr uint32, opr string, err error) 
 	}
 	return 0, "", errBadAddress
 }
+
+// ProcessorState is the processor's state between instructions: what a
+// save state needs to resume it exactly.
+type ProcessorState struct {
+	D, A       [8]uint32
+	SR, PC     uint32
+	SSP, USP   uint32
+	PendingIPL uint32
+	RunState   RunState
+}
+
+// State returns the processor's state between instructions.
+func (c *Processor) State() ProcessorState {
+	return ProcessorState{D: c.D, A: c.A, SR: c.SR, PC: c.PC, SSP: c.SSP, USP: c.USP,
+		PendingIPL: c.pendingIPL, RunState: c.runState}
+}
+
+// SetState restores a state returned by State.
+func (c *Processor) SetState(s ProcessorState) {
+	c.D, c.A, c.SR, c.PC, c.SSP, c.USP = s.D, s.A, s.SR, s.PC, s.SSP, s.USP
+	c.pendingIPL, c.runState = s.PendingIPL, s.RunState
+}
