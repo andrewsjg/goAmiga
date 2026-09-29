@@ -124,6 +124,14 @@ so a command never types anything on the Amiga:
 | Cmd+P | Pause (sound and Amiga input wait too) |
 | Cmd+F | Fullscreen |
 | Cmd+S | Screenshot as a PNG in the current folder (`--screenshot-dir` to change) |
+| Cmd+Shift+1…9 | Save state to slot 1–9 (`goamiga-N.state` in `--state-dir`) |
+| Cmd+1…9 | Load state from slot 1–9 |
+
+A save state holds the whole machine, including floppy disk contents,
+and resumes exactly. `--load-state FILE` starts from one. It needs the same
+Kickstart ROM and the same hard disk images attached. Hard disk contents
+aren't in the state, so loading an old state after the hard disk has
+changed can confuse its filesystem.
 
 ### Joystick
 

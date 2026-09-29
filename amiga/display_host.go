@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 //	Cmd+P  pause
 //	Cmd+F  fullscreen
 //	Cmd+S  screenshot: a PNG of the picture in ScreenshotDir
+//	Cmd+Shift+1..9  save state to slot 1-9 (in StateDir)
+//	Cmd+1..9        load state from slot 1-9
 
 // hostKey reports whether the host command modifier is held.
 func hostKey() bool { return ebiten.IsKeyPressed(ebiten.KeyMeta) }
@@ -34,6 +37,16 @@ func hostKey() bool { return ebiten.IsKeyPressed(ebiten.KeyMeta) }
 func (d *Display) pollHostKeys() {
 	if !hostKey() {
 		return
+	}
+	for n := 1; n <= 9; n++ {
+		if inpututil.IsKeyJustPressed(ebiten.KeyDigit0 + ebiten.Key(n)) {
+			if ebiten.IsKeyPressed(ebiten.KeyShift) {
+				d.saveSlot(n)
+			} else {
+				d.loadSlot(n)
+			}
+			return
+		}
 	}
 	switch {
 	case inpututil.IsKeyJustPressed(ebiten.KeyW):
@@ -92,6 +105,68 @@ func (d *Display) screenshot() (string, error) {
 		return "", err
 	}
 	return path, f.Close()
+}
+
+// ---- Save states ----
+
+func (d *Display) slotPath(n int) string {
+	dir := d.StateDir
+	if dir == "" {
+		dir = "."
+	}
+	return filepath.Join(dir, fmt.Sprintf("goamiga-%d.state", n))
+}
+
+func (d *Display) saveSlot(n int) {
+	path := d.slotPath(n)
+	f, err := os.Create(path)
+	if err == nil {
+		err = d.amiga.SaveState(f)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}
+	if err != nil {
+		d.message("save state %d failed: %v", n, err)
+		return
+	}
+	d.message("saved state %d", n)
+}
+
+func (d *Display) loadSlot(n int) {
+	f, err := os.Open(d.slotPath(n))
+	if err != nil {
+		d.message("no state %d", n)
+		return
+	}
+	defer f.Close()
+	if err := d.amiga.LoadState(f); err != nil {
+		d.message("load state %d failed: %v", n, err)
+		return
+	}
+	d.syncDisks()
+	if out := d.amiga.Paula.Output; out != nil {
+		out.SetMuted(d.warp || d.paused)
+	}
+	d.message("loaded state %d", n)
+}
+
+// syncDisks points the title's disk names at whatever the drives hold
+// after a state load.
+func (d *Display) syncDisks() {
+	for n := range d.DiskIndex {
+		d.DiskIndex[n] = -1
+		dr := d.amiga.Disk.DF(n)
+		if dr == nil || dr.adf == nil || dr.path == "" {
+			continue
+		}
+		i := slices.Index(d.Disks[n], dr.path)
+		if i < 0 {
+			d.Disks[n] = append(d.Disks[n], dr.path)
+			i = len(d.Disks[n]) - 1
+		}
+		d.DiskIndex[n] = i
+	}
 }
 
 // ---- Warp ----

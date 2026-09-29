@@ -13,6 +13,7 @@ func runDisplay(a *amiga.Amiga, o displayOptions) error {
 	display.StartWarp = o.warp
 	display.JoyKeys = o.joyKeys
 	display.ScreenshotDir = o.screenshotDir
+	display.StateDir = o.stateDir
 	for n, list := range o.drives {
 		display.Disks[n] = list
 		if len(list) > 0 {

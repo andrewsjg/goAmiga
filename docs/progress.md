@@ -38,6 +38,54 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-29 — Save states
+
+Cmd+Shift+1-9 saves the whole machine to a slot, and Cmd+1-9 loads it
+(`goamiga-N.state` in `--state-dir`). `--load-state FILE` resumes at
+startup.
+
+**Format** (`amiga/savestate.go`). A gzip file containing: a magic string
+and version; the ROM's CRC-32 (the Kickstart checksum can't identify a ROM,
+since every good one sums to $FFFFFFFF); the configuration (chip, slow and
+fast RAM, chipset, hardfile paths); then each component. Loading
+reconfigures memory and chipset to match, and refuses a different ROM or a
+different set of hardfiles.
+
+**One method per component, both directions.** `state(s *stateCodec)`
+calls `num(s, &field)`, `s.bool`, `s.bytes`, and so on. The codec writes
+each field when saving and reads it back into place when loading, so save
+and load can't drift apart. The state covers:
+- CPU registers and run state (new in go-m68k: `Processor.State` and
+  `SetState`, since the pending interrupt level and run state are
+  unexported);
+- the beam and cycle counter, so disk rotation and CIA E-clock phase carry
+  over;
+- chip, slow and fast RAM, and the Autoconfig boards (the controller's ROM
+  is rebuilt, then its memory restored);
+- custom registers, both CIAs (timers, TOD, ICR), the Copper mid-instruction,
+  the blitter including a blit in progress, the video pointers and
+  interlace state, sprites including the current line's writes;
+- the disk controller, and each drive with its disk image and any pending
+  swap;
+- Paula's channels, sample phase and filter memories;
+- the keyboard queue and mouse counters.
+
+Hard disk contents aren't included; they're too big.
+
+**Tests.** `TestSaveStateResumesExactly` saves at two points: Kickstart 1.3
+mid-boot from floppy, and Kickstart 3.2 at Workbench from a hardfile, whose
+bytes are restored between the runs. It runs 300 frames on, loads the state
+into a new machine, runs the same 300 frames, and requires identical CPU
+state, beam, cycle count, chip RAM and screen. `TestSaveStateResumesSound`
+does the same with a looping DMA waveform and compares every sample.
+
+To check the tests themselves, I dropped the Copper's state from the save,
+and they failed. Dropping Paula's state wasn't caught until the sound test
+existed, which is why it was added. `TestLoadStateChecks` covers the
+wrong-ROM and garbage cases.
+
+States are about 180-430 KB (mostly RAM and floppy images, compressed).
+
 ## 2026-09-29 — ECS chipset
 
 `--chipset ocs|ecs-agnus|ecs` (`Amiga.SetChipset`):

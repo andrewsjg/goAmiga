@@ -37,6 +37,8 @@ func main() {
 	statusBar := flag.Bool("statusbar", true, "Show the activity lights (power, drives, hard disk) and warp speed below the picture")
 	warp := flag.Bool("warp", false, "Start in warp mode (as fast as possible, no sound); Cmd+W toggles")
 	shotDir := flag.String("screenshot-dir", ".", "Folder for Cmd+S screenshots")
+	stateDir := flag.String("state-dir", ".", "Folder for save state slots (Cmd+Shift+1-9 save, Cmd+1-9 load)")
+	loadState := flag.String("load-state", "", "Resume from a save state file")
 	joyKeys := flag.Bool("joy-keys", false, "Start with the arrow keys and Right Ctrl/Alt (fire) as the port 2 joystick; Ctrl+F12 toggles")
 	verbose := flag.Bool("v", false, "Enable verbose trace output")
 	configPath := flag.String("config", "", "Settings file (key = value per line, keys are these flag names); default ./goamiga.conf or ~/.config/goamiga/goamiga.conf")
@@ -157,6 +159,18 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("CPU reset: PC=$%08X SSP=$%08X\n", a.CPU.PC, a.CPU.A[7])
+	if *loadState != "" {
+		f, err := os.Open(*loadState)
+		if err == nil {
+			err = a.LoadState(f)
+			f.Close()
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: load state: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Resumed from %s\n", *loadState)
+	}
 
 	// Headless mode: run for a fixed number of cycles (or default 1000)
 	if *headless || *maxCycles > 0 {
@@ -178,7 +192,7 @@ func main() {
 	a.Video.SetOverscan(*overscan)
 	err = runDisplay(a, displayOptions{
 		mute: *mute, scale: *scale, statusBar: *statusBar, warp: *warp, joyKeys: *joyKeys, drives: drives,
-		screenshotDir: *shotDir,
+		screenshotDir: *shotDir, stateDir: *stateDir,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Display error: %v\n", err)
@@ -191,7 +205,7 @@ type displayOptions struct {
 	mute, statusBar, warp, joyKeys bool
 	scale                          int
 	drives                         [4]diskList
-	screenshotDir                  string
+	screenshotDir, stateDir        string
 }
 
 // diskList collects repeated --disk flags.

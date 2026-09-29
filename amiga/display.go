@@ -72,6 +72,8 @@ type Display struct {
 	msgUntil time.Time //
 	// ScreenshotDir is where Cmd+S saves (default: the current folder).
 	ScreenshotDir string
+	// StateDir holds the save state slots (default: the current folder).
+	StateDir string
 
 	warp       bool      // Cmd+W: run flat out (display_host.go)
 	warpFrames int       // frames since warpSince
