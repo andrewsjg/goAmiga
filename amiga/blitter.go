@@ -79,6 +79,35 @@ func (b *Blitter) ptr(hi, lo uint16) uint32 {
 // Completions are counted in pendingIRQs and delivered from TickCycles only
 // when the blitter is idle, one IRQ per Step.
 func (b *Blitter) Execute(size uint16) {
+	height := int(size >> 6)
+	width := int(size & 0x3F)
+	if height == 0 {
+		height = 1024
+	}
+	if width == 0 {
+		width = 64
+	}
+	b.start(width, height)
+}
+
+// ExecuteBig starts a blit from the ECS registers: BLTSIZH (width in
+// words, 11 bits, 0 = 2048) written after BLTSIZV (height, 15 bits,
+// 0 = 32768).
+func (b *Blitter) ExecuteBig(sizv, sizh uint16) {
+	height := int(sizv & 0x7FFF)
+	width := int(sizh & 0x7FF)
+	if height == 0 {
+		height = 0x8000
+	}
+	if width == 0 {
+		width = 0x800
+	}
+	b.start(width, height)
+}
+
+// start begins a blit of width words by height lines (line mode: height
+// pixels).
+func (b *Blitter) start(width, height int) {
 	// Previous blit already finished its data. Free BBUSY and remember that
 	// QBlit still needs a completion IRQ — but do not SetIntreq here.
 	if b.busy {
@@ -88,19 +117,12 @@ func (b *Blitter) Execute(size uint16) {
 		b.pendingIRQs++
 	}
 
+	size := uint16(height&0x3FF)<<6 | uint16(width&0x3F)
 	b.lastSize = size
 	b.preApt = b.ptr(b.aptH, b.aptL)
 	b.preBpt = b.ptr(b.bptH, b.bptL)
 	b.preCpt = b.ptr(b.cptH, b.cptL)
 	b.preDpt = b.ptr(b.dptH, b.dptL)
-	height := int(size >> 6)
-	width := int(size & 0x3F)
-	if height == 0 {
-		height = 1024
-	}
-	if width == 0 {
-		width = 64
-	}
 
 	b.busy = true
 	if b.OnExecute != nil {
@@ -111,9 +133,9 @@ func (b *Blitter) Execute(size uint16) {
 	// blits proceed word by word as the blitter gets bus slots (step).
 	if b.con1&0x0001 != 0 {
 		b.zero = true
-		b.executeLine(size)
+		b.executeLine(height)
 	} else {
-		b.beginBlit(size)
+		b.beginBlit(width, height)
 	}
 
 	b.completionCycles = blitDuration(b.con0, b.con1, width, height)
@@ -206,15 +228,7 @@ type blitRun struct {
 }
 
 // beginBlit starts an area blit; the words are done by step.
-func (b *Blitter) beginBlit(size uint16) {
-	height := int(size >> 6)
-	width := int(size & 0x3F)
-	if height == 0 {
-		height = 1024
-	}
-	if width == 0 {
-		width = 64
-	}
+func (b *Blitter) beginBlit(width, height int) {
 	r := &blitRun{
 		width: width, height: height,
 		apt: b.ptr(b.aptH, b.aptL), bpt: b.ptr(b.bptH, b.bptL),
@@ -250,12 +264,6 @@ func (b *Blitter) completeRun() {
 	for b.run != nil {
 		b.blitWord()
 	}
-}
-
-// executeBlit performs a whole area blit at once.
-func (b *Blitter) executeBlit(size uint16) {
-	b.beginBlit(size)
-	b.completeRun()
 }
 
 // blitWord processes the next word of the blit in progress, and at the end
@@ -493,11 +501,7 @@ func (b *Blitter) blitWord() {
 //
 // SIGN of the error term is taken from APT (not from BLTCON1 bit 2, which is
 // overloaded as part of the octant encoding above).
-func (b *Blitter) executeLine(size uint16) {
-	length := int(size >> 6)
-	if length == 0 {
-		length = 1024
-	}
+func (b *Blitter) executeLine(length int) {
 
 	minterm := byte(b.con0 & 0xFF)
 	// Map Draw's BLTCON1 bits 2-4 (AUL/SUL/SUD packing) to internal octants:

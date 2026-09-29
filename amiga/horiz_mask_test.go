@@ -23,7 +23,7 @@ func TestHorizAreaBlitMasks(t *testing.T) {
 	a.Blitter.adat = 0xFFFF
 	a.Blitter.dptH, a.Blitter.dptL = 0, 0x2000
 	a.Blitter.dmod = 0
-	blitNow(a, 1<<6 | 2) // 1 high, 2 wide
+	blitNow(a, 1<<6|2) // 1 high, 2 wide
 
 	dst := make([]byte, 4)
 	a.ChipRAM.Read(0x2000, dst)

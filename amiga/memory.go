@@ -101,3 +101,37 @@ func (z *zorroRAM) configByte(reg int) byte {
 func (z *zorroRAM) space() m68kmem.Memory { return z.mem }
 func (z *zorroRAM) size() int             { return len(z.mem.b) }
 func (z *zorroRAM) configured(uint32)     {}
+
+// SetChipset chooses the custom chips: "ocs" (8371 Agnus, 8362 Denise:
+// the original A500), "ecs-agnus" (8372A Fat Agnus with the original
+// Denise, as in A500s with 1 MB of chip RAM), or "ecs" (8372A and the
+// 8373 ECS Denise, as in the A500+ and A600).
+//
+// ECS Agnus reports its ID in VPOSR and adds big blits (BLTSIZV/BLTSIZH),
+// BLTCON0L, BEAMCON0 and DIWHIGH; Kickstart 2.0+ uses them once it sees
+// the ID. ECS Denise answers DENISEID ($FC) and adds super-hires,
+// KILLEHB and border blanking (BPLCON3).
+func (a *Amiga) SetChipset(name string) error {
+	switch name {
+	case "ocs":
+		a.ECSAgnus, a.ECSDenise = false, false
+	case "ecs-agnus":
+		a.ECSAgnus, a.ECSDenise = true, false
+	case "ecs":
+		a.ECSAgnus, a.ECSDenise = true, true
+	default:
+		return fmt.Errorf("chipset must be ocs, ecs-agnus or ecs, not %q", name)
+	}
+	return nil
+}
+
+// Chipset names the chips fitted (see SetChipset).
+func (a *Amiga) Chipset() string {
+	switch {
+	case a.ECSDenise:
+		return "ecs"
+	case a.ECSAgnus:
+		return "ecs-agnus"
+	}
+	return "ocs"
+}

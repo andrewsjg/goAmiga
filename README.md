@@ -42,6 +42,13 @@ next. Disks chosen in the dialog join the list. On Linux the dialog needs
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --df0 disks/wb13.adf --df1 disks/extras13.adf --df1 disks/blank.adf
 ```
 
+`--chipset ocs|ecs-agnus|ecs` picks the custom chips:
+- `ocs` is the original A500.
+- `ecs-agnus` is the Fat Agnus with the original Denise, as fitted to A500s
+  with 1 MB of chip RAM. This is the default with 1 MB, otherwise `ocs`.
+- `ecs` adds the ECS Denise (A500+/A600), which brings the super-hires
+  screen modes.
+
 By default the machine has 1 MB chip RAM and 2 MB Zorro II fast RAM, enough
 for Workbench 3.2 and its installer. That's an A500 with the 8372A "Fat
 Agnus" and a side expansion. `--chipram 512|1024`, `--slowram

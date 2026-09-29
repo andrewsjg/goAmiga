@@ -21,7 +21,7 @@ type Video struct {
 	buf [2]byte // scratch for chip RAM reads
 
 	// planeBuf holds the current line's bitplane data.
-	planeBuf [6][2 * maxFetchWords]byte
+	planeBuf [6][2 * maxShresFetchWords]byte
 
 	// changes lists this line's writes to Denise registers (colours,
 	// BPLCON1, BPLCON2) in beam order, for drawLine to apply mid-line.
@@ -35,7 +35,14 @@ type Video struct {
 	sprCol, sprPair, sprPresent [MaxOutputWidth]byte
 
 	// pfIdx holds the current line's playfield colour index per column.
-	pfIdx [MaxOutputWidth]byte
+	// In super-hires a column holds two pixels; pfIdxB is the second.
+	pfIdx  [MaxOutputWidth]byte
+	pfIdxB [MaxOutputWidth]byte
+	shres  bool // this line is super-hires (ECS)
+
+	// diwHigh: DIWHIGH has been written since DIWSTRT/DIWSTOP, so the
+	// window's high bits come from it (ECS) rather than the OCS rules.
+	diwHigh bool
 
 	// clxdat accumulates collisions until CLXDAT is read. clxPF caches the
 	// sprite-free collision bits per playfield index for CLXCON clxPFCon.
@@ -182,6 +189,9 @@ func (v *Video) outputRow(vpos int) int {
 // $18 to $D8 in hires.
 const maxFetchWords = 50
 
+// maxShresFetchWords: super-hires fetches twice as many words (ECS).
+const maxShresFetchWords = 2 * maxFetchWords
+
 // fetchWords is the number of words fetched per plane per line for the
 // given DDFSTRT/DDFSTOP. Agnus fetches in units of 8 colour clocks from
 // DDFSTRT; it finishes the unit in which DDFSTOP is reached and one more.
@@ -228,6 +238,15 @@ func (v *Video) window() displayWindow {
 	if w.vstop&0x80 == 0 {
 		w.vstop |= 0x100
 	}
+	if v.diwHigh && v.amiga.ECSAgnus {
+		// DIWHIGH: stop H8 (bit 13) and V10-V8 (10-8); start H8 (bit 5)
+		// and V10-V8 (2-0).
+		hi := v.amiga.Custom.ReadReg16(0x1E4)
+		w.vstart = int(strt>>8) | int(hi&7)<<8
+		w.vstop = int(stop>>8) | int(hi>>8&7)<<8
+		w.hstart = int(strt&0xFF) | int(hi>>5&1)<<8
+		w.hstop = int(stop&0xFF) | int(hi>>13&1)<<8
+	}
 	return w
 }
 
@@ -267,6 +286,14 @@ func (v *Video) RenderLine(vpos int) {
 	}
 	hires := bplcon0&0x8000 != 0
 	words := fetchWords(hires, ddfstrt, v.amiga.Custom.ReadReg16(0x094))
+	// Super-hires (ECS, BPLCON0 SHRES): up to two planes, twice the hires
+	// words, two pixels per output column.
+	v.shres = v.amiga.ECSAgnus && v.amiga.ECSDenise && !hires && bplcon0&0x0040 != 0
+	if v.shres {
+		hires = true
+		numPlanes = min(numPlanes, 2)
+		words = min(2*fetchWords(true, ddfstrt, v.amiga.Custom.ReadReg16(0x094)), maxShresFetchWords)
+	}
 
 	fetch := numPlanes > 0 && v.bitplaneFetchWindow(vpos)
 	draw := v.DisplayActive && vpos >= v.top && vpos < v.top+v.rows
@@ -369,14 +396,26 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	// fetch show as 0 (the resolution stays as fetched).
 	var planeMask int
 	var dpf, ham, ehb bool
+	ecs := v.amiga.ECSDenise
 	deniseMode := func() {
 		shown := min(int(bplcon0>>12&7), numPlanes)
 		planeMask = 1<<shown - 1
 		dpf = bplcon0&0x0400 != 0
 		ham = bplcon0&0x0800 != 0 && !hires && shown >= 5
 		ehb = shown == 6 && !dpf && !ham
+		if ecs && bplcon2&0x0200 != 0 { // KILLEHB: plane 6 is ignored
+			ehb, planeMask = false, planeMask&0x1F
+		}
 	}
 	deniseMode()
+	// ECS Denise BPLCON3 BRDRBLNK (only with BPLCON0 ECSENA): the border
+	// outside the display window is black.
+	border := func() [4]byte {
+		if ecs && bplcon0&1 != 0 && c.ReadReg16(0x106)&0x20 != 0 {
+			return [4]byte{0, 0, 0, 0xFF}
+		}
+		return v.palette[0]
+	}
 
 	// First playfield pixel, in output columns, before scrolling. DDFSTRT
 	// is in colour clocks; the fetch-to-display pipeline adds 17 lores
@@ -387,6 +426,7 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	if hires {
 		pf.pixW, pf.origin = 1, 2*(2*ddfstrt+9)-2*v.left
 	}
+	pf.half = v.shres
 	v.fillPlayfield(pf, 0, bplcon1)
 
 	anySprite := false
@@ -441,7 +481,7 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 
 		lores := v.left + x/2
 		if !lineVisible || lores < win.hstart || lores >= win.hstop {
-			v.put(row, x, v.palette[0])
+			v.put(row, x, border())
 			hold = v.lineColors[0]
 			continue
 		}
@@ -483,6 +523,11 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 			}
 		case ehb && idx&0x20 != 0:
 			v.put(row, x, rgb12(v.lineColors[idx&0x1F]>>1&0x777))
+		case v.shres:
+			// Two super-hires pixels share the column: show their average.
+			p1, p2 := v.palette[idx&3], v.palette[int(v.pfIdxB[x])&planeMask&3]
+			v.put(row, x, [4]byte{byte((int(p1[0]) + int(p2[0])) / 2), byte((int(p1[1]) + int(p2[1])) / 2),
+				byte((int(p1[2]) + int(p2[2])) / 2), 0xFF})
 		default:
 			v.put(row, x, v.palette[idx&0x1F])
 		}
@@ -492,8 +537,9 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 // playfieldLayout is where a line's fetched bitplane data lands.
 type playfieldLayout struct {
 	planes, words int
-	pixW          int // output columns per playfield pixel (2 lores, 1 hires)
-	origin        int // output column of the first pixel, before scrolling
+	pixW          int  // output columns per playfield pixel (2 lores, 1 hires)
+	half          bool // super-hires: two pixels per column (pfIdx, pfIdxB)
+	origin        int  // output column of the first pixel, before scrolling
 }
 
 // fillPlayfield sets pfIdx[from:] to the playfield colour index (plane
@@ -501,11 +547,16 @@ type playfieldLayout struct {
 // odd planes by PF1H and even planes by PF2H, in lores pixels in both
 // resolutions.
 func (v *Video) fillPlayfield(pf playfieldLayout, from int, bplcon1 uint16) {
-	clear(v.pfIdx[from:])
 	if from < 0 {
 		from = 0
 	}
+	clear(v.pfIdx[from:])
 	pixels := 16 * pf.words
+	if pf.half {
+		clear(v.pfIdxB[from:])
+		v.fillHalf(pf, from, bplcon1, pixels)
+		return
+	}
 	for p := 0; p < pf.planes; p++ {
 		delay := int(bplcon1 & 0xF)
 		if p&1 == 1 {
@@ -535,6 +586,33 @@ func (v *Video) fillPlayfield(pf playfieldLayout, from int, bplcon1 uint16) {
 			v.pfIdx[x] |= bit
 			if pf.pixW == 2 && x+1 < v.Width {
 				v.pfIdx[x+1] |= bit
+			}
+		}
+	}
+}
+
+// fillHalf is fillPlayfield for super-hires: pixel n is in column
+// start+n/2, even pixels in pfIdx and odd ones in pfIdxB.
+func (v *Video) fillHalf(pf playfieldLayout, from int, bplcon1 uint16, pixels int) {
+	for p := 0; p < pf.planes; p++ {
+		delay := int(bplcon1 & 0xF)
+		if p&1 == 1 {
+			delay = int(bplcon1 >> 4 & 0xF)
+		}
+		start := pf.origin + 2*delay
+		nMin := max(0, 2*(from-start))
+		nMax := min(pixels, 2*(v.Width-start))
+		bit := byte(1) << p
+		data := v.planeBuf[p][:2*pf.words]
+		for n := nMin; n < nMax; n++ {
+			if data[n>>3]&(0x80>>(n&7)) == 0 {
+				continue
+			}
+			x := start + n/2
+			if n&1 == 0 {
+				v.pfIdx[x] |= bit
+			} else {
+				v.pfIdxB[x] |= bit
 			}
 		}
 	}

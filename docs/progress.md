@@ -30,10 +30,58 @@ verified. Longer investigations get their own write-up in `docs/`.
    counters (analogue joysticks, paddles) are not implemented. Audio DMA
    slots are not charged against the blitter.
 4. **Machine.** 512 KB or 1 MB chip RAM, optional slow and Zorro II fast
-   RAM. OCS only (no ECS/AGA): Agnus identifies as OCS even with 1 MB. Hardfiles use Kickstart's filesystem;
+   RAM. OCS or ECS (`--chipset`); no AGA. On ECS, BEAMCON0 is stored
+   but ignored (always PAL, no programmable beam), productivity and
+   scan-doubled modes aren't emulated, and super-hires is averaged into
+   the hires-wide picture. Hardfiles use Kickstart's filesystem;
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-29 — ECS chipset
+
+`--chipset ocs|ecs-agnus|ecs` (`Amiga.SetChipset`):
+- `ecs-agnus` is the 8372A Fat Agnus with the original Denise, which is
+  what an A500 with 1 MB of chip RAM really had. It is the default with
+  `--chipram 1024`, otherwise `ocs`.
+- `ecs` adds the 8373 ECS Denise (A500+, A600).
+
+**ECS Agnus:**
+- VPOSR reports ID $20 (8372A, PAL).
+- BLTSIZV/BLTSIZH start big blits, up to 32,768 lines × 2,048 words
+  (`Blitter.ExecuteBig`). The blitter now starts from a width and height
+  (`start`) rather than a packed BLTSIZE.
+- BLTCON0L sets just the minterm.
+- DIWHIGH supplies the window's high bits (H8 and V10-V8 for start and
+  stop) until DIWSTRT or DIWSTOP is written again.
+- BEAMCON0 is stored only.
+- On OCS none of these registers do anything.
+
+**ECS Denise:**
+- DENISEID reads $FFFC.
+- KILLEHB (BPLCON2 bit 9) turns plane 6 off rather than giving half-brite.
+- BRDRBLNK (BPLCON3 bit 5, with BPLCON0 ECSENA) blacks out the border.
+- Super-hires (BPLCON0 SHRES): up to 2 planes, twice the hires words, two
+  pixels per output column (`pfIdx`/`pfIdxB`), shown as their average.
+  The DMA slot table knows super-hires takes every slot of its window.
+
+**Bug found on the way: byte writes to custom registers.** With ECS
+Agnus, Kickstart 3.2 drew window borders but no text or icons. It starts
+every blit through BLTSIZV/BLTSIZH, and sets the minterm with
+`MOVE.B #mt,$DFF05B`, a byte write to BLTCON0L's odd address. On a 68000 a
+byte write drives the byte on both halves of the data bus, and the custom
+chips decode only word addresses, so they see a word write of the byte
+doubled to $05A. `CustomChips.Write` now turns every 1-byte write into
+exactly that. Before, a byte write only stored one byte and triggered no
+register side effect.
+
+**Checks:**
+- `TestChipsetDetectedKS32` boots Kickstart 3.2 with each chipset.
+  graphics.library's ChipRevBits0 reads 0, 1 and 3, and the three
+  Workbench screens are pixel-identical 400 frames in.
+- `TestChipsetECSKS13` boots 1.3 with ECS fitted.
+- Unit tests cover big blits, OCS ignoring them, DIWHIGH, the byte-write
+  rule, super-hires, KILLEHB and border blanking.
 
 ## 2026-09-29 — The blitter works word by word; BZERO
 

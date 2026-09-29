@@ -103,6 +103,9 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 		p[0] = 0xFF
 		if len(p) > 1 {
 			p[1] = 0xFF
+			if c.amiga != nil && c.amiga.ECSDenise {
+				p[1] = 0xFC // 8373 ECS Denise
+			}
 		}
 	case 0x00E: // CLXDAT: read clears
 		if c.amiga != nil && c.amiga.Video != nil {
@@ -116,7 +119,7 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 		copy(p, c.regs[0x09A:0x09C])
 	case 0x01E: // INTREQR
 		copy(p, c.regs[0x09C:0x09E])
-	case 0x004: // VPOSR - LOF (bit 15), Agnus ID (bits 14-9 = 0 for OCS), V8 (bit 8)
+	case 0x004: // VPOSR - LOF (bit 15), Agnus ID (bits 14-8), V8 (bit 0)
 		// For longword reads ($DFF004), bytes 0-1 = VPOSR, bytes 2-3 = VHPOSR.
 		// The beam reader at FC5ECE does MOVE.L $DFF004, D0 expecting exactly this.
 		if c.amiga != nil {
@@ -125,6 +128,9 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 				val |= 0x8000 // LOF
 			}
 			val |= uint16((c.amiga.vpos >> 8) & 1) // V8
+			if c.amiga.ECSAgnus {
+				val |= 0x2000 // 8372A, PAL
+			}
 			p[0] = byte(val >> 8)
 			if len(p) > 1 {
 				p[1] = byte(val)
@@ -230,6 +236,14 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		c.Write(addr, p[0:2])
 		c.Write(addr+2, p[2:4])
 		return 4, nil
+	}
+
+	// A 68000 byte write drives the byte on both halves of the data bus,
+	// and the custom chips only decode word addresses: they see a word
+	// write of the byte doubled. (Kickstart 3.x writes BLTCON0L that way,
+	// with MOVE.B to $DFF05B.)
+	if len(p) == 1 {
+		return c.Write(addr&^1, []byte{p[0], p[0]})
 	}
 
 	offset := addr & 0x1FF
@@ -443,6 +457,26 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 			if dmacon&0x0240 == 0x0240 { // DMAEN (bit 9) + BLTEN (bit 6)
 				c.amiga.Blitter.Execute(size)
 			}
+		}
+	case 0x05A: // BLTCON0L (ECS): the minterm byte of BLTCON0
+		if c.amiga != nil && c.amiga.ECSAgnus && c.amiga.Blitter != nil && n == 2 {
+			b := c.amiga.Blitter
+			b.con0 = b.con0&0xFF00 | uint16(p[1])
+		}
+	case 0x05E: // BLTSIZH (ECS): starts a big blit, height from BLTSIZV ($05C)
+		if c.amiga != nil && c.amiga.ECSAgnus && c.amiga.Blitter != nil && n == 2 {
+			if c.ReadReg16(0x096)&0x0240 == 0x0240 {
+				c.amiga.Blitter.ExecuteBig(c.ReadReg16(0x05C), uint16(p[0])<<8|uint16(p[1]))
+			}
+		}
+	case 0x08E, 0x090: // DIWSTRT, DIWSTOP: back to the OCS window rules
+		// until DIWHIGH is written again (ECS)
+		if c.amiga != nil && c.amiga.Video != nil {
+			c.amiga.Video.diwHigh = false
+		}
+	case 0x1E4: // DIWHIGH (ECS): high bits of the display window
+		if c.amiga != nil && c.amiga.ECSAgnus && c.amiga.Video != nil {
+			c.amiga.Video.diwHigh = true
 		}
 	case 0x060: // BLTCMOD
 		if c.amiga != nil && c.amiga.Blitter != nil {

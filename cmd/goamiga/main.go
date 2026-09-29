@@ -29,6 +29,7 @@ func main() {
 	writeProtect := flag.Bool("write-protect", false, "Write-protect every drive and hardfile: the Amiga cannot change the image files")
 	mute := flag.Bool("mute", false, "No sound")
 	chipRAM := flag.Int("chipram", 1024, "Chip RAM in KB: 512 (original Agnus) or 1024 (8372A Fat Agnus)")
+	chipset := flag.String("chipset", "", "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise) or ecs (A500+/A600); default ecs-agnus with 1 MB chip RAM, else ocs")
 	slowRAM := flag.Int("slowram", 0, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
 	fastRAM := flag.Int("fastram", 2048, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
@@ -81,11 +82,21 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	if *chipset == "" {
+		*chipset = "ocs"
+		if *chipRAM == 1024 {
+			*chipset = "ecs-agnus" // 1 MB of chip RAM needs the 8372A
+		}
+	}
+	if err := a.SetChipset(*chipset); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 	if err := a.ConfigureMemory(*slowRAM, *fastRAM); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Memory: %d KB chip, %d KB slow, %d KB fast\n", *chipRAM, *slowRAM, *fastRAM)
+	fmt.Printf("Memory: %d KB chip, %d KB slow, %d KB fast; chipset %s\n", *chipRAM, *slowRAM, *fastRAM, a.Chipset())
 
 	// Connect drives and load each one's first disk; the rest are for the
 	// swap keys. Check every file now so a typo fails at startup.

@@ -91,8 +91,11 @@ type Amiga struct {
 	// E clock divider: CIAs tick every 10 CPU cycles
 	eClockCounter int
 
-	romSize  int // 256KB or 512KB
-	chipSize int // chip RAM fitted, in bytes
+	romSize int // 256KB or 512KB
+	// ECSAgnus and ECSDenise select the Enhanced Chip Set parts (see
+	// SetChipset); both false is the original chipset.
+	ECSAgnus, ECSDenise bool
+	chipSize            int // chip RAM fitted, in bytes
 
 	// ROM overlay: when true, ROM is mapped to $000000-$03FFFF (256KB mirror)
 	overlay bool

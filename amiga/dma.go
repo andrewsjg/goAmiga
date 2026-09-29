@@ -46,12 +46,14 @@ func (c *busCounter) Reset() error { return c.m.Reset() }
 var (
 	loresFetchOrder = [8]int{0, 4, 6, 2, 0, 3, 5, 1}
 	hiresFetchOrder = [4]int{4, 2, 3, 1}
+	shresFetchOrder = [2]int{2, 1} // ECS super-hires: two planes, every slot
 )
 
 // bitplaneFetch describes the bitplane DMA slots of one scanline.
 type bitplaneFetch struct {
 	planes     int
 	hires      bool
+	shres      bool
 	start, end int // fetch window in colour clocks, [start, end)
 }
 
@@ -77,11 +79,19 @@ func (a *Amiga) bitplaneDMA(vpos int) bitplaneFetch {
 		f.start = 0x38
 	}
 	f.end = f.start + unit*fetchWords(f.hires, ddfstrt, ddfstop)
+	if a.ECSAgnus && a.ECSDenise && !f.hires && bplcon0&0x0040 != 0 {
+		// Super-hires: the hires fetch window, filled twice as densely.
+		f.shres, f.planes = true, min(f.planes, 2)
+		f.end = f.start + 4*fetchWords(true, ddfstrt, ddfstop)
+	}
 	return f
 }
 
 // stealsCPUSlots reports whether this fetch takes any even slots.
 func (f bitplaneFetch) stealsCPUSlots() bool {
+	if f.shres {
+		return f.planes >= 2
+	}
 	if f.hires {
 		return f.planes >= 3
 	}
@@ -94,7 +104,9 @@ func (f bitplaneFetch) uses(cck int) bool {
 		return false
 	}
 	var plane int
-	if f.hires {
+	if f.shres {
+		plane = shresFetchOrder[(cck-f.start)&1]
+	} else if f.hires {
 		plane = hiresFetchOrder[(cck-f.start)&3]
 	} else {
 		plane = loresFetchOrder[(cck-f.start)&7]
