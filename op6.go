@@ -50,6 +50,15 @@ func opBcc(c *Processor) (t stepTrace) {
 		var n uint16
 		n, _, t.err = c.readImmWord()
 		disp = wordToInt32(n)
+
+	case 0xFF: // 32-bit displacement on the 68020, -1 on the 68000
+		if !c.is020() {
+			disp = -1
+			break
+		}
+		var n uint32
+		n, _, t.err = c.readImmLong()
+		disp = int32(n)
 	}
 	if t.err != nil {
 		return

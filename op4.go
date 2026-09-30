@@ -743,6 +743,13 @@ func opRte(c *Processor) (t stepTrace) {
 	}
 	c.A[7] += 4
 
+	// The 68020's frame goes on with a format word: pop the rest.
+	if c.is020() {
+		if t.err = c.rte020(); t.err != nil {
+			return
+		}
+	}
+
 	// apply SR (may switch from supervisor to user mode, swapping stacks)
 	c.setSR(uint32(sr) & StatusMask)
 	return

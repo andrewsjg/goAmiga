@@ -106,6 +106,13 @@ func (c *Processor) raiseInterruptException(vector int, newIPL uint32) error {
 	// Clear trace bit
 	c.SR &= ^StatusTrace
 
+	// The 68020 frame starts with a format/vector word.
+	if c.is020() {
+		if err := c.pushFrame020(vector); err != nil {
+			return err
+		}
+	}
+
 	// Push PC to supervisor stack (long)
 	c.A[7] -= 4
 	binary.BigEndian.PutUint32(c.buf[:4], c.PC)
@@ -120,8 +127,8 @@ func (c *Processor) raiseInterruptException(vector int, newIPL uint32) error {
 		return err
 	}
 
-	// Read new PC from vector table
-	newPC, err := c.M.Long(vector * 4)
+	// Read new PC from vector table (at VBR on the 68020)
+	newPC, err := c.M.Long(int(c.VBR) + vector*4)
 	if err != nil {
 		return err
 	}
@@ -283,7 +290,7 @@ func (c *Processor) raiseAddressError(ae *addressError) error {
 			}
 		}
 	}
-	newPC, err := c.M.Long(VecAddressError * 4)
+	newPC, err := c.M.Long(int(c.VBR) + VecAddressError*4)
 	if err != nil {
 		return err
 	}

@@ -63,6 +63,9 @@ func (c *Processor) decodeBriefExt(baseAddr uint32, baseName string) (addr uint3
 		return
 	}
 	c.PC += 2
+	if c.is020() && ext&0x0100 != 0 {
+		return c.decodeFullExt(ext, baseAddr, baseName)
+	}
 
 	// displacement is low 8 bits, sign extended
 	disp := byteToInt32(byte(ext))
@@ -80,6 +83,11 @@ func (c *Processor) decodeBriefExt(baseAddr uint32, baseName string) (addr uint3
 	if ext&0x0800 == 0 {
 		idx = int32(int16(idx))
 	}
+	// The 68020 scales the index by 1, 2, 4 or 8 (bits 10-9); the 68000
+	// ignores those bits.
+	if c.is020() {
+		idx <<= ext >> 9 & 3
+	}
 
 	addr = uint32(int32(baseAddr) + disp + idx)
 
@@ -93,5 +101,83 @@ func (c *Processor) decodeBriefExt(baseAddr uint32, baseName string) (addr uint3
 		szChar = "L"
 	}
 	opr = fmt.Sprintf("($%X,%s,%s%d.%s)", disp, baseName, regType, idxReg, szChar)
+	return
+}
+
+// decodeFullExt decodes the 68020's full extension word format (bit 8 of
+// the extension word set): an optional base register (BS suppresses it)
+// and index register (IS suppresses it, scaled by bits 10-9), a null,
+// word or long base displacement, and optionally memory indirection,
+// pre-indexed ([bd,An,Xn],od) or post-indexed ([bd,An],Xn,od), with a null,
+// word or long outer displacement.
+func (c *Processor) decodeFullExt(ext uint16, baseAddr uint32, baseName string) (addr uint32, opr string, err error) {
+	readDisp := func(size uint16) (int32, error) {
+		switch size {
+		case 2:
+			n, _, err := c.readImmWord()
+			return int32(int16(n)), err
+		case 3:
+			n, _, err := c.readImmLong()
+			return int32(n), err
+		}
+		return 0, nil
+	}
+	base := baseAddr
+	if ext&0x80 != 0 { // BS
+		base, baseName = 0, "Z"+baseName
+	}
+	var idx int32
+	idxName := ""
+	if ext&0x40 == 0 { // index not suppressed
+		r := ext >> 12 & 7
+		idxName = fmt.Sprintf("D%d", r)
+		if ext&0x8000 != 0 {
+			idx, idxName = int32(c.A[r]), fmt.Sprintf("A%d", r)
+		} else {
+			idx = int32(c.D[r])
+		}
+		if ext&0x0800 == 0 {
+			idx = int32(int16(idx))
+		}
+		idx <<= ext >> 9 & 3
+		idxName += fmt.Sprintf("*%d", 1<<(ext>>9&3))
+	}
+	bdSize := ext >> 4 & 3
+	if bdSize == 0 {
+		return 0, "", errBadAddress
+	}
+	bd, err := readDisp(bdSize)
+	if err != nil {
+		return
+	}
+	iis := ext & 7
+	if iis == 0 { // no memory indirection
+		addr = uint32(int32(base) + bd + idx)
+		opr = fmt.Sprintf("($%X,%s,%s)", bd, baseName, idxName)
+		return
+	}
+	if ext&0x40 != 0 && iis > 3 || iis == 4 {
+		return 0, "", errBadAddress
+	}
+	post := iis >= 5
+	od, err := readDisp(iis & 3)
+	if err != nil {
+		return
+	}
+	ptr := uint32(int32(base) + bd)
+	if !post {
+		ptr = uint32(int32(ptr) + idx)
+	}
+	inter, err := c.M.Long(int(ptr))
+	if err != nil {
+		return
+	}
+	if post {
+		addr = uint32(int32(inter) + idx + od)
+		opr = fmt.Sprintf("([$%X,%s],%s,$%X)", bd, baseName, idxName, od)
+	} else {
+		addr = uint32(int32(inter) + od)
+		opr = fmt.Sprintf("([$%X,%s,%s],$%X)", bd, baseName, idxName, od)
+	}
 	return
 }

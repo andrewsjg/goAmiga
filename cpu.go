@@ -135,6 +135,13 @@ type Processor struct {
 	// Minimum is 4 for the fastest 68000 instructions.
 	LastCycles int
 
+	// Model is the processor: Model68000 (the default) or Model68020
+	// (m68020.go).
+	Model Model
+	// 68020 control registers (MOVEC). ISP is SSP.
+	VBR, CACR, CAAR, SFC, DFC, MSP uint32
+	instrAddr                      uint32 // address of the instruction being executed
+
 	buf      [64]byte         // general purpose buffer
 	op       uint16           // current opcode
 	runState RunState         // current state
@@ -170,6 +177,7 @@ func (c *Processor) Reset() {
 		TraceWriter:  tw,
 		handlers:     h,
 		ResetHandler: rh,
+		Model:        c.Model,
 	}
 	c.M.Reset()
 }
@@ -183,10 +191,12 @@ func (c *Processor) ResetWithVectors() error {
 	rh := c.ResetHandler
 
 	*c = Processor{
-		M:            m,
-		TraceWriter:  tw,
-		handlers:     h,
-		ResetHandler: rh,
+		M:               m,
+		TraceWriter:     tw,
+		handlers:        h,
+		ResetHandler:    rh,
+		Model:           c.Model,
+		NoAddressErrors: c.NoAddressErrors,
 	}
 	c.M.Reset()
 
@@ -268,7 +278,9 @@ func (c *Processor) Step() (err error) {
 	// Address errors: a word or long access at an odd address aborts the
 	// instruction (see raiseAddressError). Register updates made before the
 	// faulting access (e.g. -(An)) stand, as on the 68000.
-	if !c.NoAddressErrors {
+	c.instrAddr = c.PC
+	// The 68020 allows data at odd addresses (see m68020.go).
+	if !c.NoAddressErrors && !c.is020() {
 		snapSR := c.SR
 		c.faultPCAdjust = 0
 		c.M.OnOddAccess = c.oddAccess
@@ -304,7 +316,13 @@ func (c *Processor) Step() (err error) {
 	}
 
 	// dispatch opcode to function
-	fn := dispatch(c.op)
+	var fn stepFunc
+	if c.is020() {
+		fn = dispatch020(c.op)
+	}
+	if fn == nil {
+		fn = dispatch(c.op)
+	}
 	if fn == nil {
 		// Check for Line A and Line F emulator traps
 		group := c.op >> 12
