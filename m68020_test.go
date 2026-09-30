@@ -280,3 +280,146 @@ func TestModel68000Unchanged(t *testing.T) {
 		t.Errorf("MOVEC on the 68000 went to $%X, want the illegal vector", c.PC)
 	}
 }
+
+func TestBitFields(t *testing.T) {
+	// BFEXTU D0{8:8},D1
+	c := new020(t, 0xE9C0, 0x1208)
+	c.D[0] = 0x12345678
+	step(t, c, 1)
+	if c.D[1] != 0x34 {
+		t.Errorf("BFEXTU D0{8:8} = $%X, want $34", c.D[1])
+	}
+	// BFEXTS D0{0:4},D1
+	c = new020(t, 0xEBC0, 0x1004)
+	c.D[0] = 0x90000000
+	step(t, c, 1)
+	if c.D[1] != 0xFFFFFFF9 || c.SR&StatusNegative == 0 {
+		t.Errorf("BFEXTS = $%X SR=$%X", c.D[1], c.SR)
+	}
+	// BFINS D1,D0{28:8}: the field wraps from the low nibble to the top
+	c = new020(t, 0xEFC0, 0x1708)
+	c.D[1] = 0xAB
+	step(t, c, 1)
+	if c.D[0] != 0xB000000A {
+		t.Errorf("BFINS wrapping = $%08X, want $B000000A", c.D[0])
+	}
+	// BFFFO D0{0:32},D2
+	c = new020(t, 0xEDC0, 0x2000)
+	c.D[0] = 0x00010000
+	step(t, c, 1)
+	if c.D[2] != 15 {
+		t.Errorf("BFFFO = %d, want 15", c.D[2])
+	}
+	// BFSET (A0){30:12}: bytes 3-5, from bit 6 of byte 3
+	c = new020(t, 0xEED0, 0x078C)
+	c.A[0] = 0x3000
+	step(t, c, 1)
+	if b3, b4, b5 := c.peekW(0x3002)&0xFF, c.peekW(0x3004)>>8, c.peekW(0x3004)&0xFF; b3 != 0x03 || b4 != 0xFF || b5 != 0xC0 {
+		t.Errorf("BFSET memory: bytes 3-5 = $%02X $%02X $%02X, want $03 $FF $C0", b3, b4, b5)
+	}
+	if c.SR&StatusZero == 0 {
+		t.Error("BFSET: Z should reflect the (zero) field before setting")
+	}
+	// BFEXTU (A0){D3:8},D1 with D3 = -8: the byte before A0
+	c = new020(t, 0xE9D0, 0x18C8)
+	c.A[0], c.D[3] = 0x3001, uint32(0xFFFFFFF8)
+	c.pokeW(0x3000, 0x5A00)
+	step(t, c, 1)
+	if c.D[1] != 0x5A {
+		t.Errorf("BFEXTU negative offset = $%X, want $5A", c.D[1])
+	}
+}
+
+func TestCasAndCas2(t *testing.T) {
+	// CAS.W D0,D1,(A0), equal: store D1
+	c := new020(t, 0x0CD0, 0x0040)
+	c.A[0], c.D[0], c.D[1] = 0x3000, 0x1234, 0x5678
+	c.pokeW(0x3000, 0x1234)
+	step(t, c, 1)
+	if c.peekW(0x3000) != 0x5678 || c.SR&StatusZero == 0 {
+		t.Errorf("CAS equal: mem=$%X SR=$%X", c.peekW(0x3000), c.SR)
+	}
+	// Not equal: load Dc
+	c = new020(t, 0x0CD0, 0x0040)
+	c.A[0], c.D[0], c.D[1] = 0x3000, 0xFFFF1111, 0x5678
+	c.pokeW(0x3000, 0x2222)
+	step(t, c, 1)
+	if c.D[0] != 0xFFFF2222 || c.peekW(0x3000) != 0x2222 {
+		t.Errorf("CAS unequal: D0=$%X mem=$%X", c.D[0], c.peekW(0x3000))
+	}
+	// CAS2.L D0:D1,D2:D3,(A0):(A1)
+	c = new020(t, 0x0EFC, 0x8080, 0x90C1)
+	c.A[0], c.A[1] = 0x3000, 0x3100
+	c.pokeL(0x3000, 11)
+	c.pokeL(0x3100, 22)
+	c.D[0], c.D[1], c.D[2], c.D[3] = 11, 22, 33, 44
+	step(t, c, 1)
+	if c.peekL(0x3000) != 33 || c.peekL(0x3100) != 44 {
+		t.Errorf("CAS2 both equal: $%X $%X", c.peekL(0x3000), c.peekL(0x3100))
+	}
+	c = new020(t, 0x0EFC, 0x8080, 0x90C1)
+	c.A[0], c.A[1] = 0x3000, 0x3100
+	c.pokeL(0x3000, 11)
+	c.pokeL(0x3100, 99)
+	c.D[0], c.D[1], c.D[2], c.D[3] = 11, 22, 33, 44
+	step(t, c, 1)
+	if c.peekL(0x3000) != 11 || c.D[0] != 11 || c.D[1] != 99 {
+		t.Errorf("CAS2 second unequal: mem $%X, D0=%d D1=%d", c.peekL(0x3000), c.D[0], c.D[1])
+	}
+}
+
+func TestCmp2Chk2(t *testing.T) {
+	setup := func(op, ext uint16, d0 uint32) *Processor {
+		c := new020(t, op, ext)
+		c.A[0], c.D[0] = 0x3000, d0
+		c.pokeW(0x3000, 10)
+		c.pokeW(0x3002, 20)
+		c.pokeL(6*4, 0x4000)
+		return c
+	}
+	c := setup(0x02D0, 0x0000, 15) // CMP2.W (A0),D0
+	step(t, c, 1)
+	if c.SR&(StatusCarry|StatusZero) != 0 {
+		t.Errorf("CMP2 in range: SR=$%X", c.SR)
+	}
+	c = setup(0x02D0, 0x0000, 20)
+	step(t, c, 1)
+	if c.SR&StatusZero == 0 || c.SR&StatusCarry != 0 {
+		t.Errorf("CMP2 on the bound: SR=$%X", c.SR)
+	}
+	c = setup(0x02D0, 0x0800, 25) // CHK2.W out of range: trap
+	step(t, c, 1)
+	if c.PC != 0x4000 {
+		t.Errorf("CHK2 out of range went to $%X", c.PC)
+	}
+}
+
+func TestPackUnpkMoves(t *testing.T) {
+	c := new020(t, 0x8340, 0x0000) // PACK D0,D1,#0
+	c.D[0] = 0x0304
+	step(t, c, 1)
+	if c.D[1]&0xFF != 0x34 {
+		t.Errorf("PACK = $%X", c.D[1]&0xFF)
+	}
+	c = new020(t, 0x8380, 0x3030) // UNPK D0,D1,#$3030
+	c.D[0] = 0x34
+	step(t, c, 1)
+	if c.D[1]&0xFFFF != 0x3334 {
+		t.Errorf("UNPK = $%X, want $3334 (\"34\")", c.D[1]&0xFFFF)
+	}
+	c = new020(t, 0x0E90, 0x0800) // MOVES.L D0,(A0)
+	c.A[0], c.D[0] = 0x3000, 0xFEEDFACE
+	step(t, c, 1)
+	if c.peekL(0x3000) != 0xFEEDFACE {
+		t.Errorf("MOVES = $%X", c.peekL(0x3000))
+	}
+}
+
+// BSET #imm ($08C0) must not be taken for CAS on the 68020.
+func TestBsetImmStill020(t *testing.T) {
+	c := new020(t, 0x08C0, 0x0003) // BSET #3,D0
+	step(t, c, 1)
+	if c.D[0] != 8 {
+		t.Errorf("BSET #3,D0 = $%X, want 8", c.D[0])
+	}
+}
