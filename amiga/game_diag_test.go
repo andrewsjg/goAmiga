@@ -20,6 +20,7 @@ import (
 //	GOAMIGA_EVERY    screenshot interval in frames (default 250)
 //	GOAMIGA_MEM      chip,slow,fast KB (default 512,512,0)
 //	GOAMIGA_CHIPSET  ocs, ecs-agnus, ecs (default ocs)
+//	GOAMIGA_CPU      68000 or 68020 (default 68000)
 //	GOAMIGA_CLICKS   comma-separated frame numbers at which to click the
 //	                 left mouse button (for "click to start" screens)
 //	GOAMIGA_SWAP_AT  frame,path: swap DF0: to another disk at that frame
@@ -57,6 +58,9 @@ func TestGameDiag(t *testing.T) {
 	}
 
 	a, _ := New(rom, nil)
+	if err := a.SetCPU(env("GOAMIGA_CPU", "68000"), 0); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.SetChipset(env("GOAMIGA_CHIPSET", "ocs")); err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 2
+	stateVersion = 3
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -244,6 +244,7 @@ func (a *Amiga) state(s *stateCodec) {
 	s.bool(&a.overlay)
 	s.bool(&a.cpuStopped)
 	num(s, &a.busErrorCount)
+	num(s, &a.CPUSpeed)
 	num(s, &a.cpuChipAccesses)
 	num(s, &a.cpuCIAAccesses)
 
@@ -314,6 +315,10 @@ func cpuState(s *stateCodec, c *m68k.ProcessorState) {
 	num(s, &c.USP)
 	num(s, &c.PendingIPL)
 	num(s, &c.RunState)
+	num(s, &c.Model)
+	for _, r := range []*uint32{&c.VBR, &c.CACR, &c.CAAR, &c.SFC, &c.DFC, &c.MSP} {
+		num(s, r)
+	}
 }
 
 func (st *autoconfigState) state(s *stateCodec) {

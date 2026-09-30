@@ -14,7 +14,8 @@ verified. Longer investigations get their own write-up in `docs/`.
 - Sound plays through Paula.
 - Up to four floppy drives, writable and swappable. Hardfiles on an
   autobooting controller.
-- The CPU passes the SingleStepTests 68000 suite with 68000 cycle timing.
+- The CPU passes the SingleStepTests 68000 suite with 68000 cycle timing,
+  and can be a 68020 (`--cpu 68020`).
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
@@ -37,6 +38,62 @@ verified. Longer investigations get their own write-up in `docs/`.
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-09-30 — The 68020
+
+`--cpu 68020` fits a 68EC020 accelerator: 24-bit addressing, no MMU or
+FPU, like the A1200's CPU. It runs at 250% of the 7 MHz 68000 by default
+(`--cpu-speed`).
+
+**go-m68k** (`Processor.Model = Model68020`; `m68020.go`,
+`m68020_misc.go`, `bitfield.go`, and `decodeFullExt` in `util.go`):
+- **Registers and exceptions:**
+  - control registers VBR, CACR, CAAR, SFC, DFC and MSP, through MOVEC;
+  - vectors read relative to VBR;
+  - exception frames begin with a format/vector word. Format 2 frames
+    (CHK, CHK2, TRAPcc/TRAPV, trace, divide by zero) add the instruction's
+    address, and RTE pops by format.
+- **Behaviour changes:** no address errors for data; MOVE from SR
+  privileged; MOVE from CCR.
+- **New instructions:**
+  - RTD, EXTB.L, LINK.L, TRAPcc, CHK.L;
+  - MULU.L/MULS.L (32- and 64-bit results);
+  - DIVU.L/DIVS.L/DIVUL.L/DIVSL.L (64/32 and 32/32);
+  - Bcc/BRA/BSR with a 32-bit displacement;
+  - the eight bit-field instructions (fields wrap in registers, and can
+    span five bytes at signed offsets in memory);
+  - CAS, CAS2, CHK2/CMP2 (with wrapping bounds), MOVES, PACK and UNPK.
+- **Addressing:** scaled indexing (×1/2/4/8), and the full extension word
+  format: base and index suppression, word or long base displacement,
+  memory indirect pre- and post-indexed with an outer displacement.
+- **Not implemented:** the instruction cache (CACR is stored), CALLM/RTM
+  (68020 only, never used by AmigaOS), and coprocessor (FPU) instructions,
+  which take the F-line exception. An instruction fetch from an odd address
+  still uses the 68000's address-error frame.
+
+The 68020 opcodes are matched first only when the model is 68020, so the
+68000 path is untouched and its SingleStepTests baseline still passes.
+There is no equivalent single-step suite for the 68020, so each
+instruction and addressing mode has hand-assembled tests against the
+manual's definitions. The tests caught a dispatch mistake in the first
+draft: CAS's pattern mask also matched `$08C0`, which is BSET #imm.
+
+**Amiga side:**
+- `SetCPU(model, speed)`. An executed instruction's cycles are divided by
+  speed/100; chip-bus waits and idle skips stay real-time.
+- Save states carry the model, the control registers and the speed
+  (state version 3).
+
+**Checks:**
+
+| Kickstart | Disk | Workbench on 68000 | Workbench on 68020 | AttnFlags |
+|---|---|---|---|---|
+| 3.2 | Install disk | 283 frames | 115 frames | 68010 and 68020 |
+| 1.3 | Workbench 1.3 | 827 frames | 471 frames | 68020 |
+
+Your installed Workbench 3.2 boots fully on it too: SetPatch switches the
+instruction cache on (CACR = 1), and the backdrop appears. Lemmings plays
+on the 68020 as well.
 
 ## 2026-09-30 — First games: Lemmings plays; zipped disks
 

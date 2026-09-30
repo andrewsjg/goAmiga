@@ -95,7 +95,9 @@ type Amiga struct {
 	// ECSAgnus and ECSDenise select the Enhanced Chip Set parts (see
 	// SetChipset); both false is the original chipset.
 	ECSAgnus, ECSDenise bool
-	chipSize            int // chip RAM fitted, in bytes
+	// CPUSpeed is the CPU's speed in percent of a 7 MHz 68000 (see SetCPU).
+	CPUSpeed int
+	chipSize int // chip RAM fitted, in bytes
 
 	// ROM overlay: when true, ROM is mapped to $000000-$03FFFF (256KB mirror)
 	overlay bool
@@ -421,6 +423,12 @@ func (a *Amiga) Step() error {
 		if a.CPU.RunState() == m68k.RunStateStopped {
 			a.cpuStopped = true
 		}
+		// A faster CPU takes less real time for the same instruction
+		// (CPUSpeed, percent of a 7 MHz 68000). Waits for the chip bus are
+		// added afterwards and stay as they are.
+		if a.CPUSpeed > 100 {
+			a.CPU.LastCycles = max(2, a.CPU.LastCycles*100/a.CPUSpeed)
+		}
 		// Access violations should not occur: the Mapper runs in OpenBus
 		// mode, so unmapped reads float to 0 and writes are dropped. If one
 		// still appears, do NOT raise a fake bus error — the 68000 bus
@@ -442,8 +450,12 @@ func (a *Amiga) Step() error {
 
 	// Advance beam by the number of CPU cycles consumed by this instruction
 	elapsed := a.CPU.LastCycles
-	if elapsed < 4 {
-		elapsed = 4 // minimum 68000 instruction time
+	minCycles := 4 // minimum 68000 instruction time
+	if a.CPUSpeed > 100 {
+		minCycles = 2
+	}
+	if elapsed < minCycles {
+		elapsed = minCycles
 	}
 
 	// Wait for chip bus slots held by DMA. Accesses made while servicing an

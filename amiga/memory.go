@@ -3,6 +3,8 @@ package amiga
 import (
 	"fmt"
 
+	m68k "github.com/cavaliercoder/go-m68k"
+
 	"github.com/cavaliercoder/go-m68k/m68kmem"
 )
 
@@ -134,4 +136,31 @@ func (a *Amiga) Chipset() string {
 		return "ecs-agnus"
 	}
 	return "ocs"
+}
+
+// SetCPU chooses the processor: "68000" (the A500's, 7 MHz) or "68020"
+// (a 68EC020 accelerator: 24-bit addressing, no MMU or FPU). speed is the
+// CPU's speed in percent of the 7 MHz 68000, 0 meaning the model's usual:
+// 100 for the 68000, 250 for the 68020 (about an A1200's 14 MHz 68EC020).
+// Call it before Reset.
+func (a *Amiga) SetCPU(model string, speed int) error {
+	switch model {
+	case "68000":
+		a.CPU.Model = m68k.Model68000
+		if speed == 0 {
+			speed = 100
+		}
+	case "68020":
+		a.CPU.Model = m68k.Model68020
+		if speed == 0 {
+			speed = 250
+		}
+	default:
+		return fmt.Errorf("CPU must be 68000 or 68020, not %q", model)
+	}
+	if speed < 100 || speed > 2000 {
+		return fmt.Errorf("CPU speed must be 100-2000%%, not %d", speed)
+	}
+	a.CPUSpeed = speed
+	return nil
 }
