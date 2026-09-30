@@ -84,7 +84,7 @@ func (d *Display) openChooser(unit int) {
 			zenity.Title(fmt.Sprintf("Insert disk in DF%d:", unit)),
 			zenity.Filename(start),
 			zenity.FileFilters{
-				{Name: "Amiga disk images", Patterns: []string{"*.adf", "*.ADF"}, CaseFold: true},
+				{Name: "Amiga disk images", Patterns: []string{"*.adf", "*.zip", "*.adz", "*.gz"}, CaseFold: true},
 				{Name: "All files", Patterns: []string{"*"}},
 			})
 		ch <- diskChoice{unit, path, err}

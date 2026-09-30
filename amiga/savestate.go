@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 1
+	stateVersion = 2
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -457,6 +457,7 @@ func (d *DiskDrive) state(s *stateCodec) {
 	s.bool(&d.wordequal)
 	num(s, &d.syncCycles)
 	num(s, &d.completionCycles)
+	s.bool(&d.dmaWaiting)
 	for n := range d.drives {
 		connected := d.drives[n] != nil
 		s.bool(&connected)

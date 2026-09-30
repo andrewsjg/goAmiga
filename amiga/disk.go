@@ -63,6 +63,12 @@ type DiskDrive struct {
 	// pending) and DSKBLK when the last word has (completionCycles).
 	syncCycles       int
 	completionCycles int
+
+	// dmaWaiting: a read DMA was started with no selected drive spinning a
+	// disk. The real controller just keeps reading the (silent) data line
+	// until a sync word arrives, so the read begins once a drive is ready:
+	// loaders may start DMA before selecting the drive or its motor.
+	dmaWaiting bool
 }
 
 // NewDiskDrive creates a new disk drive attached to the given Amiga.
@@ -223,6 +229,7 @@ func (d *DiskDrive) WriteDSKLEN(val uint16) {
 	} else {
 		// DMA enable bit clear: reset counter, stop any pending DMA
 		d.dsklenWrites = 0
+		d.dmaWaiting = false
 	}
 }
 
@@ -262,12 +269,15 @@ func (d *DiskDrive) ReadDSKBYTR() uint16 {
 // startDMA performs a disk DMA transfer. Data lands in chip RAM immediately,
 // but completion interrupts are deferred (see TickCycles).
 func (d *DiskDrive) startDMA() {
+	d.dsklenWrites = 0
 	dr := d.active()
 	if dr == nil || dr.adf == nil || !dr.motor {
+		// Reads wait for data; a write with no drive to take it is lost.
+		d.dmaWaiting = d.dsklen&0x4000 == 0
 		return
 	}
+	d.dmaWaiting = false
 
-	d.dsklenWrites = 0
 	wordCount := int(d.dsklen & 0x3FFF)
 	if wordCount == 0 {
 		wordCount = 0x4000
@@ -442,6 +452,11 @@ func (d *DiskDrive) spinning() bool {
 // Amiga.Step() before the beam moves, so d.amiga.cycles is the start of
 // the elapsed period.
 func (d *DiskDrive) TickCycles(cpuCycles int) {
+	if d.dmaWaiting && d.dsklen&0x8000 != 0 {
+		if dr := d.active(); dr != nil && dr.adf != nil && dr.motor {
+			d.startDMA()
+		}
+	}
 	if d.syncCycles > 0 {
 		d.syncCycles -= cpuCycles
 		if d.syncCycles <= 0 {
@@ -615,6 +630,7 @@ func (d *DiskDrive) resetDMA() {
 	d.dsksync, d.adkcon, d.side = 0x4489, 0, 0
 	d.wordequal = false
 	d.syncCycles, d.completionCycles = 0, 0
+	d.dmaWaiting = false
 	for _, dr := range d.drives {
 		if dr != nil {
 			dr.motor = false

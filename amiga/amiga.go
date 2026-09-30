@@ -740,10 +740,13 @@ func (a *Amiga) LoadDisk(path string) error {
 // LoadDiskUnit inserts the ADF at path into drive DFunit: (0-3),
 // connecting that drive if needed. Tracks the Amiga writes are saved back to
 // the file unless the drive is write-protected.
+//
+// path may also be a zipped or gzipped ADF (see ReadDiskImage); writes to
+// those stay in memory.
 func (a *Amiga) LoadDiskUnit(unit int, path string) error {
-	data, err := os.ReadFile(path)
+	data, saveable, err := ReadDiskImage(path)
 	if err != nil {
-		return fmt.Errorf("failed to read ADF: %w", err)
+		return err
 	}
 	dr := a.Disk.DF(0)
 	if unit > 0 {
@@ -752,7 +755,9 @@ func (a *Amiga) LoadDiskUnit(unit int, path string) error {
 	if err := dr.InsertDisk(data); err != nil {
 		return err
 	}
-	dr.path = path
+	if saveable {
+		dr.path = path
+	}
 	return nil
 }
 
@@ -769,9 +774,12 @@ func (a *Amiga) SwapDiskUnit(unit int, path string) error {
 	if dr == nil {
 		return fmt.Errorf("DF%d: is not connected", unit)
 	}
-	data, err := os.ReadFile(path)
+	data, saveable, err := ReadDiskImage(path)
 	if err != nil {
-		return fmt.Errorf("failed to read ADF: %w", err)
+		return err
+	}
+	if !saveable {
+		path = ""
 	}
 	return dr.SwapDisk(data, path)
 }

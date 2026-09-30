@@ -38,6 +38,47 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-09-30 — First games: Lemmings plays; zipped disks
+
+**Zipped disks.** `ReadDiskImage` reads a plain ADF, a zip archive (the
+first `.adf` inside), or a gzip-compressed ADF (`.adz`, `.adf.gz`). Writes
+to a compressed disk stay in memory. IPF images, which record a disk's raw
+magnetic layout to preserve copy protection, are recognised and refused
+with an explanation. Supremacy, one of the test games, only comes as IPF.
+
+**Game harness** (`TestGameDiag`, driven by `GOAMIGA_*` environment
+variables). It boots a disk headlessly and saves a screenshot every N
+frames. It can:
+- click the mouse at given frames, and move it;
+- swap disks at a given frame;
+- trace instructions from a given frame;
+- log custom register writes by name (for example `DSK`);
+- dump the disk controller's state.
+
+**Lemmings (Skid Row crack, 2 disks), step by step:**
+1. The cracktro and trainer menu ran and drew correctly.
+2. Then it hung on a black screen. The game's own loader
+   (`A6 = $DFF024`) started a read and polled `BTST #1,-5(A6)`, a *byte*
+   read of $DFF01F (INTREQR's low byte, DSKBLK). DSKBLK was set: INTREQR
+   read $17A2. But `CustomChips.Read` special-cases only each register's
+   even address, so a byte read of the odd half returned an unrelated raw
+   byte. It's the read-side twin of the byte-write bug found with ECS. A
+   1-byte read at an odd address now reads the register as a word and
+   returns its low byte.
+3. With that fixed: DMA Design logo, intro, the "insert disk 2" prompt,
+   the swap, the title menu, and level 1 ("Just dig!") running with
+   walking lemmings, the skill panel and the minimap.
+
+**Also fixed on the way:** disk read DMA started while no drive was
+selected, or while the motor was off, was silently dropped. The real
+controller keeps reading the silent data line until a sync word arrives,
+so the read now waits (`dmaWaiting`) and starts once a drive is ready. It
+wasn't Lemmings' problem, but loaders do rely on it. The save-state
+version went to 2 for the new field.
+
+Tests: `TestReadDiskImage` (plain, zip, gzip, IPF in and outside a zip,
+wrong size) and `TestCustomByteReadOddAddress`.
+
 ## 2026-09-29 — Save states
 
 Cmd+Shift+1-9 saves the whole machine to a slot, and Cmd+1-9 loads it

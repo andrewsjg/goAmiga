@@ -209,3 +209,15 @@ func TestBorderBlank(t *testing.T) {
 		t.Errorf("inside the window = $%03X, want COLOR00", got)
 	}
 }
+
+// A byte read of a register's odd address returns its low byte, read the
+// same way as the word (INTREQR is a view of INTREQ, not stored at $01E).
+func TestCustomByteReadOddAddress(t *testing.T) {
+	a := createTestAmiga(t)
+	a.Custom.SetIntreq(1 << 1) // DSKBLK
+	b := []byte{0}
+	a.Custom.Read(0x01F, b) // BTST #1,$DFF01F
+	if b[0]&0x02 == 0 {
+		t.Errorf("INTREQR low byte = $%02X, want DSKBLK (bit 1) set", b[0])
+	}
+}

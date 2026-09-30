@@ -74,6 +74,14 @@ func NewCustomChips(logger io.Writer, a *Amiga) *CustomChips {
 }
 
 func (c *CustomChips) Read(addr int, p []byte) (int, error) {
+	// The chips answer word reads; a byte read of the odd address gets the
+	// register's low byte. (Game loaders poll DSKBLK with BTST #1,$DFF01F.)
+	if len(p) == 1 && addr&1 != 0 {
+		var w [2]byte
+		c.Read(addr&^1, w[:])
+		p[0] = w[1]
+		return 1, nil
+	}
 	offset := addr & 0x1FF
 
 	// Return plausible values for read registers
