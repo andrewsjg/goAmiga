@@ -1448,16 +1448,22 @@ type ProcessorState struct {
 	SSP, USP   uint32
 	PendingIPL uint32
 	RunState   RunState
+	// 68020
+	Model                          Model
+	VBR, CACR, CAAR, SFC, DFC, MSP uint32
 }
 
 // State returns the processor's state between instructions.
 func (c *Processor) State() ProcessorState {
 	return ProcessorState{D: c.D, A: c.A, SR: c.SR, PC: c.PC, SSP: c.SSP, USP: c.USP,
-		PendingIPL: c.pendingIPL, RunState: c.runState}
+		PendingIPL: c.pendingIPL, RunState: c.runState, Model: c.Model,
+		VBR: c.VBR, CACR: c.CACR, CAAR: c.CAAR, SFC: c.SFC, DFC: c.DFC, MSP: c.MSP}
 }
 
 // SetState restores a state returned by State.
 func (c *Processor) SetState(s ProcessorState) {
 	c.D, c.A, c.SR, c.PC, c.SSP, c.USP = s.D, s.A, s.SR, s.PC, s.SSP, s.USP
 	c.pendingIPL, c.runState = s.PendingIPL, s.RunState
+	c.Model = s.Model
+	c.VBR, c.CACR, c.CAAR, c.SFC, c.DFC, c.MSP = s.VBR, s.CACR, s.CAAR, s.SFC, s.DFC, s.MSP
 }
