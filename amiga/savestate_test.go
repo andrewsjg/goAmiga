@@ -57,11 +57,14 @@ func TestSaveStateResumesExactly(t *testing.T) {
 	cases := []struct {
 		name, rom, floppy, hdf string
 		bootFrames             int
+		aga                    bool
 	}{
 		// Mid-boot from floppy: disk DMA, drive motor, trackdisk.
-		{"KS1.3 floppy", "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "", 150},
+		{"KS1.3 floppy", "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "", 150, false},
 		// Workbench 3.2 from a hardfile, with fast RAM and the controller.
-		{"KS3.2 hardfile", "../ROMS/Kick32.rom", "", "../disks/Install3.2.adf", 350},
+		{"KS3.2 hardfile", "../ROMS/Kick32.rom", "", "../disks/Install3.2.adf", 350, false},
+		// AGA: the 256-colour palette, FMODE, the 68020.
+		{"KS3.2 A1200 AGA", "../ROMS/kick32a1200.rom", "", "../disks/Install3.2.adf", 300, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -78,6 +81,11 @@ func TestSaveStateResumesExactly(t *testing.T) {
 				a, _ := New(rom, nil)
 				a.SetChipset("ecs-agnus")
 				a.SetChipRAM(1024)
+				if c.aga {
+					a.SetCPU("68020", 0)
+					a.SetChipset("aga")
+					a.SetChipRAM(2048)
+				}
 				a.ConfigureMemory(0, 2048)
 				if hdfPath != "" {
 					if err := a.AttachHardfile(hdfPath, false); err != nil {

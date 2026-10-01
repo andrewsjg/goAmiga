@@ -66,6 +66,13 @@ adds a floating-point coprocessor.
   with 1 MB of chip RAM. This is the default with 1 MB, otherwise `ocs`.
 - `ecs` adds the ECS Denise (A500+/A600), which brings the super-hires
   screen modes.
+- `aga` is the A1200/A4000 chipset: 256 colours from 16.8 million,
+  8 bitplanes, HAM8, wide fetch modes and wide sprites. It defaults to
+  2 MB of chip RAM. Use it with the A1200 Kickstart and a 68020:
+
+  ```bash
+  go run ./cmd/goamiga --rom ROMS/kick32a1200.rom --chipset aga --cpu 68020 --hdf dh0.hdf
+  ```
 
 By default the machine has 1 MB chip RAM and 2 MB Zorro II fast RAM, enough
 for Workbench 3.2 and its installer. That's an A500 with the 8372A "Fat

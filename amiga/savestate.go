@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 7
+	stateVersion = 8
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -448,6 +448,9 @@ func (v *Video) state(s *stateCodec) {
 	}
 	s.bool(&v.laced)
 	s.bool(&v.diwHigh)
+	for i := range v.agaPal {
+		num(s, &v.agaPal[i])
+	}
 	num(s, &v.clxdat)
 	if s.load {
 		v.resize() // rows follow the interlace state
@@ -464,6 +467,10 @@ func (se *SpriteEngine) state(s *stateCodec) {
 			num(s, &sp.ctl)
 			num(s, &sp.data)
 			num(s, &sp.datb)
+			for i := range sp.dataX {
+				num(s, &sp.dataX[i])
+				num(s, &sp.datbX[i])
+			}
 			num(s, &sp.state)
 		}
 	}

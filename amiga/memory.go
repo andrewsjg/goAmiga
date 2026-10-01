@@ -46,8 +46,8 @@ type zorroRAM struct {
 // use ECS-only registers (BLTSIZV/BLTSIZH, BEAMCON0) that goAmiga does not
 // have. Kickstart sizes chip RAM by probing, not from the ID.
 func (a *Amiga) SetChipRAM(kb int) error {
-	if kb != 512 && kb != 1024 {
-		return fmt.Errorf("chip RAM must be 512 or 1024 KB, not %d", kb)
+	if kb != 512 && kb != 1024 && kb != 2048 {
+		return fmt.Errorf("chip RAM must be 512, 1024 or 2048 KB, not %d", kb)
 	}
 	a.ChipRAM = newChipRAM(kb * 1024)
 	a.chipSize = kb * 1024
@@ -114,6 +114,7 @@ func (z *zorroRAM) configured(uint32)     {}
 // the ID. ECS Denise answers DENISEID ($FC) and adds super-hires,
 // KILLEHB and border blanking (BPLCON3).
 func (a *Amiga) SetChipset(name string) error {
+	a.AGA = false
 	switch name {
 	case "ocs":
 		a.ECSAgnus, a.ECSDenise = false, false
@@ -121,8 +122,10 @@ func (a *Amiga) SetChipset(name string) error {
 		a.ECSAgnus, a.ECSDenise = true, false
 	case "ecs":
 		a.ECSAgnus, a.ECSDenise = true, true
+	case "aga":
+		a.ECSAgnus, a.ECSDenise, a.AGA = true, true, true
 	default:
-		return fmt.Errorf("chipset must be ocs, ecs-agnus or ecs, not %q", name)
+		return fmt.Errorf("chipset must be ocs, ecs-agnus, ecs or aga, not %q", name)
 	}
 	return nil
 }
@@ -130,6 +133,8 @@ func (a *Amiga) SetChipset(name string) error {
 // Chipset names the chips fitted (see SetChipset).
 func (a *Amiga) Chipset() string {
 	switch {
+	case a.AGA:
+		return "aga"
 	case a.ECSDenise:
 		return "ecs"
 	case a.ECSAgnus:

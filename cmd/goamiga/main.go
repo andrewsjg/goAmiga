@@ -28,11 +28,11 @@ func main() {
 	headless := flag.Bool("headless", false, "Run without display window")
 	writeProtect := flag.Bool("write-protect", false, "Write-protect every drive and hardfile: the Amiga cannot change the image files")
 	mute := flag.Bool("mute", false, "No sound")
-	chipRAM := flag.Int("chipram", 1024, "Chip RAM in KB: 512 (original Agnus) or 1024 (8372A Fat Agnus)")
+	chipRAM := flag.Int("chipram", 0, "Chip RAM in KB: 512 (original Agnus), 1024 (8372A Fat Agnus) or 2048 (AGA); default 1024, or 2048 with --chipset aga")
 	cpuModel := flag.String("cpu", "68000", "Processor: 68000 (A500) or 68020 (a 68EC020 accelerator)")
 	cpuSpeed := flag.Int("cpu-speed", 0, "CPU speed in percent of a 7 MHz 68000 (default 100 for the 68000, 250 for the 68020)")
 	fpuModel := flag.String("fpu", "none", "Floating-point coprocessor with --cpu 68020: none, 68881 or 68882")
-	chipset := flag.String("chipset", "", "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise) or ecs (A500+/A600); default ecs-agnus with 1 MB chip RAM, else ocs")
+	chipset := flag.String("chipset", "", "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise), ecs (A500+/A600) or aga (A1200/A4000); default ecs-agnus with 1 MB chip RAM, else ocs")
 	slowRAM := flag.Int("slowram", 0, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
 	fastRAM := flag.Int("fastram", 2048, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
 	overscan := flag.Bool("overscan", false, "Show the overscan area (720x284) instead of the standard 640x256 window")
@@ -83,6 +83,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *chipRAM == 0 {
+		*chipRAM = 1024
+		if *chipset == "aga" {
+			*chipRAM = 2048
+		}
+	}
 	if err := a.SetChipRAM(*chipRAM); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

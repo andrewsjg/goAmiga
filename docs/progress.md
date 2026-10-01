@@ -31,14 +31,76 @@ verified. Longer investigations get their own write-up in `docs/`.
 3. **Paula (other).** No serial port (UART). The POTxDAT proportional
    counters (analogue joysticks, paddles) are not implemented. Audio DMA
    slots are not charged against the blitter.
-4. **Machine.** 512 KB or 1 MB chip RAM, optional slow and Zorro II fast
-   RAM. OCS or ECS (`--chipset`); no AGA. On ECS, BEAMCON0 is stored
+4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
+   Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). AGA lacks scan
+   doubling, sprite resolutions beyond lores, and the A1200's Gayle
+   (IDE/PCMCIA). On ECS, BEAMCON0 is stored
    but ignored (always PAL, no programmable beam), productivity and
    scan-doubled modes aren't emulated, and super-hires is averaged into
    the hires-wide picture. Hardfiles use Kickstart's filesystem;
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-02 — AGA
+
+`--chipset aga` (A1200/A4000). It defaults to 2 MB of chip RAM; use it
+with the A1200 Kickstart (`kick32a1200.rom`) and `--cpu 68020`.
+
+**What's emulated** (`aga.go` and the compositor):
+- **Identity.** Alice reports ID $22 in VPOSR, and Lisa answers DENISEID
+  $F8. Kickstart 3.2 for the A1200 then sets ChipRevBits0 = $1F (AA Alice
+  and Lisa).
+- **Palette.** 256 colour registers of 24 bits. COLOR00-31 write the bank
+  BPLCON3 bits 15-13 select. A normal write sets both nibbles of each
+  component, and a write with LOCT (bit 9) sets the low ones.
+- **Bitplanes:** 8 planes (BPLCON0 BPU3), with BPL7PT and BPL8PT.
+- **Colour modes:**
+  - HAM8: planes 1-2 are the control bits, the six data bits set a palette
+    colour (0-63) or a component's top six bits.
+  - EHB only with 6 planes; KILLEHB on AGA drops EHB but keeps plane 6.
+  - Dual playfield with 4+4 planes, playfield 2 offset by PF2OF (BPLCON3
+    bits 12-10).
+  - BPLCON4: the bitplane colour XOR, and separate colour banks for even
+    and odd sprites.
+- **FMODE.**
+  - Bitplane fetches 32 or 64 bits wide: fewer, longer fetch units, so
+    DDFSTOP comes earlier for the same width; the DMA slot table and the
+    CPU's and blitter's share of slots follow.
+  - Sprites 32 or 64 pixels wide, whose control words are also fetched
+    wide.
+- **Reset values:** BPLCON3 $0C00 and BPLCON4 $0011.
+
+**One unified palette.** The compositor now uses a single 24-bit line
+palette for every chipset. OCS/ECS fill entries 0-31 from the 12-bit
+registers, so their output is bit-for-bit what it was; the existing
+display tests confirm it. Colour writes during a line now record the
+palette entry and its 24-bit old and new values.
+
+**A fix found with the real ROM.** The first AGA Workbench came up shifted
+32 hires pixels to the right. graphics.library uses FMODE 3 for its hires
+screens, with DDFSTRT $38 and DIWSTRT $81. That means the
+fetch-to-display delay stays 8 colour clocks (2×8+1 = 17 lores pixels)
+however wide the fetch, rather than growing with the unit as I'd first
+written. With that, the Install 3.2 Workbench and your installed Workbench
+3.2 (16-colour interlaced hires, FMODE 3) display correctly.
+
+**Tests:**
+- `TestAGAChipIDs`, `TestAGAPaletteBanksAndLOCT`;
+- `TestAGAEightPlanes` (colour $C5 from 8 planes), `TestAGAHAM8`;
+- `TestAGADualPlayfieldAndXOR` (PF2OF 16, BPLAM $FF);
+- `TestAGAFMODEFetch`;
+- `TestAGASprites` (sprite banks, a 32-pixel sprite);
+- `TestNotAGAIgnores`;
+- `TestBootAGA` (A1200 ROM: ChipRevBits0 $0F, Workbench starts);
+- an AGA case in `TestSaveStateResumesExactly`.
+
+Save states carry the palette and wide sprite data (version 8).
+
+**Not modelled:** scan doubling and the productivity/BEAMCON0 modes;
+sprite resolution and horizontal precision beyond lores (BPLCON3 SPRES);
+border sprites; Gayle (the A1200's IDE and PCMCIA). goAmiga's own hard
+disk controller works with the A1200 ROM.
 
 ## 2026-10-01 — 68881/68882 FPU
 

@@ -95,6 +95,9 @@ type Amiga struct {
 	// ECSAgnus and ECSDenise select the Enhanced Chip Set parts (see
 	// SetChipset); both false is the original chipset.
 	ECSAgnus, ECSDenise bool
+	// AGA: the A1200/A4000 chipset (Alice and Lisa); implies the ECS
+	// features as well. See aga.go.
+	AGA bool
 	// CPUSpeed is the CPU's speed in percent of a 7 MHz 68000 (see SetCPU).
 	CPUSpeed int
 	chipSize int // chip RAM fitted, in bytes

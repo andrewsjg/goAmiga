@@ -44,7 +44,7 @@ func (c *busCounter) Reset() error { return c.m.Reset() }
 // if it is enabled. Unit positions that are even colour clocks are the ones
 // the CPU wants, so lores planes 5-6 and hires planes 3-4 steal from it.
 var (
-	loresFetchOrder = [8]int{0, 4, 6, 2, 0, 3, 5, 1}
+	loresFetchOrder = [8]int{8, 4, 6, 2, 7, 3, 5, 1} // planes 7-8 on AGA only
 	hiresFetchOrder = [4]int{4, 2, 3, 1}
 	shresFetchOrder = [2]int{2, 1} // ECS super-hires: two planes, every slot
 )
@@ -54,6 +54,8 @@ type bitplaneFetch struct {
 	planes     int
 	hires      bool
 	shres      bool
+	factor     int // AGA FMODE fetch width: 1, 2 or 4 words per fetch
+	unit       int // colour clocks per fetch unit when factor > 1
 	start, end int // fetch window in colour clocks, [start, end)
 }
 
@@ -64,7 +66,7 @@ func (a *Amiga) bitplaneDMA(vpos int) bitplaneFetch {
 		return bitplaneFetch{}
 	}
 	bplcon0 := a.Custom.ReadReg16(0x100)
-	f := bitplaneFetch{planes: int(bplcon0>>12) & 7, hires: bplcon0&0x8000 != 0}
+	f := bitplaneFetch{planes: planesOf(bplcon0, a.AGA), hires: bplcon0&0x8000 != 0}
 	if f.planes == 0 {
 		return bitplaneFetch{}
 	}
@@ -84,11 +86,22 @@ func (a *Amiga) bitplaneDMA(vpos int) bitplaneFetch {
 		f.shres, f.planes = true, min(f.planes, 2)
 		f.end = f.start + 4*fetchWords(true, ddfstrt, ddfstop)
 	}
+	// AGA wide fetches: each plane fetches factor words once per (longer)
+	// unit; the planes' slots come at the start of each unit.
+	if factor := a.Video.fetchFactor(); factor > 1 {
+		f.factor = factor
+		f.unit = fetchUnitCCK(f.hires, f.shres, factor)
+		words := fetchWordsFactor(f.hires, ddfstrt, ddfstop, factor)
+		f.end = f.start + f.unit*(words/factor)
+	}
 	return f
 }
 
 // stealsCPUSlots reports whether this fetch takes any even slots.
 func (f bitplaneFetch) stealsCPUSlots() bool {
+	if f.factor > 1 {
+		return f.planes >= 5 // planes 5-8 take the even slots of the order
+	}
 	if f.shres {
 		return f.planes >= 2
 	}
@@ -104,7 +117,13 @@ func (f bitplaneFetch) uses(cck int) bool {
 		return false
 	}
 	var plane int
-	if f.shres {
+	if f.factor > 1 {
+		i := (cck - f.start) % f.unit
+		if i >= 8 {
+			return false
+		}
+		plane = loresFetchOrder[i]
+	} else if f.shres {
 		plane = shresFetchOrder[(cck-f.start)&1]
 	} else if f.hires {
 		plane = hiresFetchOrder[(cck-f.start)&3]

@@ -42,8 +42,8 @@ func TestSetChipRAMWraps(t *testing.T) {
 	if err := a.SetChipRAM(1024); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.SetChipRAM(2048); err == nil {
-		t.Error("2MB chip RAM should be refused")
+	if err := a.SetChipRAM(4096); err == nil {
+		t.Error("4MB chip RAM should be refused (AGA has at most 2MB)")
 	}
 	a.ChipRAM.Write(0x80000, []byte{0xAB})
 	var b [1]byte

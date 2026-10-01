@@ -111,7 +111,10 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 		p[0] = 0xFF
 		if len(p) > 1 {
 			p[1] = 0xFF
-			if c.amiga != nil && c.amiga.ECSDenise {
+			switch {
+			case c.amiga != nil && c.amiga.AGA:
+				p[0], p[1] = 0x00, 0xF8 // Lisa
+			case c.amiga != nil && c.amiga.ECSDenise:
 				p[1] = 0xFC // 8373 ECS Denise
 			}
 		}
@@ -136,7 +139,10 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 				val |= 0x8000 // LOF
 			}
 			val |= uint16((c.amiga.vpos >> 8) & 1) // V8
-			if c.amiga.ECSAgnus {
+			switch {
+			case c.amiga.AGA:
+				val |= 0x2200 // Alice, PAL
+			case c.amiga.ECSAgnus:
 				val |= 0x2000 // 8372A, PAL
 			}
 			p[0] = byte(val >> 8)
@@ -272,7 +278,18 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 			if hpos < 0 {
 				hpos = c.amiga.hpos
 			}
-			c.amiga.Video.noteWrite(offset, c.ReadReg16(offset), uint16(p[0])<<8|uint16(p[1]), hpos)
+			val := uint16(p[0])<<8 | uint16(p[1])
+			if offset >= 0x180 && offset < 0x1C0 {
+				v := c.amiga.Video
+				ci := (offset - 0x180) / 2
+				o24, n24 := expand12(c.ReadReg16(offset)), expand12(val)
+				if c.amiga.AGA {
+					ci, o24, n24 = v.agaColorWrite(ci, val)
+				}
+				v.noteColor(ci, o24, n24, hpos)
+			} else {
+				c.amiga.Video.noteWrite(offset, c.ReadReg16(offset), val, hpos)
+			}
 		}
 		copy(c.regs[offset:offset+n], p[:n])
 	}
@@ -376,7 +393,7 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		if c.amiga != nil && c.amiga.Copper != nil {
 			c.amiga.Copper.cop2lc = (c.amiga.Copper.cop2lc & 0xFFFF0000) | uint32(p[0])<<8 | uint32(p[1])
 		}
-	case 0x0E0, 0x0E4, 0x0E8, 0x0EC, 0x0F0, 0x0F4: // BPLxPTH (high word)
+	case 0x0E0, 0x0E4, 0x0E8, 0x0EC, 0x0F0, 0x0F4, 0x0F8, 0x0FC: // BPLxPTH (high word)
 		if c.amiga != nil && c.amiga.Video != nil {
 			planeIdx := (offset - 0x0E0) / 4
 			hi := uint32(p[0])<<24 | uint32(p[1])<<16
@@ -390,7 +407,7 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 				c.amiga.Video.bplpt[planeIdx] = newPt
 			}
 		}
-	case 0x0E2, 0x0E6, 0x0EA, 0x0EE, 0x0F2, 0x0F6: // BPLxPTL (low word)
+	case 0x0E2, 0x0E6, 0x0EA, 0x0EE, 0x0F2, 0x0F6, 0x0FA, 0x0FE: // BPLxPTL (low word)
 		if c.amiga != nil && c.amiga.Video != nil {
 			planeIdx := (offset - 0x0E2) / 4
 			lo := uint32(p[0])<<8 | uint32(p[1])
@@ -589,6 +606,9 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 
 func (c *CustomChips) Reset() error {
 	c.regs = [512]byte{}
+	if c.amiga != nil && c.amiga.AGA {
+		c.agaReset()
+	}
 	return nil
 }
 

@@ -16,12 +16,14 @@ const (
 
 // Sprite represents one of 8 Amiga hardware sprites.
 type Sprite struct {
-	pt    uint32 // SPRxPT working DMA pointer
-	pos   uint16 // SPRxPOS
-	ctl   uint16 // SPRxCTL
-	data  uint16 // SPRxDATA (plane 0)
-	datb  uint16 // SPRxDATB (plane 1)
-	state int    // sprFetchCtl / sprWaitVStart / sprActive
+	pt   uint32 // SPRxPT working DMA pointer
+	pos  uint16 // SPRxPOS
+	ctl  uint16 // SPRxCTL
+	data uint16 // SPRxDATA (plane 0)
+	datb uint16 // SPRxDATB (plane 1)
+	// AGA wide sprites (FMODE): the further 1 or 3 words of each plane.
+	dataX, datbX [3]uint16
+	state        int // sprFetchCtl / sprWaitVStart / sprActive
 }
 
 // vstart returns the vertical start position (9 bits).
@@ -64,6 +66,10 @@ type SpriteEngine struct {
 	// has been shown appears again further along the same line.
 	start  [8]Sprite
 	events []sprEvent
+
+	// sprOdd[x] is set where the sprite colour at column x came from an
+	// odd sprite (AGA gives odd and even sprites separate colour banks).
+	sprOdd [MaxOutputWidth]byte
 }
 
 // sprEvent is a write to a sprite register during the current line.
@@ -167,18 +173,39 @@ func (se *SpriteEngine) readWord(addr uint32) uint16 {
 	return uint16(se.buf[0])<<8 | uint16(se.buf[1])
 }
 
+// spriteWords is how many words each sprite fetch takes: 1, or on AGA 2
+// or 4 (FMODE bits 3-2), making sprites 16, 32 or 64 pixels wide.
+func (se *SpriteEngine) spriteWords() int {
+	if !se.amiga.AGA {
+		return 1
+	}
+	return [4]int{1, 2, 2, 4}[se.amiga.Custom.ReadReg16(0x1FC)>>2&3]
+}
+
+// fetchCtl loads POS and CTL. With wide fetches each is the first word of
+// its own wide fetch.
 func (se *SpriteEngine) fetchCtl(s *Sprite) {
+	n := uint32(se.spriteWords())
 	s.pos = se.readWord(s.pt)
-	s.pt += 2
+	s.pt += 2 * n
 	s.ctl = se.readWord(s.pt)
-	s.pt += 2
+	s.pt += 2 * n
 }
 
 func (se *SpriteEngine) fetchData(s *Sprite) {
+	n := se.spriteWords()
 	s.data = se.readWord(s.pt)
-	s.pt += 2
+	s.dataX = [3]uint16{}
+	for i := 1; i < n; i++ {
+		s.dataX[i-1] = se.readWord(s.pt + uint32(2*i))
+	}
+	s.pt += uint32(2 * n)
 	s.datb = se.readWord(s.pt)
-	s.pt += 2
+	s.datbX = [3]uint16{}
+	for i := 1; i < n; i++ {
+		s.datbX[i-1] = se.readWord(s.pt + uint32(2*i))
+	}
+	s.pt += uint32(2 * n)
 }
 
 // FetchLine performs sprite DMA for the given vertical position.
@@ -273,6 +300,7 @@ func (se *SpriteEngine) lineBuffer(col, pair, present *[MaxOutputWidth]byte, lef
 	}
 	*col = [MaxOutputWidth]byte{}
 	*present = [MaxOutputWidth]byte{}
+	se.sprOdd = [MaxOutputWidth]byte{}
 	for pr := 3; pr >= 0; pr-- {
 		ev, od := 2*pr, 2*pr+1
 		if !painted[ev] && !painted[od] {
@@ -299,10 +327,13 @@ func (se *SpriteEngine) lineBuffer(col, pair, present *[MaxOutputWidth]byte, lef
 			switch {
 			case attached:
 				col[x] = 16 + (o<<2 | e)
+				se.sprOdd[x] = 1
 			case e != 0:
 				col[x] = byte(16+4*pr) + e
+				se.sprOdd[x] = 0
 			default:
 				col[x] = byte(16+4*pr) + o
+				se.sprOdd[x] = 1
 			}
 			pair[x] = byte(pr)
 		}
@@ -330,8 +361,18 @@ func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int
 	}
 	armed := s.state == sprActive
 	painted := false
+	words := se.spriteWords()
 	draw := func(from, to int) {
-		if !armed || s.data|s.datb == 0 {
+		if !armed {
+			return
+		}
+		a := [4]uint16{s.data, s.dataX[0], s.dataX[1], s.dataX[2]}
+		bw := [4]uint16{s.datb, s.datbX[0], s.datbX[1], s.datbX[2]}
+		blank := true
+		for i := 0; i < words; i++ {
+			blank = blank && a[i]|bw[i] == 0
+		}
+		if blank {
 			return
 		}
 		x0 := 2 * (s.hstart() - left)
@@ -342,8 +383,10 @@ func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int
 			*bits = [MaxOutputWidth]byte{}
 			painted = true
 		}
-		for b := 0; b < 16; b++ {
-			v := byte(s.data>>(15-b)&1 | s.datb>>(15-b)&1<<1)
+		for b := 0; b < 16*words; b++ {
+			wa, wb := a[b/16], bw[b/16]
+			k := 15 - b%16
+			v := byte(wa>>k&1 | wb>>k&1<<1)
 			if v == 0 {
 				continue
 			}
