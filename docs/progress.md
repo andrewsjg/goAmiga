@@ -39,6 +39,62 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-01 — IPF disk images; Supremacy boots
+
+`.ipf` images (also inside zips) now load. The format, and how goAmiga
+decodes it, are written up in [ipf-format.md](ipf-format.md).
+
+**What was built:**
+- `ParseIPF` checks every record's CRC, matches DATA to IMGE by chunk ID,
+  and rebuilds each track's MFM cells from its block descriptors. It
+  handles:
+  - sync, raw, data, gap and flakey stream elements;
+  - CAPS (byte) and SPS (bit) counts;
+  - gap values, and forward and backward gap streams;
+  - the start-bit offset from the index.
+- A drive can hold an IPF, which is always write-protected. Read DMA from
+  one (`readIPF`) works on cells: it finds DSKSYNC at any bit alignment
+  through a rolling 16-bit window, times the transfer at 2 µs per cell,
+  and gives weak cells new random values on each read.
+- Save states keep the IPF file and re-parse it (state version 4).
+
+**Supremacy** (Virgin 1990, SPS IPF, CAPS encoder). Track 0 decodes to
+eleven good AmigaDOS sectors and a `DOS` bootblock. The game tracks are
+custom: on cylinder 1, a single sync pair, then a 4,105-byte sector. The
+bootblock ran and the game's loader started, but then it read the same
+track forever.
+
+**The cause was a blitter bug.** The loader decodes MFM with the blitter:
+B shifted by 15, a blit 4 words wide and 513 lines tall, zero modulos.
+Each word takes its top bit from the word before. goAmiga cleared the
+shifters' history at the start of every line, but the real blitter
+carries it from one line's last word into the next line's first word.
+That's why software widens shifted blits by a word and masks the extra
+one with ALWM = 0. The first word of every line decoded wrongly, so the
+loader's checksum failed every time.
+
+Fixed: the history carries across lines; A's history is the word *after*
+AFWM/ALWM masking; and the fill carry starts each line at FCI (BLTCON1 bit
+2) rather than 0. With that, Supremacy loads to its title picture and the
+opponent-selection screen. Lemmings, the Workbench tests and the full
+suite are unchanged.
+
+**Tests.** Synthetic IPFs built in code:
+- `TestIPFCapsTrack`;
+- `TestIPFSPSTrack` (bit-aligned elements, both kinds of gap stream);
+- `TestIPFWeakCells`;
+- `TestIPFCorrupt`;
+- `TestIPFReadDMAUnaligned` (a sync word at an odd bit position).
+
+Also `TestBlitShiftCarriesAcrossLines`, and `TestParseIPFSupremacy` for a
+real image (`GOAMIGA_IPF`).
+
+**Not modelled:**
+- variable cell timing (density types 3 and up: Copylock, Speedlock
+  timing checks);
+- per-track revolution length, since the index stays at 6,250 words;
+- writing to IPF disks.
+
 ## 2026-09-30 — The 68020
 
 `--cpu 68020` fits a 68EC020 accelerator: 24-bit addressing, no MMU or

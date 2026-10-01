@@ -16,10 +16,17 @@ go run ./cmd/goamiga --rom ROMS/Kick32.rom --df0 disks/Install3.2.adf --df1 disk
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --headless --cycles 10000000
 ```
 
-Disk images can be plain `.adf`, or zipped (`.zip` holding an ADF, as game
-collections come) or gzipped (`.adz`, `.adf.gz`). What the Amiga writes to
-a compressed disk stays in memory, since it can't be saved back into the
-archive. IPF images (a copy-protection-preserving format) aren't supported.
+Disk images can be:
+- plain `.adf`;
+- **`.ipf`**, the Software Preservation Society's format, which keeps copy
+  protection, so original games boot;
+- zipped (`.zip` holding an ADF or IPF, as game collections come);
+- gzipped (`.adz`, `.adf.gz`).
+
+What the Amiga writes to a compressed disk stays in memory, since it can't
+be saved back into the archive. IPF disks are read-only. See
+[docs/ipf-format.md](docs/ipf-format.md) for the IPF format and how it's
+decoded.
 
 Up to four drives: `--df0` (or `--disk`) to `--df3`. `--drives N` connects
 drives with no disk yet. The window title shows what is in each drive.

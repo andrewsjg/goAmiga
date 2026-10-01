@@ -45,12 +45,12 @@ func TestReadDiskImage(t *testing.T) {
 		{"plain ADF", write("a.adf", adf), true, ""},
 		{"zip", write("g.zip", zipped(map[string][]byte{"readme.txt": []byte("hi"), "Game.ADF": adf})), false, ""},
 		{"gzip", write("g.adz", gz.Bytes()), false, ""},
-		{"zip of IPF", write("p.zip", zipped(map[string][]byte{"Disk1.ipf": []byte("CAPS....")})), false, "IPF"},
-		{"raw IPF", write("p.ipf", []byte("CAPS\x00\x00\x00\x0c")), false, "IPF"},
-		{"zip without a disk", write("n.zip", zipped(map[string][]byte{"x.txt": []byte("x")})), false, "no ADF"},
+		{"broken IPF in a zip", write("p.zip", zipped(map[string][]byte{"Disk1.ipf": []byte("CAPS....")})), false, "IPF"},
+		{"broken raw IPF", write("p.ipf", []byte("CAPS\x00\x00\x00\x0c")), false, "IPF"},
+		{"zip without a disk", write("n.zip", zipped(map[string][]byte{"x.txt": []byte("x")})), false, "no ADF or IPF"},
 		{"wrong size", write("s.adf", make([]byte, 1000)), false, "not an ADF"},
 	} {
-		data, saveable, err := ReadDiskImage(c.path)
+		img, err := ReadDiskImage(c.path)
 		if c.errPart != "" {
 			if err == nil || !strings.Contains(err.Error(), c.errPart) {
 				t.Errorf("%s: error %v, want one mentioning %q", c.name, err, c.errPart)
@@ -61,6 +61,7 @@ func TestReadDiskImage(t *testing.T) {
 			t.Errorf("%s: %v", c.name, err)
 			continue
 		}
+		data, saveable := img.ADF, img.Saveable
 		if !bytes.Equal(data, adf) || saveable != c.saveable {
 			t.Errorf("%s: got %d bytes (equal %v), saveable %v; want the ADF, saveable %v",
 				c.name, len(data), bytes.Equal(data, adf), saveable, c.saveable)

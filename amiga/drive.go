@@ -9,8 +9,9 @@ type Drive struct {
 	Unit int // 0-3: DF0:-DF3:
 
 	// Disk image
-	adf  []byte // 901120 bytes (nil = no disk)
-	path string // file the image came from; written tracks are saved there
+	adf  []byte    // 901120 bytes (nil = no ADF)
+	ipf  *IPFImage // or an IPF image (always write-protected)
+	path string    // file the image came from; written tracks are saved there
 
 	// WriteProtected makes the drive report the disk as write-protected
 	// and ignore write DMA, like the tab on a real disk.
@@ -37,11 +38,23 @@ func (dr *Drive) InsertDisk(data []byte) error {
 	if len(data) != ADFSize {
 		return fmt.Errorf("invalid ADF size: %d bytes (expected %d)", len(data), ADFSize)
 	}
-	dr.adf = data
+	dr.adf, dr.ipf = data, nil
 	dr.path = ""
 	dr.diskChange = true
 	dr.pending = nil
 	return nil
+}
+
+// InsertImage puts a disk image (ADF or IPF) in the drive.
+func (dr *Drive) InsertImage(img *DiskImage) error {
+	if img.IPF != nil {
+		dr.adf, dr.ipf = nil, img.IPF
+		dr.path = ""
+		dr.diskChange = true
+		dr.pending = nil
+		return nil
+	}
+	return dr.InsertDisk(img.ADF)
 }
 
 // Eject removes the disk. /DSKCHANGE goes low and stays low until the head
@@ -49,13 +62,17 @@ func (dr *Drive) InsertDisk(data []byte) error {
 // stepping, which is how it notices a swap. A DMA already running still
 // completes, as the controller does not know the disk has gone.
 func (dr *Drive) Eject() {
-	dr.adf = nil
+	dr.adf, dr.ipf = nil, nil
 	dr.path = ""
 	dr.diskChange = true
 }
 
 // Inserted reports whether a disk is in the drive.
-func (dr *Drive) Inserted() bool { return dr.adf != nil }
+func (dr *Drive) Inserted() bool { return dr.adf != nil || dr.ipf != nil }
+
+// Protected reports whether the disk can't be written: the drive is
+// write-protected, or the disk is an IPF (a read-only preservation image).
+func (dr *Drive) Protected() bool { return dr.WriteProtected || dr.ipf != nil }
 
 // Path is the file the disk in the drive came from, if any.
 func (dr *Drive) Path() string { return dr.path }
@@ -64,11 +81,16 @@ func (dr *Drive) Path() string { return dr.path }
 // "" for an image with no file) once the Amiga has noticed the drive is
 // empty (see swapAfterPoll).
 func (dr *Drive) SwapDisk(data []byte, path string) error {
-	if len(data) != ADFSize {
-		return fmt.Errorf("invalid ADF size: %d bytes (expected %d)", len(data), ADFSize)
+	return dr.SwapImage(&DiskImage{ADF: data}, path)
+}
+
+// SwapImage is SwapDisk for any disk image.
+func (dr *Drive) SwapImage(img *DiskImage, path string) error {
+	if img.IPF == nil && len(img.ADF) != ADFSize {
+		return fmt.Errorf("invalid ADF size: %d bytes (expected %d)", len(img.ADF), ADFSize)
 	}
 	dr.Eject()
-	dr.pending = &pendingDisk{data: data, path: path}
+	dr.pending = &pendingDisk{data: img.ADF, ipf: img.IPF, path: path}
 	dr.pendingWait = swapMaxWait
 	dr.pendingElapsed = 0
 	return nil
@@ -80,7 +102,7 @@ func (dr *Drive) Swapping() bool { return dr.pending != nil }
 // insertPending puts the disk queued by SwapDisk in the drive.
 func (dr *Drive) insertPending() {
 	p := dr.pending
-	dr.InsertDisk(p.data)
+	dr.InsertImage(&DiskImage{ADF: p.data, IPF: p.ipf})
 	dr.path = p.path
 }
 
@@ -106,7 +128,7 @@ func (dr *Drive) step(in bool) {
 	} else if dr.cylinder > 0 {
 		dr.cylinder--
 	}
-	if dr.adf != nil {
+	if dr.Inserted() {
 		dr.diskChange = false // stepping clears disk change only when disk is present
 	} else if dr.pending != nil && !dr.motor && dr.pendingWait > swapAfterPoll {
 		dr.pendingWait = swapAfterPoll // trackdisk polled the empty drive
@@ -118,7 +140,7 @@ func (dr *Drive) step(in bool) {
 func (dr *Drive) status() byte {
 	var low byte
 	switch {
-	case dr.motor && dr.adf != nil:
+	case dr.motor && dr.Inserted():
 		low |= 0x20 // ready
 	case !dr.motor && dr.Unit > 0:
 		low |= 0x20 // ID bit: 1 for every bit of a 3.5" drive's $FFFFFFFF
@@ -126,10 +148,10 @@ func (dr *Drive) status() byte {
 	if dr.cylinder == 0 {
 		low |= 0x10
 	}
-	if dr.adf != nil && dr.WriteProtected {
+	if dr.Inserted() && dr.Protected() {
 		low |= 0x08
 	}
-	if dr.adf == nil || dr.diskChange {
+	if !dr.Inserted() || dr.diskChange {
 		low |= 0x04
 	}
 	return low

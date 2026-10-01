@@ -3,6 +3,7 @@ package amiga
 import (
 	"encoding/binary"
 	"fmt"
+	"math/rand/v2"
 	"os"
 )
 
@@ -122,6 +123,7 @@ func (d *DiskDrive) active() *Drive {
 // pendingDisk is an image queued by SwapDisk.
 type pendingDisk struct {
 	data []byte
+	ipf  *IPFImage
 	path string
 }
 
@@ -271,7 +273,7 @@ func (d *DiskDrive) ReadDSKBYTR() uint16 {
 func (d *DiskDrive) startDMA() {
 	d.dsklenWrites = 0
 	dr := d.active()
-	if dr == nil || dr.adf == nil || !dr.motor {
+	if dr == nil || !dr.Inserted() || !dr.motor {
 		// Reads wait for data; a write with no drive to take it is lost.
 		d.dmaWaiting = d.dsklen&0x4000 == 0
 		return
@@ -288,7 +290,7 @@ func (d *DiskDrive) startDMA() {
 		// Writes start at the head position without waiting for a sync
 		// word, and take one word time per word. A write-protected drive
 		// ignores the data but the DMA still runs to completion.
-		if !dr.WriteProtected {
+		if !dr.Protected() {
 			d.writeTrack(dr, wordCount)
 		}
 		d.completionCycles = wordCount * DiskCyclesPerWord
@@ -296,6 +298,10 @@ func (d *DiskDrive) startDMA() {
 	}
 
 	track := dr.cylinder*2 + d.side
+	if dr.ipf != nil {
+		d.readIPF(dr, track, wordCount)
+		return
+	}
 	mfm := dr.encodeMFMTrack(track)
 	if mfm == nil {
 		return
@@ -445,7 +451,7 @@ func (d *DiskDrive) headWord() int {
 // data) to the controller: selected, motor on, disk in.
 func (d *DiskDrive) spinning() bool {
 	dr := d.active()
-	return dr != nil && dr.motor && dr.adf != nil
+	return dr != nil && dr.motor && dr.Inserted()
 }
 
 // TickCycles advances disk DMA timing and the index pulse. Called from
@@ -453,7 +459,7 @@ func (d *DiskDrive) spinning() bool {
 // the elapsed period.
 func (d *DiskDrive) TickCycles(cpuCycles int) {
 	if d.dmaWaiting && d.dsklen&0x8000 != 0 {
-		if dr := d.active(); dr != nil && dr.adf != nil && dr.motor {
+		if dr := d.active(); dr != nil && dr.Inserted() && dr.motor {
 			d.startDMA()
 		}
 	}
@@ -636,4 +642,55 @@ func (d *DiskDrive) resetDMA() {
 			dr.motor = false
 		}
 	}
+}
+
+// readIPF is read DMA from an IPF track: the cells under the head, at any
+// bit alignment. With WORDSYNC the transfer starts after the next sync
+// word, wherever in the bit stream it lies; it never starts on a track
+// without one (an unformatted track has none). Cells pass the head every
+// DiskCyclesPerWord/16 CPU cycles. Weak cells read differently each time.
+func (d *DiskDrive) readIPF(dr *Drive, track, wordCount int) {
+	var tk *bitTrack
+	if track >= 0 && track < len(dr.ipf.Tracks) {
+		tk = dr.ipf.Tracks[track]
+	}
+	sync := d.adkcon&0x0400 != 0
+	if tk == nil {
+		if sync {
+			return // no sync word to find
+		}
+		buf := make([]byte, 2*wordCount) // noise
+		for i := range buf {
+			buf[i] = byte(rand.IntN(256))
+		}
+		d.amiga.ChipRAM.Write(int(d.dskpt), buf)
+		d.completionCycles = wordCount * DiskCyclesPerWord
+		return
+	}
+	tk.reroll()
+	pos := int(d.amiga.cycles*16/DiskCyclesPerWord) % tk.n
+	wait := 0 // cells before the data
+	if sync {
+		w := uint16(0)
+		found := false
+		for k := 0; k < tk.n+16; k++ {
+			w = w<<1 | uint16(tk.bit(pos+k))
+			if k >= 15 && w == d.dsksync {
+				wait, found = k+1, true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+		d.wordequal = true
+		d.syncCycles = max(1, wait*DiskCyclesPerWord/16)
+	}
+	buf := make([]byte, 2*wordCount)
+	for i := 0; i < wordCount; i++ {
+		w := tk.word(pos + wait + 16*i)
+		buf[2*i], buf[2*i+1] = byte(w>>8), byte(w)
+	}
+	d.amiga.ChipRAM.Write(int(d.dskpt), buf)
+	d.completionCycles = (wait + 16*wordCount) * DiskCyclesPerWord / 16
 }

@@ -290,8 +290,14 @@ func (b *Blitter) blitWord() {
 	var buf [2]byte
 	x, width := r.x, r.width
 
+	// The barrel shifters' history is not cleared between lines: the bits
+	// shifted into a line's first word come from the previous line's last
+	// word (which is why software widens a shifted blit by a word and
+	// masks it with ALWM = 0). Copy-protection loaders decode MFM with a
+	// B shift of 15 over a multi-line blit and rely on it. Only the fill
+	// carry restarts each line, from FCI (BLTCON1 bit 2).
 	if x == 0 {
-		r.prevA, r.prevB, r.fillCarry = 0, 0, 0
+		r.fillCarry = r.con1 >> 2 & 1
 	}
 
 	// When a channel is not enabled (USEx=0), the minterm still uses
@@ -313,6 +319,7 @@ func (b *Blitter) blitWord() {
 		if x == width-1 {
 			aWord &= r.alwm
 		}
+		masked := aWord
 
 		// Barrel shift A
 		if shiftA != 0 {
@@ -327,7 +334,7 @@ func (b *Blitter) blitWord() {
 				aWord = uint16(combined >> shiftA)
 			}
 		}
-		r.prevA = b.adat
+		r.prevA = masked // the shifter holds the word after masking
 
 		if desc {
 			r.apt -= 2
@@ -346,6 +353,7 @@ func (b *Blitter) blitWord() {
 		if x == width-1 {
 			aWord &= r.alwm
 		}
+		masked := aWord
 		if shiftA != 0 {
 			var combined uint32
 			if desc {
@@ -355,8 +363,8 @@ func (b *Blitter) blitWord() {
 				combined = uint32(r.prevA)<<16 | uint32(aWord)
 				aWord = uint16(combined >> shiftA)
 			}
-			r.prevA = b.adat
 		}
+		r.prevA = masked
 	}
 
 	if useB {

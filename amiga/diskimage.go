@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,43 +11,64 @@ import (
 	"strings"
 )
 
-// ReadDiskImage reads a floppy image: a plain ADF, a zip archive holding
-// one (the first .adf in it is used, as game collections are distributed),
-// or a gzip-compressed ADF (.adz, .adf.gz). saveable reports whether
-// writes can go back to the file: only a plain ADF can; a compressed disk
-// keeps what the Amiga writes in memory only.
-//
-// IPF (SPS/CAPS) images, which record a disk's raw magnetic layout to
-// preserve copy protection, are recognised and refused with an explanation.
-func ReadDiskImage(path string) (data []byte, saveable bool, err error) {
+// DiskImage is a floppy image: an ADF (sector data) or an IPF (raw cells,
+// copy protection included).
+type DiskImage struct {
+	ADF []byte
+	IPF *IPFImage
+	// Saveable: writes can go back to the file (only a plain ADF).
+	Saveable bool
+}
+
+// ReadDiskImage reads a floppy image: a plain ADF; an IPF; a zip archive
+// holding either (the first .adf, else the first .ipf, in it is used, as
+// game collections are distributed); or a gzip-compressed ADF (.adz,
+// .adf.gz). A compressed ADF keeps what the Amiga writes in memory only;
+// an IPF is read-only.
+func ReadDiskImage(path string) (*DiskImage, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
+	img, err := diskImageFrom(raw)
+	if err != nil {
+		return nil, wrapImageErr(path, err)
+	}
+	if img.ADF != nil && bytes.Equal(img.ADF, raw) {
+		img.Saveable = true
+	}
+	return img, nil
+}
+
+func diskImageFrom(raw []byte) (*DiskImage, error) {
 	switch {
 	case bytes.HasPrefix(raw, []byte("PK\x03\x04")):
-		data, err = adfFromZip(raw)
-		return data, false, wrapImageErr(path, err)
+		return imageFromZip(raw)
 	case bytes.HasPrefix(raw, []byte{0x1F, 0x8B}):
 		zr, err := gzip.NewReader(bytes.NewReader(raw))
 		if err != nil {
-			return nil, false, wrapImageErr(path, err)
+			return nil, err
 		}
-		data, err = io.ReadAll(io.LimitReader(zr, 4*ADFSize))
-		if err == nil && len(data) != ADFSize {
-			err = fmt.Errorf("uncompresses to %d bytes, not an ADF (%d)", len(data), ADFSize)
+		data, err := io.ReadAll(io.LimitReader(zr, 4*ADFSize))
+		if err != nil {
+			return nil, err
 		}
-		return data, false, wrapImageErr(path, err)
+		if len(data) != ADFSize {
+			return nil, fmt.Errorf("uncompresses to %d bytes, not an ADF (%d)", len(data), ADFSize)
+		}
+		return &DiskImage{ADF: data}, nil
 	case bytes.HasPrefix(raw, []byte("CAPS")):
-		return nil, false, wrapImageErr(path, errIPF)
+		ipf, err := ParseIPF(raw)
+		if err != nil {
+			return nil, err
+		}
+		return &DiskImage{IPF: ipf}, nil
 	}
 	if len(raw) != ADFSize {
-		return nil, false, fmt.Errorf("%s: %d bytes, not an ADF (%d)", filepath.Base(path), len(raw), ADFSize)
+		return nil, fmt.Errorf("%d bytes, not an ADF (%d) or IPF", len(raw), ADFSize)
 	}
-	return raw, true, nil
+	return &DiskImage{ADF: raw}, nil
 }
-
-var errIPF = errors.New("an IPF (SPS/CAPS) image, a raw copy-protected disk format goAmiga can't read yet; use an ADF version")
 
 func wrapImageErr(path string, err error) error {
 	if err == nil {
@@ -57,32 +77,47 @@ func wrapImageErr(path string, err error) error {
 	return fmt.Errorf("%s: %w", filepath.Base(path), err)
 }
 
-// adfFromZip returns the first ADF in a zip archive.
-func adfFromZip(raw []byte) ([]byte, error) {
+// imageFromZip returns the first ADF in a zip archive, or failing that
+// the first IPF.
+func imageFromZip(raw []byte) (*DiskImage, error) {
 	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if err != nil {
 		return nil, err
 	}
-	var names []string
-	ipf := false
-	for _, f := range zr.File {
-		names = append(names, f.Name)
-		lower := strings.ToLower(f.Name)
-		if strings.HasSuffix(lower, ".ipf") {
-			ipf = true
-		}
-		if !strings.HasSuffix(lower, ".adf") || f.UncompressedSize64 != ADFSize {
-			continue
-		}
+	read := func(f *zip.File, limit int64) ([]byte, error) {
 		rc, err := f.Open()
 		if err != nil {
 			return nil, err
 		}
 		defer rc.Close()
-		return io.ReadAll(io.LimitReader(rc, ADFSize))
+		return io.ReadAll(io.LimitReader(rc, limit))
 	}
-	if ipf {
-		return nil, errIPF
+	var names []string
+	var ipf *zip.File
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+		lower := strings.ToLower(f.Name)
+		if strings.HasSuffix(lower, ".ipf") && ipf == nil {
+			ipf = f
+		}
+		if strings.HasSuffix(lower, ".adf") && f.UncompressedSize64 == ADFSize {
+			data, err := read(f, ADFSize)
+			if err != nil {
+				return nil, err
+			}
+			return &DiskImage{ADF: data}, nil
+		}
 	}
-	return nil, fmt.Errorf("no ADF in the archive (it holds %s)", strings.Join(names, ", "))
+	if ipf != nil {
+		data, err := read(ipf, 16<<20)
+		if err != nil {
+			return nil, err
+		}
+		p, err := ParseIPF(data)
+		if err != nil {
+			return nil, err
+		}
+		return &DiskImage{IPF: p}, nil
+	}
+	return nil, fmt.Errorf("no ADF or IPF in the archive (it holds %s)", strings.Join(names, ", "))
 }

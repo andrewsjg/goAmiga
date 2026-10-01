@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 3
+	stateVersion = 4
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -482,6 +482,19 @@ func (d *DiskDrive) state(s *stateCodec) {
 
 func (dr *Drive) state(s *stateCodec) {
 	s.bytes(&dr.adf)
+	// An IPF disk is saved as its file and parsed again on load (weak
+	// cells' current values aren't kept: they're random anyway).
+	var ipfRaw []byte
+	if dr.ipf != nil {
+		ipfRaw = dr.ipf.raw
+	}
+	s.bytes(&ipfRaw)
+	if s.load {
+		dr.ipf = nil
+		if ipfRaw != nil && s.err == nil {
+			dr.ipf, s.err = ParseIPF(ipfRaw)
+		}
+	}
 	s.str(&dr.path)
 	s.bool(&dr.WriteProtected)
 	pending := dr.pending != nil
@@ -491,6 +504,14 @@ func (dr *Drive) state(s *stateCodec) {
 			dr.pending = &pendingDisk{}
 		}
 		s.bytes(&dr.pending.data)
+		var pRaw []byte
+		if dr.pending.ipf != nil {
+			pRaw = dr.pending.ipf.raw
+		}
+		s.bytes(&pRaw)
+		if s.load && pRaw != nil && s.err == nil {
+			dr.pending.ipf, s.err = ParseIPF(pRaw)
+		}
 		s.str(&dr.pending.path)
 	} else {
 		dr.pending = nil

@@ -194,3 +194,29 @@ func TestBZERO(t *testing.T) {
 		t.Error("BZERO clear after an all-zero blit")
 	}
 }
+
+// The barrel shifter's history carries from the last word of a line into
+// the first word of the next (and the history is the masked word).
+func TestBlitShiftCarriesAcrossLines(t *testing.T) {
+	a := createTestAmiga(t)
+	a.wireMemoryMap(false)
+	b := a.Blitter
+	// B -> D, minterm B, B shifted right 4, 2 words x 2 lines, no modulos.
+	b.con0, b.con1 = 0x05CC, 0x4000
+	b.bptH, b.bptL, b.dptH, b.dptL = 0, 0x5000, 0, 0x6000
+	for i, w := range []uint16{0x0000, 0x000F, 0x0000, 0x0000} {
+		a.poke16(0x5000+uint32(2*i), w)
+	}
+	blitNow(a, 2<<6|2)
+	if got := a.peek16(0x6004); got != 0xF000 {
+		t.Errorf("line 2 word 1 = $%04X, want $F000 (bits carried from line 1)", got)
+	}
+	// With A and ALWM = 0, the masked last word carries nothing.
+	b.con0, b.con1 = 0x49F0, 0 // A -> D, minterm A, A shifted 4
+	b.afwm, b.alwm = 0xFFFF, 0x0000
+	b.aptH, b.aptL, b.dptH, b.dptL = 0, 0x5000, 0, 0x6000
+	blitNow(a, 2<<6|2)
+	if got := a.peek16(0x6004); got != 0 {
+		t.Errorf("line 2 word 1 = $%04X, want 0 (ALWM masked the carried word)", got)
+	}
+}

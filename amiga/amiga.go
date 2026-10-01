@@ -756,7 +756,7 @@ func (a *Amiga) LoadDisk(path string) error {
 // path may also be a zipped or gzipped ADF (see ReadDiskImage); writes to
 // those stay in memory.
 func (a *Amiga) LoadDiskUnit(unit int, path string) error {
-	data, saveable, err := ReadDiskImage(path)
+	img, err := ReadDiskImage(path)
 	if err != nil {
 		return err
 	}
@@ -764,10 +764,10 @@ func (a *Amiga) LoadDiskUnit(unit int, path string) error {
 	if unit > 0 {
 		dr = a.Disk.ConnectDrive(unit)
 	}
-	if err := dr.InsertDisk(data); err != nil {
+	if err := dr.InsertImage(img); err != nil {
 		return err
 	}
-	if saveable {
+	if img.Saveable {
 		dr.path = path
 	}
 	return nil
@@ -786,14 +786,14 @@ func (a *Amiga) SwapDiskUnit(unit int, path string) error {
 	if dr == nil {
 		return fmt.Errorf("DF%d: is not connected", unit)
 	}
-	data, saveable, err := ReadDiskImage(path)
+	img, err := ReadDiskImage(path)
 	if err != nil {
 		return err
 	}
-	if !saveable {
+	if !img.Saveable {
 		path = ""
 	}
-	return dr.SwapDisk(data, path)
+	return dr.SwapImage(img, path)
 }
 
 // ROMChecksum returns the Kickstart checksum of a ROM image: the sum of its

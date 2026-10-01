@@ -157,7 +157,7 @@ func (d *Display) syncDisks() {
 	for n := range d.DiskIndex {
 		d.DiskIndex[n] = -1
 		dr := d.amiga.Disk.DF(n)
-		if dr == nil || dr.adf == nil || dr.path == "" {
+		if dr == nil || !dr.Inserted() || dr.path == "" {
 			continue
 		}
 		i := slices.Index(d.Disks[n], dr.path)
