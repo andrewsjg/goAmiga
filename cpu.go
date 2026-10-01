@@ -142,6 +142,13 @@ type Processor struct {
 	VBR, CACR, CAAR, SFC, DFC, MSP uint32
 	instrAddr                      uint32 // address of the instruction being executed
 
+	// FPU is the floating-point coprocessor on a 68020: FPUNone, FPU68881
+	// or FPU68882 (fpu.go).
+	FPU               int
+	FP                [8]float64
+	FPCR, FPSR, FPIAR uint32
+	fpuUsed           bool // an FPU instruction ran since reset (FSAVE gives an idle frame)
+
 	buf      [64]byte         // general purpose buffer
 	op       uint16           // current opcode
 	runState RunState         // current state
@@ -178,6 +185,7 @@ func (c *Processor) Reset() {
 		handlers:     h,
 		ResetHandler: rh,
 		Model:        c.Model,
+		FPU:          c.FPU,
 	}
 	c.M.Reset()
 }
@@ -196,6 +204,7 @@ func (c *Processor) ResetWithVectors() error {
 		handlers:        h,
 		ResetHandler:    rh,
 		Model:           c.Model,
+		FPU:             c.FPU,
 		NoAddressErrors: c.NoAddressErrors,
 	}
 	c.M.Reset()
@@ -318,7 +327,11 @@ func (c *Processor) Step() (err error) {
 	// dispatch opcode to function
 	var fn stepFunc
 	if c.is020() {
-		fn = dispatch020(c.op)
+		if c.op&0xFE00 == 0xF200 && c.hasFPU() { // coprocessor 1: the FPU
+			fn = opFPU
+		} else {
+			fn = dispatch020(c.op)
+		}
 	}
 	if fn == nil {
 		fn = dispatch(c.op)
@@ -1451,13 +1464,19 @@ type ProcessorState struct {
 	// 68020
 	Model                          Model
 	VBR, CACR, CAAR, SFC, DFC, MSP uint32
+	// FPU
+	FPU               int
+	FP                [8]float64
+	FPCR, FPSR, FPIAR uint32
+	FPUUsed           bool
 }
 
 // State returns the processor's state between instructions.
 func (c *Processor) State() ProcessorState {
 	return ProcessorState{D: c.D, A: c.A, SR: c.SR, PC: c.PC, SSP: c.SSP, USP: c.USP,
 		PendingIPL: c.pendingIPL, RunState: c.runState, Model: c.Model,
-		VBR: c.VBR, CACR: c.CACR, CAAR: c.CAAR, SFC: c.SFC, DFC: c.DFC, MSP: c.MSP}
+		VBR: c.VBR, CACR: c.CACR, CAAR: c.CAAR, SFC: c.SFC, DFC: c.DFC, MSP: c.MSP,
+		FPU: c.FPU, FP: c.FP, FPCR: c.FPCR, FPSR: c.FPSR, FPIAR: c.FPIAR, FPUUsed: c.fpuUsed}
 }
 
 // SetState restores a state returned by State.
@@ -1466,4 +1485,5 @@ func (c *Processor) SetState(s ProcessorState) {
 	c.pendingIPL, c.runState = s.PendingIPL, s.RunState
 	c.Model = s.Model
 	c.VBR, c.CACR, c.CAAR, c.SFC, c.DFC, c.MSP = s.VBR, s.CACR, s.CAAR, s.SFC, s.DFC, s.MSP
+	c.FPU, c.FP, c.FPCR, c.FPSR, c.FPIAR, c.fpuUsed = s.FPU, s.FP, s.FPCR, s.FPSR, s.FPIAR, s.FPUUsed
 }

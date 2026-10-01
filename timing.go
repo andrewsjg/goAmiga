@@ -14,6 +14,7 @@ type timingInfo struct {
 	divCycles int  // DIVU/DIVS execution time
 	exception int  // vector of an exception the instruction took (0: none)
 	trapped   bool // CHK/TRAPV/zero divide raised its exception
+	fixed     int  // if set, the instruction's whole time (FPU instructions)
 }
 
 // eaCycles is the effective address calculation time for mode/reg ea.
@@ -86,6 +87,9 @@ func isRegDirect(ea uint16) bool { return ea>>3&7 < 2 }
 
 // cycles returns the clock periods for the instruction just executed.
 func (c *Processor) cycles() int {
+	if c.tim.fixed > 0 {
+		return c.tim.fixed
+	}
 	op := c.op
 	ea := op & 0x3F
 	size := op >> 6 & 3
