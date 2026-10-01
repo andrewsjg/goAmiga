@@ -31,6 +31,7 @@ func main() {
 	chipRAM := flag.Int("chipram", 1024, "Chip RAM in KB: 512 (original Agnus) or 1024 (8372A Fat Agnus)")
 	cpuModel := flag.String("cpu", "68000", "Processor: 68000 (A500) or 68020 (a 68EC020 accelerator)")
 	cpuSpeed := flag.Int("cpu-speed", 0, "CPU speed in percent of a 7 MHz 68000 (default 100 for the 68000, 250 for the 68020)")
+	fpuModel := flag.String("fpu", "none", "Floating-point coprocessor with --cpu 68020: none, 68881 or 68882")
 	chipset := flag.String("chipset", "", "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise) or ecs (A500+/A600); default ecs-agnus with 1 MB chip RAM, else ocs")
 	slowRAM := flag.Int("slowram", 0, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
 	fastRAM := flag.Int("fastram", 2048, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
@@ -93,6 +94,10 @@ func main() {
 		}
 	}
 	if err := a.SetCPU(*cpuModel, *cpuSpeed); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := a.SetFPU(*fpuModel); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

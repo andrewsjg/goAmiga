@@ -164,3 +164,24 @@ func (a *Amiga) SetCPU(model string, speed int) error {
 	a.CPUSpeed = speed
 	return nil
 }
+
+// SetFPU fits a floating-point coprocessor: "none", "68881" or "68882".
+// It needs the 68020 (SetCPU first). Call it before Reset.
+func (a *Amiga) SetFPU(model string) error {
+	switch model {
+	case "", "none":
+		a.CPU.FPU = m68k.FPUNone
+		return nil
+	case "68881":
+		a.CPU.FPU = m68k.FPU68881
+	case "68882":
+		a.CPU.FPU = m68k.FPU68882
+	default:
+		return fmt.Errorf("FPU must be none, 68881 or 68882, not %q", model)
+	}
+	if a.CPU.Model != m68k.Model68020 {
+		a.CPU.FPU = m68k.FPUNone
+		return fmt.Errorf("an FPU needs the 68020 (--cpu 68020)")
+	}
+	return nil
+}

@@ -57,7 +57,8 @@ go run ./cmd/goamiga --rom ROMS/Kick13.rom --df0 disks/wb13.adf --df1 disks/extr
 `--cpu 68020` fits a 68020 accelerator: a 68EC020 like the A1200's, with
 24-bit addressing and no MMU or FPU. By default it runs 2.5× as fast as the
 A500's 7 MHz 68000; `--cpu-speed PERCENT` changes that. Kickstart and
-Workbench detect it by themselves.
+Workbench detect it by themselves. With it, `--fpu 68881` or `--fpu 68882`
+adds a floating-point coprocessor.
 
 `--chipset ocs|ecs-agnus|ecs` picks the custom chips:
 - `ocs` is the original A500.

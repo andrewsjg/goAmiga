@@ -59,3 +59,31 @@ func TestBoot68020KS13(t *testing.T) {
 		t.Errorf("AttnFlags = $%04X, want the 68020 bit", f)
 	}
 }
+
+// Kickstart finds the FPU and its type (by the size of the FSAVE frame).
+func TestBootFPU(t *testing.T) {
+	for _, f := range []struct {
+		model string
+		flags uint16
+	}{{"68881", 0x10}, {"68882", 0x30}} {
+		romData, err := LoadROM("../ROMS/Kick32.rom")
+		if err != nil {
+			t.Skip(err)
+		}
+		a, _ := New(romData, nil)
+		a.SetCPU("68020", 0)
+		if err := a.SetFPU(f.model); err != nil {
+			t.Fatal(err)
+		}
+		a.SetChipRAM(1024)
+		a.ConfigureMemory(0, 2048)
+		a.AttachHardfile(hardfileFromADF(t, "../disks/Install3.2.adf"), false)
+		a.Reset()
+		if !waitWorkbench(t, a) {
+			t.Fatalf("%s: Workbench did not start", f.model)
+		}
+		if got := execAttnFlags(a) & 0x30; got != f.flags {
+			t.Errorf("%s: AttnFlags FPU bits $%02X, want $%02X", f.model, got, f.flags)
+		}
+	}
+}

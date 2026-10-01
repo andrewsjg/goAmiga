@@ -40,6 +40,52 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-01 — 68881/68882 FPU
+
+`--fpu 68881|68882` (with `--cpu 68020`) adds a floating-point coprocessor.
+
+**go-m68k `fpu.go`.** F-line opcodes for coprocessor 1 ($F2xx-$F3xx) go to
+the FPU when one is fitted; otherwise they stay F-line exceptions, which is
+how software finds there's none. It has:
+- FP0-FP7 (held as float64), plus FPCR, FPSR and FPIAR;
+- the N, Z, I and NaN condition codes;
+- all seven operand formats: byte, word, long, single, double, 96-bit
+  extended (converted exactly, denormals included) and packed decimal;
+- the general operations: FMOVE, FINT, FINTRZ, FSQRT, FABS, FNEG, FADD,
+  FSUB, FMUL, FDIV, FMOD and FREM (with the quotient byte), FGETEXP,
+  FGETMAN, FSCALE, FSGLDIV, FSGLMUL, FCMP, FTST, the transcendental
+  functions and FSINCOS;
+- FMOVECR's constant ROM;
+- control-register moves, and FMOVEM, static or dynamic, in all three
+  addressing directions;
+- FBcc, FScc, FDBcc and FTRAPcc with all 32 predicates, unordered
+  comparisons included;
+- FSAVE/FRESTORE: a null frame until the FPU is first used, then an idle
+  frame whose size ($18 for the 68881, $38 for the 68882) is how exec tells
+  the two apart.
+
+Instructions take typical 68881 times (`timingInfo.fixed`).
+
+**Simplified:**
+- results carry float64's 53-bit mantissa, not 64 bits;
+- FPCR's rounding precision is ignored (its rounding mode is used for
+  integer conversion and FINT);
+- arithmetic exceptions are noted in FPSR but never trapped.
+
+**Amiga side.** `SetFPU`, and save states carry the FPU registers (version
+7).
+
+**Checks.** `TestBootFPU`: Kickstart 3.2 reports AttnFlags $10 with a
+68881 and $30 with a 68882, and boots Workbench. Your installed Workbench
+3.2 boots fully on a 68020 with a 68882. go-m68k tests cover:
+- the format conversions (1.0's exact extended bits, a denormal, ∞, NaN,
+  packed decimal);
+- arithmetic, rounding modes and divide-by-zero;
+- FMOVEM round trips;
+- FBcc/FScc, including NaN-unordered;
+- FSAVE/FRESTORE frames for both models;
+- the F-line exception with no FPU.
+
 ## 2026-10-01 — Timing: disk DMA as the head moves, spin-up, bus slots, line blits
 
 **Disk DMA is progressive** (`diskXfer`).
