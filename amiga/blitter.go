@@ -39,7 +39,8 @@ type Blitter struct {
 
 	// State
 	busy             bool
-	run              *blitRun // area blit in progress (nil: none, or line mode)
+	run              *blitRun // area blit in progress
+	lrun             *lineRun // line blit in progress
 	zero             bool     // BZERO: every word the last blit produced was 0
 	completionCycles int      // cycles until BBUSY clears
 	pendingIRQs      int      // BLIT completions not yet signaled via INTREQ
@@ -129,8 +130,8 @@ func (b *Blitter) start(width, height int) {
 		b.OnExecute(size, b.con0, b.con1, b.ptr(b.dptH, b.dptL))
 	}
 
-	// Line mode is done at once (its data still lands at the start); area
-	// blits proceed word by word as the blitter gets bus slots (step).
+	// Area blits proceed word by word, and lines pixel by pixel, as the
+	// blitter gets bus slots (step).
 	if b.con1&0x0001 != 0 {
 		b.zero = true
 		b.executeLine(height)
@@ -248,6 +249,15 @@ func (b *Blitter) beginBlit(width, height int) {
 
 // step spends cpuCycles of bus slots on the blit in progress.
 func (b *Blitter) step(cpuCycles int) {
+	if l := b.lrun; l != nil {
+		l.credit += cpuCycles
+		cost := blitLineCyclesPerPixel * CPUCyclesPerColorClock
+		for l.credit >= cost && b.lrun != nil {
+			l.credit -= cost
+			b.linePixel()
+		}
+		return
+	}
 	r := b.run
 	if r == nil {
 		return
@@ -263,6 +273,9 @@ func (b *Blitter) step(cpuCycles int) {
 func (b *Blitter) completeRun() {
 	for b.run != nil {
 		b.blitWord()
+	}
+	for b.lrun != nil {
+		b.linePixel()
 	}
 }
 
@@ -510,164 +523,182 @@ func (b *Blitter) blitWord() {
 // SIGN of the error term is taken from APT (not from BLTCON1 bit 2, which is
 // overloaded as part of the octant encoding above).
 func (b *Blitter) executeLine(length int) {
-
-	minterm := byte(b.con0 & 0xFF)
 	// Map Draw's BLTCON1 bits 2-4 (AUL/SUL/SUD packing) to internal octants:
 	// key 0..7 → octant 2,6,3,7,0,4,1,5
 	keyToOctant := [8]int{2, 6, 3, 7, 0, 4, 1, 5}
-	octant := keyToOctant[(b.con1>>2)&7]
-	// SING (bit 1): at most one pixel per raster line (WinUAE onedot).
-	// Y change clears onedot; used for area-fill edges, not a minor-step proxy.
-	singleMode := b.con1&0x0002 != 0
-
-	// Start pixel position within word (BLTCON0 bits 15-12)
-	pixelBit := (b.con0 >> 12) & 0xF
-
-	// Bresenham error accumulator (signed 16-bit in APT low word).
-	// graphics.library stores two's complement and sets BLTCON1 SIGN (bit 6).
-	errAcc := int16(b.aptL)
-	sign := errAcc < 0
+	r := &lineRun{
+		remaining: length,
+		minterm:   byte(b.con0 & 0xFF),
+		octant:    keyToOctant[(b.con1>>2)&7],
+		// SING (bit 1): at most one pixel per raster line (WinUAE onedot).
+		// Y change clears onedot; used for area-fill edges, not a minor-step proxy.
+		single: b.con1&0x0002 != 0,
+		// Start pixel position within word (BLTCON0 bits 15-12)
+		pixelBit: (b.con0 >> 12) & 0xF,
+		// Bresenham error accumulator (signed 16-bit in APT low word).
+		// graphics.library stores two's complement and sets BLTCON1 SIGN (bit 6).
+		errAcc: int16(b.aptL),
+		// C is stepped for geometry; D receives the write then tracks C (WinUAE).
+		cpt: b.ptr(b.cptH, b.cptL),
+		// Line mode uses CMOD for vertical steps (DMOD is ignored on real Agnus).
+		lineModulo: int32(b.cmod),
+		incMajor:   int32(b.amod), // 2*(dy-dx) when error >= 0
+		incMinor:   int32(b.bmod), // 2*dy when error < 0
+		// Texture from BDAT; start index is BLTCON1 bits 15-12 (not always bit 15).
+		texture:      b.bdat,
+		textureShift: uint((b.con1 >> 12) & 0xF),
+		credit:       -blitStartupCycles * CPUCyclesPerColorClock,
+	}
+	r.sign = r.errAcc < 0
 	if b.con1&0x0040 != 0 {
 		// Explicit SIGN wins when APT was even-truncated (address-register quirk)
-		sign = true
+		r.sign = true
 	}
-
-	// C is stepped for geometry; D receives the write then tracks C (WinUAE).
-	cpt := b.ptr(b.cptH, b.cptL)
-	dpt := b.ptr(b.dptH, b.dptL)
-
-	// Line mode uses CMOD for vertical steps (DMOD is ignored on real Agnus).
-	lineModulo := int32(b.cmod)
-	incMajor := int32(b.amod) // 2*(dy-dx) when error >= 0
-	incMinor := int32(b.bmod) // 2*dy when error < 0
-
-	// Texture from BDAT; start index is BLTCON1 bits 15-12 (not always bit 15).
-	texture := b.bdat
-	textureShift := uint((b.con1 >> 12) & 0xF)
-
-	onedot := false // SING: true after plotting on current raster line
-	buf := make([]byte, 2)
-
 	if b.logger != nil {
-		fmt.Fprintf(b.logger, "BLITTER LINE: len=%d oct=%d sign=%v bit=%d err=%d C=$%08X D=$%08X cmod=%d amod=%d bmod=%d min=$%02X SING=%v tex=%d\n",
-			length, octant, sign, pixelBit, errAcc, cpt, dpt, b.cmod, b.amod, b.bmod, minterm, singleMode, textureShift)
+		fmt.Fprintf(b.logger, "BLITTER LINE: len=%d oct=%d sign=%v bit=%d err=%d C=$%08X cmod=%d amod=%d bmod=%d min=$%02X SING=%v tex=%d\n",
+			length, r.octant, r.sign, r.pixelBit, r.errAcc, r.cpt, b.cmod, b.amod, b.bmod, r.minterm, r.single, r.textureShift)
 	}
+	b.lrun = r
+	if length == 0 {
+		b.lrun = nil
+	}
+}
 
+// lineRun is a line-mode blit in progress, drawn a pixel at a time as the
+// blitter gets bus slots (blitLineCyclesPerPixel colour clocks each).
+type lineRun struct {
+	remaining            int
+	minterm              byte
+	octant               int
+	single, onedot, sign bool
+	pixelBit             uint16
+	errAcc               int16
+	cpt                  uint32
+	lineModulo           int32
+	incMajor, incMinor   int32
+	texture              uint16
+	textureShift         uint
+	credit               int
+}
+
+// linePixel draws the next pixel of the line in progress, and at the end
+// clears b.lrun. The registers follow the line.
+func (b *Blitter) linePixel() {
+	r := b.lrun
+	var buf [2]byte
 	stepX := func(dir int) {
 		if dir > 0 {
-			pixelBit++
-			if pixelBit > 15 {
-				pixelBit = 0
-				cpt += 2
+			r.pixelBit++
+			if r.pixelBit > 15 {
+				r.pixelBit = 0
+				r.cpt += 2
 			}
 		} else {
-			if pixelBit == 0 {
-				pixelBit = 15
-				cpt -= 2
+			if r.pixelBit == 0 {
+				r.pixelBit = 15
+				r.cpt -= 2
 			} else {
-				pixelBit--
+				r.pixelBit--
 			}
 		}
 	}
 	stepY := func(dir int) {
 		if dir > 0 {
-			cpt = uint32(int32(cpt) + lineModulo)
+			r.cpt = uint32(int32(r.cpt) + r.lineModulo)
 		} else {
-			cpt = uint32(int32(cpt) - lineModulo)
+			r.cpt = uint32(int32(r.cpt) - r.lineModulo)
 		}
-		onedot = false // new raster line — SING may plot again
+		r.onedot = false // new raster line — SING may plot again
 	}
 
-	for i := 0; i < length; i++ {
-		// A channel: single-pixel mask from BLTADAT=$8000 semantics
-		aWord := uint16(1) << (15 - pixelBit)
+	// A channel: single-pixel mask from BLTADAT=$8000 semantics
+	aWord := uint16(1) << (15 - r.pixelBit)
 
-		// B channel: texture bit (solid $FFFF → always on)
-		var bWord uint16
-		if texture&(1<<textureShift) != 0 {
-			bWord = 0xFFFF
+	// B channel: texture bit (solid $FFFF → always on)
+	var bWord uint16
+	if r.texture&(1<<r.textureShift) != 0 {
+		bWord = 0xFFFF
+	}
+
+	// C channel: destination word
+	b.amiga.ChipRAM.Read(int(r.cpt&^1), buf[:])
+	cWord := uint16(buf[0])<<8 | uint16(buf[1])
+
+	dWord := applyMinterm(r.minterm, aWord, bWord, cWord)
+
+	// SING: plot at most one pixel per horizontal raster line
+	if !r.single || !r.onedot {
+		r.onedot = true
+		if dWord != 0 {
+			b.zero = false
 		}
-
-		// C channel: destination word
-		b.amiga.ChipRAM.Read(int(cpt&^1), buf)
-		cWord := uint16(buf[0])<<8 | uint16(buf[1])
-
-		dWord := applyMinterm(minterm, aWord, bWord, cWord)
-
-		// SING: plot at most one pixel per horizontal raster line
-		writePixel := !singleMode || !onedot
-		if writePixel {
-			onedot = true
-			if dWord != 0 {
-				b.zero = false
-			}
-			buf[0] = byte(dWord >> 8)
-			buf[1] = byte(dWord)
-			// Write through DPT, then D tracks C (hardware behaviour)
-			dpt = cpt
-			writeAddr := int(dpt &^ 1)
-			b.amiga.ChipRAM.Write(writeAddr, buf)
-			if b.DebugWriteHook != nil {
-				b.DebugWriteHook(writeAddr, dWord, aWord, bWord, cWord, minterm)
-			}
+		buf[0] = byte(dWord >> 8)
+		buf[1] = byte(dWord)
+		// Write through DPT, then D tracks C (hardware behaviour)
+		writeAddr := int(r.cpt &^ 1)
+		b.amiga.ChipRAM.Write(writeAddr, buf[:])
+		if b.DebugWriteHook != nil {
+			b.DebugWriteHook(writeAddr, dWord, aWord, bWord, cWord, r.minterm)
 		}
+	}
 
-		// Rotate texture start (decrement, wrap) — matches BLTCON1 field update
-		if textureShift == 0 {
-			textureShift = 15
-		} else {
-			textureShift--
-		}
+	// Rotate texture start (decrement, wrap) — matches BLTCON1 field update
+	if r.textureShift == 0 {
+		r.textureShift = 15
+	} else {
+		r.textureShift--
+	}
 
-		// Bresenham: update error, then step axes
-		oldSign := sign
-		if sign {
-			errAcc += int16(incMinor)
-		} else {
-			errAcc += int16(incMajor)
-		}
-		sign = errAcc < 0
+	// Bresenham: update error, then step axes
+	oldSign := r.sign
+	if r.sign {
+		r.errAcc += int16(r.incMinor)
+	} else {
+		r.errAcc += int16(r.incMajor)
+	}
+	r.sign = r.errAcc < 0
 
-		// Major axis always; minor when error was non-negative before update.
-		// Octants: 0 +X/+Y  1 +X/-Y  2 +Y/+X  3 +Y/-X
-		//          4 -X/+Y  5 -X/-Y  6 -Y/+X  7 -Y/-X
-		switch octant {
-		case 0, 1: // +X major
-			stepX(+1)
-		case 4, 5: // -X major
-			stepX(-1)
-		case 2, 3: // +Y major
+	// Major axis always; minor when error was non-negative before update.
+	// Octants: 0 +X/+Y  1 +X/-Y  2 +Y/+X  3 +Y/-X
+	//          4 -X/+Y  5 -X/-Y  6 -Y/+X  7 -Y/-X
+	switch r.octant {
+	case 0, 1: // +X major
+		stepX(+1)
+	case 4, 5: // -X major
+		stepX(-1)
+	case 2, 3: // +Y major
+		stepY(+1)
+	case 6, 7: // -Y major
+		stepY(-1)
+	}
+	if !oldSign {
+		switch r.octant {
+		case 0, 4: // +Y minor
 			stepY(+1)
-		case 6, 7: // -Y major
+		case 1, 5: // -Y minor
 			stepY(-1)
-		}
-		if !oldSign {
-			switch octant {
-			case 0, 4: // +Y minor
-				stepY(+1)
-			case 1, 5: // -Y minor
-				stepY(-1)
-			case 2, 6: // +X minor
-				stepX(+1)
-			case 3, 7: // -X minor
-				stepX(-1)
-			}
+		case 2, 6: // +X minor
+			stepX(+1)
+		case 3, 7: // -X minor
+			stepX(-1)
 		}
 	}
 
-	// Write back final state
-	b.aptL = uint16(errAcc)
-	b.cptH = uint16(cpt >> 16)
-	b.cptL = uint16(cpt)
-	b.dptH = uint16(cpt >> 16) // D tracks C
-	b.dptL = uint16(cpt)
+	// The registers follow the line.
+	b.aptL = uint16(r.errAcc)
+	b.cptH, b.cptL = uint16(r.cpt>>16), uint16(r.cpt)
+	b.dptH, b.dptL = uint16(r.cpt>>16), uint16(r.cpt) // D tracks C
 	// Update BLTCON0 ashift and BLTCON1 texture shift + SIGN (bit 6, not AUL bit 2!)
-	b.con0 = (b.con0 & 0x0FFF) | (pixelBit << 12)
-	b.con1 = (b.con1 & 0x0FFF) | (uint16(textureShift) << 12)
-	if sign {
+	b.con0 = (b.con0 & 0x0FFF) | (r.pixelBit << 12)
+	b.con1 = (b.con1 & 0x0FFF) | (uint16(r.textureShift) << 12)
+	if r.sign {
 		b.con1 |= 0x0040
 	} else {
 		b.con1 &^= 0x0040
+	}
+	r.remaining--
+	if r.remaining == 0 {
+		b.lrun = nil
 	}
 }
 

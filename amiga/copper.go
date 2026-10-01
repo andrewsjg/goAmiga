@@ -210,3 +210,34 @@ func (c *Copper) execute(ir1, ir2 uint16, hpos, vpos int) {
 		}
 	}
 }
+
+// busyWords estimates how many words the Copper will fetch before it next
+// waits: 0 while it waits, is halted or has no DMA; otherwise the words
+// up to and including the next WAIT or SKIP, read ahead from its list
+// without executing anything. The CPU and blitter lose that many even
+// bus slots to it (see chipBusWait, blitterSlots).
+func (c *Copper) busyWords() int {
+	if c.halted || c.wait || c.amiga.Custom.ReadReg16(0x096)&0x0280 != 0x0280 {
+		return 0
+	}
+	words := 0
+	pc := c.pc
+	if c.second { // half-way through an instruction
+		ir2Addr := pc
+		words++
+		if c.ir1&1 != 0 {
+			return words
+		}
+		pc = ir2Addr + 2
+	}
+	var b [2]byte
+	for words < 64 {
+		c.amiga.ChipRAM.Read(int(pc), b[:])
+		words += 2
+		if b[1]&1 != 0 { // WAIT or SKIP ends the burst
+			break
+		}
+		pc += 4
+	}
+	return words
+}

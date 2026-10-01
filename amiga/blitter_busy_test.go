@@ -220,3 +220,32 @@ func TestBlitShiftCarriesAcrossLines(t *testing.T) {
 		t.Errorf("line 2 word 1 = $%04X, want 0 (ALWM masked the carried word)", got)
 	}
 }
+
+// A line is drawn a pixel at a time as the blitter gets bus slots.
+func TestLineBlitIsIncremental(t *testing.T) {
+	a := createTestAmiga(t)
+	a.wireMemoryMap(false)
+	a.Custom.Write(0x096, []byte{0x82, 0x40})
+	b := a.Blitter
+	// A horizontal line, 64 pixels, from $10000 (octant +X major), OR mode.
+	b.con0, b.con1 = 0x0BCA, 0x0011 // USE A,C,D; minterm A|C... ; LINE, +X
+	b.bdat, b.adat = 0xFFFF, 0x8000
+	b.cptH, b.cptL, b.dptH, b.dptL = 1, 0, 1, 0
+	b.cmod, b.amod, b.bmod = 80, 0, 0
+	b.aptL = 0xFFFF // error < 0: never step Y
+	b.Execute(64<<6 | 2)
+	if a.peek16(0x10000) != 0 {
+		t.Error("pixels drawn at the BLTSIZE write")
+	}
+	b.TickCycles(b.completionCycles / 2)
+	first, last := a.peek16(0x10000), a.peek16(0x10006)
+	if first == 0 || last != 0 {
+		t.Errorf("halfway: first word $%04X, last word $%04X; want the start drawn, the end not", first, last)
+	}
+	for b.busy {
+		b.TickCycles(CPUClocksPerLine)
+	}
+	if a.peek16(0x10006) == 0 {
+		t.Error("line not finished")
+	}
+}

@@ -168,8 +168,9 @@ func TestDiskDMATransfer(t *testing.T) {
 	// Double-write DSKLEN to trigger DMA (read 100 words)
 	d.WriteDSKLEN(0x8064) // DMA enable + 100 words
 	d.WriteDSKLEN(0x8064) // second write triggers DMA
+	finishDiskDMA(d)
 
-	// Check that data was written to ChipRAM immediately
+	// Check that data was written to ChipRAM
 	buf := make([]byte, 4)
 	a.ChipRAM.Read(0x20000, buf)
 
@@ -264,5 +265,13 @@ func TestDiskSideSelect(t *testing.T) {
 	d.HandleCIABWrite(0x73, 0x77) // bit 2 = 1 → lower
 	if d.side != 0 {
 		t.Errorf("expected side 0 (lower), got %d", d.side)
+	}
+}
+
+// finishDiskDMA runs the disk DMA in progress to its end: data reaches
+// chip RAM as the head passes it, not when DMA starts.
+func finishDiskDMA(d *DiskDrive) {
+	if c := d.completionCycles; c > 0 {
+		d.TickCycles(c)
 	}
 }

@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 4
+	stateVersion = 6
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -385,6 +385,31 @@ func (b *Blitter) state(s *stateCodec) {
 	s.bool(&b.zero)
 	num(s, &b.completionCycles)
 	num(s, &b.pendingIRQs)
+	drawing := b.lrun != nil
+	s.bool(&drawing)
+	if drawing {
+		if s.load {
+			b.lrun = &lineRun{}
+		}
+		l := b.lrun
+		num(s, &l.remaining)
+		num(s, &l.minterm)
+		num(s, &l.octant)
+		s.bool(&l.single)
+		s.bool(&l.onedot)
+		s.bool(&l.sign)
+		num(s, &l.pixelBit)
+		num(s, &l.errAcc)
+		num(s, &l.cpt)
+		num(s, &l.lineModulo)
+		num(s, &l.incMajor)
+		num(s, &l.incMinor)
+		num(s, &l.texture)
+		num(s, &l.textureShift)
+		num(s, &l.credit)
+	} else {
+		b.lrun = nil
+	}
 	running := b.run != nil
 	s.bool(&running)
 	if !running {
@@ -463,6 +488,33 @@ func (d *DiskDrive) state(s *stateCodec) {
 	num(s, &d.syncCycles)
 	num(s, &d.completionCycles)
 	s.bool(&d.dmaWaiting)
+	busy := d.xfer != nil
+	s.bool(&busy)
+	if busy {
+		if s.load {
+			d.xfer = &diskXfer{}
+		}
+		x := d.xfer
+		s.bool(&x.write)
+		n := len(x.words)
+		num(s, &n)
+		if s.load {
+			if n < 0 || n > 0x4000 {
+				s.err = cmpErr(s.err, errors.New("state: bad disk transfer"))
+				return
+			}
+			x.words = make([]uint16, n)
+		}
+		for i := range x.words {
+			num(s, &x.words[i])
+		}
+		for _, p := range []*int{&x.count, &x.done, &x.wait, &x.elapsed} {
+			num(s, p)
+		}
+		num(s, &x.dst)
+	} else {
+		d.xfer = nil
+	}
 	for n := range d.drives {
 		connected := d.drives[n] != nil
 		s.bool(&connected)
@@ -519,6 +571,7 @@ func (dr *Drive) state(s *stateCodec) {
 	num(s, &dr.pendingWait)
 	num(s, &dr.pendingElapsed)
 	s.bool(&dr.motor)
+	num(s, &dr.motorOnAt)
 	num(s, &dr.cylinder)
 	s.bool(&dr.selected)
 	s.bool(&dr.diskChange)

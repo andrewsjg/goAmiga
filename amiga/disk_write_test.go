@@ -28,8 +28,13 @@ func writeDMA(t *testing.T, a *Amiga, track int, mfm []byte) []byte {
 	words := uint16(len(mfm) / 2)
 	d.WriteDSKLEN(0xC000 | words) // DMAEN + WRITE
 	d.WriteDSKLEN(0xC000 | words)
+	lastWriteCycles = d.completionCycles
+	finishDiskDMA(d) // the buffer is decoded when the transfer ends
 	return d.adf[track*TrackSize : (track+1)*TrackSize]
 }
+
+// lastWriteCycles is how long writeDMA's transfer took.
+var lastWriteCycles int
 
 // A track encoded the way trackdisk writes it decodes back to the same
 // sectors, and the DMA takes one word time per word.
@@ -48,10 +53,9 @@ func TestDiskWriteRoundTrip(t *testing.T) {
 	if a.Disk.SectorsWritten != SectorsPerTrack || a.Disk.BadSectorWrites != 0 || a.Disk.TrackMismatches != 0 {
 		t.Errorf("stats: %d written, %d bad, %d mismatched", a.Disk.SectorsWritten, a.Disk.BadSectorWrites, a.Disk.TrackMismatches)
 	}
-	if a.Disk.completionCycles != MFMTrackWords*DiskCyclesPerWord {
-		t.Errorf("write DMA takes %d cycles, want %d", a.Disk.completionCycles, MFMTrackWords*DiskCyclesPerWord)
+	if lastWriteCycles != MFMTrackWords*DiskCyclesPerWord {
+		t.Errorf("write DMA takes %d cycles, want %d", lastWriteCycles, MFMTrackWords*DiskCyclesPerWord)
 	}
-	a.Disk.TickCycles(a.Disk.completionCycles)
 	if a.Custom.ReadReg16(0x09C)&0x0002 == 0 {
 		t.Error("no DSKBLK after write DMA")
 	}
@@ -91,8 +95,8 @@ func TestDiskWriteProtect(t *testing.T) {
 	if !bytes.Equal(got, make([]byte, TrackSize)) || a.Disk.SectorsWritten != 0 {
 		t.Error("write-protected disk was written")
 	}
-	if a.Disk.completionCycles == 0 {
-		t.Error("write DMA to a protected disk should still complete")
+	if lastWriteCycles == 0 || a.Custom.ReadReg16(0x09C)&0x0002 == 0 {
+		t.Error("write DMA to a protected disk should still run and complete")
 	}
 }
 

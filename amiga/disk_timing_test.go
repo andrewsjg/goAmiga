@@ -56,12 +56,6 @@ func TestDiskDMARotationalTiming(t *testing.T) {
 	if got := a.Disk.completionCycles; got != (wait+100)*DiskCyclesPerWord {
 		t.Errorf("DSKBLK after %d cycles, want %d", got, (wait+100)*DiskCyclesPerWord)
 	}
-	// Data starts with the word after the sync (the second $4489).
-	got := make([]byte, 4)
-	a.ChipRAM.Read(0x20000, got)
-	if string(got) != string(mfm[2*(syncs[6]+1):2*(syncs[6]+3)]) {
-		t.Errorf("DMA data starts % X, want % X", got, mfm[2*(syncs[6]+1):2*(syncs[6]+3)])
-	}
 
 	a.Disk.TickCycles(wait*DiskCyclesPerWord - 1)
 	if a.Custom.ReadReg16(0x09C)&0x1000 != 0 {
@@ -78,6 +72,12 @@ func TestDiskDMARotationalTiming(t *testing.T) {
 	if a.Custom.ReadReg16(0x09C)&0x0002 == 0 {
 		t.Error("no DSKBLK after the transfer")
 	}
+	// Data starts with the word after the sync (the second $4489).
+	got := make([]byte, 4)
+	a.ChipRAM.Read(0x20000, got)
+	if string(got) != string(mfm[2*(syncs[6]+1):2*(syncs[6]+3)]) {
+		t.Errorf("DMA data starts % X, want % X", got, mfm[2*(syncs[6]+1):2*(syncs[6]+3)])
+	}
 }
 
 // A read longer than the gap-to-end wraps around to the start of the track.
@@ -86,15 +86,16 @@ func TestDiskDMAWrapsAroundTrack(t *testing.T) {
 	a.Disk.WriteADKCON(0x0400) // no WORDSYNC: start right under the head
 	a.Disk.WriteDSKLEN(0x8000 | 20)
 	a.Disk.WriteDSKLEN(0x8000 | 20)
+	if a.Disk.syncCycles != 0 || a.Disk.completionCycles != 20*DiskCyclesPerWord {
+		t.Errorf("no-sync read: sync %d, done %d cycles", a.Disk.syncCycles, a.Disk.completionCycles)
+	}
+	finishDiskDMA(a.Disk)
 	mfm := a.Disk.encodeMFMTrack(0)
 	got := make([]byte, 40)
 	a.ChipRAM.Read(0x20000, got)
 	want := append(append([]byte{}, mfm[2*(MFMTrackWords-5):]...), mfm[:30]...)
 	if string(got) != string(want) {
 		t.Errorf("wrapped read\n got % X\nwant % X", got, want)
-	}
-	if a.Disk.syncCycles != 0 || a.Disk.completionCycles != 20*DiskCyclesPerWord {
-		t.Errorf("no-sync read: sync %d, done %d cycles", a.Disk.syncCycles, a.Disk.completionCycles)
 	}
 }
 
@@ -132,5 +133,60 @@ func TestDiskIndexPulse(t *testing.T) {
 	a.Disk.TickCycles(2)
 	if a.CIAB.icrData&0x10 != 0 {
 		t.Error("deselected drive produced an index pulse")
+	}
+}
+
+// Read DMA delivers words as they pass the head: halfway through the
+// transfer only about half the buffer has been written.
+func TestDiskDMAProgressive(t *testing.T) {
+	a := spinningDisk(t, 0)
+	a.Disk.InsertDisk(patternADF()) // varied data, so unwritten memory differs
+	a.Disk.selected, a.Disk.motor = true, true
+	a.Disk.WriteADKCON(0x0400) // no WORDSYNC
+	a.ChipRAM.Write(0x20000, make([]byte, 400))
+	a.Disk.WriteDSKLEN(0x8000 | 200)
+	a.Disk.WriteDSKLEN(0x8000 | 200)
+	a.Disk.TickCycles(100 * DiskCyclesPerWord)
+	mfm := a.Disk.encodeMFMTrack(0)
+	got := make([]byte, 400)
+	a.ChipRAM.Read(0x20000, got)
+	if string(got[:200]) != string(mfm[:200]) {
+		t.Error("the first 100 words have not arrived after 100 word times")
+	}
+	if string(got[204:]) == string(mfm[204:400]) {
+		t.Error("words beyond the head's position were already written")
+	}
+	finishDiskDMA(a.Disk)
+	a.ChipRAM.Read(0x20000, got)
+	if string(got) != string(mfm[:400]) {
+		t.Error("the whole buffer is not there after the transfer")
+	}
+}
+
+// Clearing DSKLEN's DMA bit aborts a transfer: no DSKBLK.
+func TestDiskDMAAbort(t *testing.T) {
+	a := spinningDisk(t, 0)
+	a.Disk.WriteADKCON(0x0400)
+	a.Disk.WriteDSKLEN(0x8000 | 200)
+	a.Disk.WriteDSKLEN(0x8000 | 200)
+	a.Disk.TickCycles(50 * DiskCyclesPerWord)
+	a.Disk.WriteDSKLEN(0x4000)
+	a.Disk.TickCycles(300 * DiskCyclesPerWord)
+	if a.Custom.ReadReg16(0x09C)&0x0002 != 0 {
+		t.Error("DSKBLK after the DMA was aborted")
+	}
+}
+
+// A drive reports ready only once its motor has spun up.
+func TestDiskSpinUp(t *testing.T) {
+	a := createTestAmiga(t)
+	a.Disk.InsertDisk(make([]byte, ADFSize))
+	a.Disk.HandleCIABWrite(0xFF, 0x77) // select DF0: with the motor on
+	if a.Disk.ReadStatus(0xFF)&0x20 == 0 {
+		t.Error("/DSKRDY low the moment the motor starts")
+	}
+	a.cycles += DiskSpinUpCycles
+	if a.Disk.ReadStatus(0xFF)&0x20 != 0 {
+		t.Error("/DSKRDY still high after spin-up")
 	}
 }

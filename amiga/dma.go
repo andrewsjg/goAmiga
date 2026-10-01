@@ -114,17 +114,47 @@ func (f bitplaneFetch) uses(cck int) bool {
 	return plane != 0 && plane <= f.planes
 }
 
-// fixedSlot reports whether refresh or sprite DMA takes colour clock cck.
-// These are odd slots near the start of the line, so they only affect the
-// blitter.
-func fixedSlot(cck int, spriteDMA bool) bool {
+// fixedDMA says which fixed DMA channels are running: they take odd slots
+// near the start of each line (HRM "DMA time slot allocation"), so they
+// only affect the blitter, never the CPU.
+type fixedDMA struct {
+	disk   bool
+	audio  [4]bool
+	sprite bool
+}
+
+func (a *Amiga) fixedDMAState() fixedDMA {
+	dmacon := a.Custom.ReadReg16(0x096)
+	var f fixedDMA
+	if dmacon&0x0200 == 0 {
+		return f
+	}
+	f.disk = dmacon&0x0010 != 0 && a.Disk != nil && a.Disk.xfer != nil
+	for i := range f.audio {
+		f.audio[i] = dmacon&(1<<i) != 0
+	}
+	f.sprite = dmacon&0x0020 != 0
+	return f
+}
+
+// fixedSlot reports whether refresh, disk, audio or sprite DMA takes
+// colour clock cck: refresh $01-$07, disk $09-$0D, audio $0F-$15 (one per
+// channel), sprites $17-$35 (two words each for eight sprites).
+func fixedSlot(cck int, f fixedDMA) bool {
 	if cck&1 == 0 {
 		return false
 	}
-	if cck <= 0x07 { // memory refresh
+	switch {
+	case cck <= 0x07:
 		return true
+	case cck <= 0x0D:
+		return f.disk
+	case cck <= 0x15:
+		return f.audio[(cck-0x0F)/2]
+	case cck <= 0x35:
+		return f.sprite
 	}
-	return spriteDMA && cck >= 0x15 && cck <= 0x33 // 8 sprites × 2 words
+	return false
 }
 
 // chipBusWait returns the CPU cycles an instruction starting at the current
@@ -156,7 +186,8 @@ func (a *Amiga) chipBusWait(n int) int {
 
 	vpos := a.vpos
 	f := a.bitplaneDMA(vpos)
-	if !f.stealsCPUSlots() && !a.bitplaneDMA(vpos+1).stealsCPUSlots() {
+	copperWords := a.Copper.busyWords()
+	if copperWords == 0 && !f.stealsCPUSlots() && !a.bitplaneDMA(vpos+1).stealsCPUSlots() {
 		return wait
 	}
 	// Colour clock of the first access, rounded up to an even slot.
@@ -173,7 +204,10 @@ func (a *Amiga) chipBusWait(n int) int {
 				t += t & 1
 			}
 			if !f.uses(t) {
-				break
+				if copperWords == 0 {
+					break
+				}
+				copperWords-- // a running Copper outranks the CPU
 			}
 			t += 2
 		}
@@ -186,7 +220,8 @@ func (a *Amiga) chipBusWait(n int) int {
 // cycles from the current beam position are free for the blitter.
 func (a *Amiga) blitterSlots(cpuCycles int) int {
 	n := cpuCycles / CPUCyclesPerColorClock
-	spriteDMA := a.Custom.ReadReg16(0x096)&0x0220 == 0x0220
+	fixed := a.fixedDMAState()
+	copperWords := a.Copper.busyWords()
 	vpos := a.vpos
 	cck := a.hpos / CPUCyclesPerColorClock
 	f := a.bitplaneDMA(vpos)
@@ -200,8 +235,12 @@ func (a *Amiga) blitterSlots(cpuCycles int) int {
 			}
 			f = a.bitplaneDMA(vpos)
 		}
-		if !f.uses(cck) && !fixedSlot(cck, spriteDMA) {
-			free++
+		if !f.uses(cck) && !fixedSlot(cck, fixed) {
+			if cck&1 == 0 && copperWords > 0 {
+				copperWords-- // the Copper outranks the blitter
+			} else {
+				free++
+			}
 		}
 		cck++
 	}

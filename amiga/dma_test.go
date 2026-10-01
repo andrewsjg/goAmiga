@@ -163,3 +163,39 @@ func TestBlitterBusContention(t *testing.T) {
 		t.Errorf("nasty blit, no chip access: wait %d, want 0", got)
 	}
 }
+
+// A Copper in the middle of a run of MOVEs takes the even slots the CPU
+// wants; one sitting in a WAIT takes none.
+func TestCopperDelaysCPU(t *testing.T) {
+	prog := []uint16{}
+	for i := 0; i < 10; i++ {
+		prog = append(prog, 0x0180, uint16(i)) // MOVE COLOR00
+	}
+	prog = append(prog, 0xFFFF, 0xFFFE)
+	a := startCopper(t, prog, 0x10)
+	a.hpos = 2 * 0x40 // past the fixed DMA slots, no bitplanes
+	if w := a.chipBusWait(1); w == 0 {
+		t.Error("CPU access did not wait for a busy Copper")
+	}
+	// Run the Copper into its final WAIT: then it takes nothing.
+	for i := 0; i < 40 && !a.Copper.wait; i++ {
+		a.Copper.Step(a.hpos, a.vpos)
+		a.hpos += 4
+	}
+	if w := a.chipBusWait(1); w != 0 {
+		t.Errorf("CPU waited %d cycles for a Copper in WAIT", w)
+	}
+}
+
+// Audio and disk DMA take odd slots, which the blitter then lacks.
+func TestAudioDMATakesBlitterSlots(t *testing.T) {
+	a := createTestAmiga(t)
+	a.vpos, a.hpos = 100, 0
+	writeCustom16(a, 0x096, 0x8200) // DMAEN
+	without := a.blitterSlots(2 * 0x40)
+	writeCustom16(a, 0x096, 0x800F) // all four audio channels
+	with := a.blitterSlots(2 * 0x40)
+	if with != without-4 {
+		t.Errorf("blitter slots %d with audio DMA, %d without: want 4 fewer", with, without)
+	}
+}

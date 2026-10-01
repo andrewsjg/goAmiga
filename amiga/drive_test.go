@@ -88,6 +88,7 @@ func TestDMAReadsSelectedDrive(t *testing.T) {
 	d.WriteADKCON(0x0400) // no WORDSYNC: read from under the head
 	d.WriteDSKLEN(0x8000 | 100)
 	d.WriteDSKLEN(0x8000 | 100)
+	finishDiskDMA(d)
 
 	want := df1.encodeMFMTrack(0)
 	pos := d.headWord()

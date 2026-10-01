@@ -22,10 +22,11 @@ type Drive struct {
 	pendingWait    int // cycles until insertion (shortened by a poll)
 	pendingElapsed int // cycles since the eject
 
-	motor      bool // latched from /MTR when the drive is selected
-	cylinder   int  // 0-79
-	selected   bool // /SELn low
-	diskChange bool // /DSKCHANGE low: set by eject/insert, cleared by a step with a disk in
+	motor      bool   // latched from /MTR when the drive is selected
+	motorOnAt  uint64 // Amiga.cycles when the motor started
+	cylinder   int    // 0-79
+	selected   bool   // /SELn low
+	diskChange bool   // /DSKCHANGE low: set by eject/insert, cleared by a step with a disk in
 
 	// External drives identify themselves: after the motor is turned off,
 	// each select clocks out the next bit of a 32-bit ID on /RDY (low =
@@ -137,10 +138,10 @@ func (dr *Drive) step(in bool) {
 
 // status returns the CIA-A PRA status bits this drive pulls low when
 // selected: /DSKRDY (5), /DSKTRACK0 (4), /DSKPROT (3), /DSKCHANGE (2).
-func (dr *Drive) status() byte {
+func (dr *Drive) status(now uint64) byte {
 	var low byte
 	switch {
-	case dr.motor && dr.Inserted():
+	case dr.motor && dr.Inserted() && now-dr.motorOnAt >= DiskSpinUpCycles:
 		low |= 0x20 // ready
 	case !dr.motor && dr.Unit > 0:
 		low |= 0x20 // ID bit: 1 for every bit of a 3.5" drive's $FFFFFFFF

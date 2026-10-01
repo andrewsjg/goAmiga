@@ -20,6 +20,9 @@ const (
 	DiskCyclesPerWord    = 227
 	MFMTrackWords        = 6250
 	DiskRevolutionCycles = DiskCyclesPerWord * MFMTrackWords // 1,418,750
+	// DiskSpinUpCycles: a drive raises /DSKRDY this long (300 ms) after
+	// its motor starts, once the disk is up to speed.
+	DiskSpinUpCycles = 2_128_137
 )
 
 // DiskDrive is the floppy disk controller (Paula's disk DMA and the drive
@@ -70,6 +73,51 @@ type DiskDrive struct {
 	// until a sync word arrives, so the read begins once a drive is ready:
 	// loaders may start DMA before selecting the drive or its motor.
 	dmaWaiting bool
+
+	// xfer is the DMA transfer in progress: words reach chip RAM as the
+	// head passes them (reads), or the buffer is taken when it ends
+	// (writes).
+	xfer *diskXfer
+}
+
+// diskXfer is a disk DMA transfer in progress.
+type diskXfer struct {
+	write   bool
+	words   []uint16 // read: the words to deliver
+	count   int      // write: words in the buffer
+	dst     uint32   // DSKPT at the start
+	done    int      // words delivered so far
+	wait    int      // cycles before the first word (finding the sync)
+	elapsed int      // cycles since the start
+}
+
+// deliver writes the read words whose time has come to chip RAM (all of
+// them if all is set).
+func (d *DiskDrive) deliver(all bool) {
+	x := d.xfer
+	if x == nil || x.write {
+		return
+	}
+	n := len(x.words)
+	if !all {
+		n = min(n, max(0, (x.elapsed-x.wait)/DiskCyclesPerWord))
+	}
+	if n <= x.done {
+		return
+	}
+	buf := make([]byte, 2*(n-x.done))
+	for i, w := range x.words[x.done:n] {
+		buf[2*i], buf[2*i+1] = byte(w>>8), byte(w)
+	}
+	d.amiga.ChipRAM.Write(int(x.dst)+2*x.done, buf)
+	x.done = n
+}
+
+// startRead begins delivering words after wait cycles; the transfer ends
+// (DSKBLK) when the last word has passed the head.
+func (d *DiskDrive) startRead(words []uint16, wait int) {
+	d.xfer = &diskXfer{words: words, dst: d.dskpt, wait: wait}
+	d.completionCycles = max(1, wait+len(words)*DiskCyclesPerWord)
 }
 
 // NewDiskDrive creates a new disk drive attached to the given Amiga.
@@ -169,6 +217,9 @@ func (d *DiskDrive) HandleCIABWrite(old, new byte) {
 			case !on:
 				dr.idBit++ // each select with the motor off clocks an ID bit
 			}
+			if on && !dr.motor {
+				dr.motorOnAt = d.amiga.cycles
+			}
 			dr.motor = on
 		}
 	}
@@ -202,7 +253,7 @@ func (d *DiskDrive) ReadStatus(regVal byte) byte {
 	}
 	for _, dr := range d.drives {
 		if dr != nil && dr.selected {
-			val &^= dr.status()
+			val &^= dr.status(d.amiga.cycles)
 		}
 	}
 	return val
@@ -229,9 +280,13 @@ func (d *DiskDrive) WriteDSKLEN(val uint16) {
 			d.startDMA()
 		}
 	} else {
-		// DMA enable bit clear: reset counter, stop any pending DMA
+		// DMA enable bit clear: reset counter, stop any DMA in progress
+		// (an aborted transfer raises no DSKBLK).
 		d.dsklenWrites = 0
 		d.dmaWaiting = false
+		if d.xfer != nil {
+			d.xfer, d.completionCycles, d.syncCycles = nil, 0, 0
+		}
 	}
 }
 
@@ -290,9 +345,9 @@ func (d *DiskDrive) startDMA() {
 		// Writes start at the head position without waiting for a sync
 		// word, and take one word time per word. A write-protected drive
 		// ignores the data but the DMA still runs to completion.
-		if !dr.Protected() {
-			d.writeTrack(dr, wordCount)
-		}
+		// The buffer is decoded when the transfer ends (by then the
+		// controller has read all of it).
+		d.xfer = &diskXfer{write: !dr.Protected(), count: wordCount, dst: d.dskpt}
 		d.completionCycles = wordCount * DiskCyclesPerWord
 		return
 	}
@@ -331,14 +386,12 @@ func (d *DiskDrive) startDMA() {
 		d.syncCycles = wait * DiskCyclesPerWord
 	}
 
-	// Copy words to chip RAM, wrapping around the track.
-	buf := make([]byte, 2)
-	for i := 0; i < wordCount; i++ {
-		w := word(pos + wait + i)
-		buf[0], buf[1] = byte(w>>8), byte(w)
-		d.amiga.ChipRAM.Write(int(d.dskpt)+2*i, buf)
+	// The words, wrapping around the track, reach chip RAM as they pass.
+	words := make([]uint16, wordCount)
+	for i := range words {
+		words[i] = word(pos + wait + i)
 	}
-	d.completionCycles = (wait + wordCount) * DiskCyclesPerWord
+	d.startRead(words, wait*DiskCyclesPerWord)
 }
 
 // writeTrack decodes the MFM sectors in a write DMA buffer of words words
@@ -470,10 +523,26 @@ func (d *DiskDrive) TickCycles(cpuCycles int) {
 			d.amiga.Custom.SetIntreq(1 << 12) // DSKSYN
 		}
 	}
+	if d.xfer != nil {
+		d.xfer.elapsed += cpuCycles
+		d.deliver(false)
+	}
 	if d.completionCycles > 0 {
 		d.completionCycles -= cpuCycles
 		if d.completionCycles <= 0 {
 			d.completionCycles = 0
+			if x := d.xfer; x != nil {
+				d.deliver(true)
+				if x.write {
+					if dr := d.active(); dr != nil && dr.Inserted() {
+						saved := d.dskpt
+						d.dskpt = x.dst
+						d.writeTrack(dr, x.count)
+						d.dskpt = saved
+					}
+				}
+				d.xfer = nil
+			}
 			d.amiga.Custom.SetIntreq(1 << 1) // DSKBLK
 		}
 	}
@@ -637,6 +706,7 @@ func (d *DiskDrive) resetDMA() {
 	d.wordequal = false
 	d.syncCycles, d.completionCycles = 0, 0
 	d.dmaWaiting = false
+	d.xfer = nil
 	for _, dr := range d.drives {
 		if dr != nil {
 			dr.motor = false
@@ -659,12 +729,11 @@ func (d *DiskDrive) readIPF(dr *Drive, track, wordCount int) {
 		if sync {
 			return // no sync word to find
 		}
-		buf := make([]byte, 2*wordCount) // noise
-		for i := range buf {
-			buf[i] = byte(rand.IntN(256))
+		words := make([]uint16, wordCount) // noise
+		for i := range words {
+			words[i] = uint16(rand.IntN(0x10000))
 		}
-		d.amiga.ChipRAM.Write(int(d.dskpt), buf)
-		d.completionCycles = wordCount * DiskCyclesPerWord
+		d.startRead(words, 0)
 		return
 	}
 	tk.reroll()
@@ -686,11 +755,9 @@ func (d *DiskDrive) readIPF(dr *Drive, track, wordCount int) {
 		d.wordequal = true
 		d.syncCycles = max(1, wait*DiskCyclesPerWord/16)
 	}
-	buf := make([]byte, 2*wordCount)
-	for i := 0; i < wordCount; i++ {
-		w := tk.word(pos + wait + 16*i)
-		buf[2*i], buf[2*i+1] = byte(w>>8), byte(w)
+	words := make([]uint16, wordCount)
+	for i := range words {
+		words[i] = tk.word(pos + wait + 16*i)
 	}
-	d.amiga.ChipRAM.Write(int(d.dskpt), buf)
-	d.completionCycles = (wait + 16*wordCount) * DiskCyclesPerWord / 16
+	d.startRead(words, wait*DiskCyclesPerWord/16)
 }

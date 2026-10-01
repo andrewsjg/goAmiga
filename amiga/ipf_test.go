@@ -285,6 +285,10 @@ func TestIPFReadDMAUnaligned(t *testing.T) {
 	d.dsksync, d.adkcon, d.dskpt = 0x4489, 0x0400, 0x5000
 	d.dsklen = 0x8000 | 2
 	d.startDMA()
+	if !d.wordequal || d.completionCycles == 0 {
+		t.Error("sync not seen / DMA not timed")
+	}
+	finishDiskDMA(d)
 	w0, w1 := a.peek16(0x5000), a.peek16(0x5002)
 	// The two words after the sync are the MFM of $BE $EF.
 	var b [2]byte
@@ -294,8 +298,5 @@ func TestIPFReadDMAUnaligned(t *testing.T) {
 	}
 	if b != [2]byte{0xBE, 0xEF} {
 		t.Errorf("DMA read $%04X $%04X (data $%02X $%02X), want the MFM of $BE $EF", w0, w1, b[0], b[1])
-	}
-	if !d.wordequal || d.completionCycles == 0 {
-		t.Error("sync not seen / DMA not timed")
 	}
 }

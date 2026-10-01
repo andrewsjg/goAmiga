@@ -19,9 +19,10 @@ verified. Longer investigations get their own write-up in `docs/`.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
-1. **Timing (remaining).** Copper, audio and disk DMA slots are not
-   charged against the CPU/blitter. Line-mode blits and disk DMA still
-   write their data at the start. There's no drive motor spin-up time. The CPU's bus cycles are counted per
+1. **Timing (remaining).** The CPU's bus cycles are counted per
+   instruction rather than placed within it. The Copper's bus use is
+   predicted from its list rather than taken cycle by cycle. IPF tracks'
+   variable cell timing isn't modelled. The CPU's bus cycles are counted per
    instruction rather than placed within it.
 2. **Display.** A resolution change (hires bit) partway through a line
    isn't shown, and neither are sprite data rewrites while a sprite is
@@ -38,6 +39,44 @@ verified. Longer investigations get their own write-up in `docs/`.
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-01 — Timing: disk DMA as the head moves, spin-up, bus slots, line blits
+
+**Disk DMA is progressive** (`diskXfer`).
+- A read now delivers each word to chip RAM as it passes the head (227
+  CPU cycles per word, after the sync wait), not all at the start.
+- A write takes its buffer when the transfer ends, since by then the
+  controller has read all of it.
+- Clearing DSKLEN's DMA bit aborts a transfer, with no DSKBLK.
+- Save states carry the transfer in progress.
+
+**Drive spin-up.** A drive raises /DSKRDY 300 ms after its motor starts,
+typical for a 3.5" drive, instead of at once.
+
+**Fixed DMA slots for the blitter** (`fixedSlot`). These now follow the HRM
+layout: refresh $01-$07, disk $09-$0D (while a transfer runs), audio
+$0F-$15 (one per enabled channel), sprites $17-$35. Before, only refresh and
+sprites counted, and the sprite range was shifted.
+
+**The Copper competes for the bus** (`Copper.busyWords`). While running
+rather than waiting, the Copper takes the next even slots. The CPU and
+blitter now lose those. How many it will take comes from reading ahead in
+its list, with no side effects, to the next WAIT or SKIP: 0 while it waits.
+`chipBusWait` and `blitterSlots` give the Copper the first free even slots,
+after the bitplanes.
+
+**Line blits are incremental** (`lineRun`). A line is drawn a pixel per 4
+colour clocks of bus time the blitter gets, with the registers following
+it, like area blits. The Bresenham code is unchanged, just made resumable.
+
+New tests:
+- `TestDiskDMAProgressive`, `TestDiskDMAAbort`, `TestDiskSpinUp`;
+- `TestCopperDelaysCPU`, `TestAudioDMATakesBlitterSlots`;
+- `TestLineBlitIsIncremental`.
+
+Disk tests that checked memory straight after starting a transfer now run
+it to completion first (`finishDiskDMA`). Lemmings, Supremacy and the full
+suite are unchanged.
 
 ## 2026-10-01 — IPF disk images; Supremacy boots
 
