@@ -26,7 +26,7 @@ import (
 // the LED-switched filter.
 
 const (
-	PaulaClock      = 3546895 // PAL colour clock, Hz
+	PaulaClock      = PALColorClock // Hz (NTSC machines: Amiga.ColorClock)
 	AudioSampleRate = 48000
 
 	audioMinPeriod = 16 // guards against runaway event rates with tiny periods
@@ -284,7 +284,11 @@ func (p *Paula) advance(cck int) {
 		}
 		if p.Output != nil {
 			// Colour clocks until the next host sample is due.
-			if due := (PaulaClock - p.hostAcc + AudioSampleRate - 1) / AudioSampleRate; due < step {
+			clock := PaulaClock
+			if p.amiga != nil {
+				clock = p.amiga.ColorClock()
+			}
+			if due := (clock - p.hostAcc + AudioSampleRate - 1) / AudioSampleRate; due < step {
 				step = due
 			}
 			l := int(p.ch[0].sample)*p.ch[0].volume() + int(p.ch[3].sample)*p.ch[3].volume()
@@ -293,8 +297,8 @@ func (p *Paula) advance(cck int) {
 			p.accR += float64(r * step)
 			p.accCCK += step
 			p.hostAcc += step * AudioSampleRate
-			if p.hostAcc >= PaulaClock {
-				p.hostAcc -= PaulaClock
+			if p.hostAcc >= clock {
+				p.hostAcc -= clock
 				p.emit()
 			}
 		}

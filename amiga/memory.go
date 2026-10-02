@@ -130,6 +130,35 @@ func (a *Amiga) SetChipset(name string) error {
 	return nil
 }
 
+// SetVideoStandard chooses "pal" (the default: 313-line frames at 50 Hz)
+// or "ntsc" (263 lines at 60 Hz, with a slightly faster clock). Agnus
+// reports which in VPOSR, and Kickstart makes its screens to suit: 256
+// lines tall on PAL, 200 on NTSC. Some American games depend on it:
+// Bubble Bobble and SDI set BPLCON0 from the CPU at line 255 and leave it
+// out of their own copper lists, expecting the system's display to have
+// ended; on a PAL machine Kickstart's copper list then turns the planes off
+// at line 300, the end of its 256-line screen, and the game stays black.
+// Call it before Reset.
+func (a *Amiga) SetVideoStandard(name string) error {
+	switch name {
+	case "pal":
+		a.NTSC = false
+	case "ntsc":
+		a.NTSC = true
+	default:
+		return fmt.Errorf("video standard must be pal or ntsc, not %q", name)
+	}
+	return nil
+}
+
+// VideoStandard is "pal" or "ntsc" (see SetVideoStandard).
+func (a *Amiga) VideoStandard() string {
+	if a.NTSC {
+		return "ntsc"
+	}
+	return "pal"
+}
+
 // Chipset names the chips fitted (see SetChipset).
 func (a *Amiga) Chipset() string {
 	switch {

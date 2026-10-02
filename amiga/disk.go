@@ -353,45 +353,15 @@ func (d *DiskDrive) startDMA() {
 	}
 
 	track := dr.cylinder*2 + d.side
+	var tk *bitTrack
 	if dr.ipf != nil {
-		d.readIPF(dr, track, wordCount)
-		return
-	}
-	mfm := dr.encodeMFMTrack(track)
-	if mfm == nil {
-		return
-	}
-	word := func(i int) uint16 {
-		i = i % MFMTrackWords * 2
-		return uint16(mfm[i])<<8 | uint16(mfm[i+1])
-	}
-
-	// The transfer starts at whatever word is under the head now. With
-	// WORDSYNC (ADKCON bit 10) it waits for the next sync word and starts
-	// with the word after it; if the track has none, it never starts.
-	pos := d.headWord()
-	wait := 0
-	if d.adkcon&0x0400 != 0 {
-		wait = -1
-		for k := 0; k < MFMTrackWords; k++ {
-			if word(pos+k) == d.dsksync {
-				wait = k + 1
-				break
-			}
+		if track >= 0 && track < len(dr.ipf.Tracks) {
+			tk = dr.ipf.Tracks[track]
 		}
-		if wait < 0 {
-			return
-		}
-		d.wordequal = true
-		d.syncCycles = wait * DiskCyclesPerWord
+	} else if mfm := dr.encodeMFMTrack(track); mfm != nil {
+		tk = &bitTrack{cells: mfm, n: len(mfm) * 8}
 	}
-
-	// The words, wrapping around the track, reach chip RAM as they pass.
-	words := make([]uint16, wordCount)
-	for i := range words {
-		words[i] = word(pos + wait + i)
-	}
-	d.startRead(words, wait*DiskCyclesPerWord)
+	d.readTrack(tk, track, wordCount)
 }
 
 // writeTrack decodes the MFM sectors in a write DMA buffer of words words
@@ -714,16 +684,16 @@ func (d *DiskDrive) resetDMA() {
 	}
 }
 
-// readIPF is read DMA from an IPF track: the cells under the head, at any
-// bit alignment. With WORDSYNC the transfer starts after the next sync
-// word, wherever in the bit stream it lies; it never starts on a track
-// without one (an unformatted track has none). Cells pass the head every
-// DiskCyclesPerWord/16 CPU cycles. Weak cells read differently each time.
-func (d *DiskDrive) readIPF(dr *Drive, track, wordCount int) {
-	var tk *bitTrack
-	if track >= 0 && track < len(dr.ipf.Tracks) {
-		tk = dr.ipf.Tracks[track]
-	}
+// readTrack is read DMA from the track under the head (nil when there is
+// none, such as a cylinder past the end of the image): the cells under the
+// head, at any bit alignment. With WORDSYNC the transfer starts after the
+// next sync word, wherever in the bit stream it lies, as Paula compares
+// DSKSYNC with its shift register after every cell; it never starts on a
+// track without one (an unformatted track has none). Loaders use that to
+// find words other than $4489, which may sit at any bit offset in ordinary
+// MFM data. Cells pass the head every DiskCyclesPerWord/16 CPU cycles.
+// Weak cells (IPF) read differently each time.
+func (d *DiskDrive) readTrack(tk *bitTrack, track, wordCount int) {
 	sync := d.adkcon&0x0400 != 0
 	if tk == nil {
 		if sync {
@@ -755,9 +725,30 @@ func (d *DiskDrive) readIPF(dr *Drive, track, wordCount int) {
 		d.wordequal = true
 		d.syncCycles = max(1, wait*DiskCyclesPerWord/16)
 	}
-	words := make([]uint16, wordCount)
-	for i := range words {
-		words[i] = tk.word(pos + wait + 16*i)
+	// Words build up in Paula's shift register cell by cell. With
+	// WORDSYNC, every sync word that passes re-aligns the word boundary,
+	// so each sector arrives aligned to its own sync even when sectors
+	// sit at different bit offsets on the track (as IPF tracks record).
+	words := make([]uint16, 0, wordCount)
+	cur := pos + wait
+	var shift, w uint16
+	bits := 0
+	for len(words) < wordCount {
+		b := uint16(tk.bit(cur))
+		cur++
+		shift = shift<<1 | b
+		w = w<<1 | b
+		bits++
+		switch {
+		case bits == 16:
+			words = append(words, w)
+			bits, w = 0, 0
+		case sync && shift == d.dsksync:
+			words = append(words, shift)
+			bits, w = 0, 0
+		}
 	}
 	d.startRead(words, wait*DiskCyclesPerWord/16)
+	// The transfer ends when its last cell has passed the head.
+	d.completionCycles = max(1, (cur-pos)*DiskCyclesPerWord/16)
 }

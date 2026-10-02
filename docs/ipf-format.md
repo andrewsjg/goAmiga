@@ -254,8 +254,9 @@ A 34,512-cell gap of $00 fills the rest. The track carries a single
 `bitTrack`: the cells packed eight to a byte, the number of cells, and the
 weak ranges. Decoded tracks take about 12 KB each.
 
-**Reading.** An ADF track is generated as 6,250 word-aligned MFM words,
-but an IPF track is read at cell level (`DiskDrive.readIPF`):
+**Reading.** Every track is read at cell level (`DiskDrive.readTrack`). An
+ADF track is first generated as 6,250 MFM words; an IPF track supplies its
+cells directly.
 - The head's position, in cells, follows emulated time: a cell passes every
   227⁄16 CPU cycles (2 µs). It's reduced modulo the track's own length.
 - With WORDSYNC set, the controller shifts cells through a 16-bit window
@@ -263,14 +264,17 @@ but an IPF track is read at cell level (`DiskDrive.readIPF`):
   cell, and DSKSYN fires after that many cells' time. A track with no sync
   word (unformatted, or the wrong sync) never starts, as on hardware.
   Without WORDSYNC, reading starts at the head.
-- Words go to chip RAM 16 cells at a time from there, and DSKBLK fires
-  after the transfer's cell time.
+- Words go to chip RAM 16 cells at a time from there. With WORDSYNC, each
+  sync word that passes during the transfer re-aligns the word boundary,
+  as Paula's does, so sectors recorded at different bit offsets each
+  arrive aligned. DSKBLK fires after the transfer's cell time.
 - Weak cells get fresh random values before every read (`reroll`), so a
   protection check that reads a track twice and expects a difference sees
   one.
 
 **Disks.** `ReadDiskImage` accepts `.ipf`, or a zip containing one (an ADF
-in the zip is preferred, then the first IPF). IPF disks are always
+in the zip is preferred, then an IPF; with several disks, the one whose
+name says boot or disk 1). IPF disks are always
 write-protected, and save states store the IPF file and parse it again
 on load.
 

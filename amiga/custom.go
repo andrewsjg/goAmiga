@@ -90,6 +90,16 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 		n = len(c.regs) - offset
 	}
 
+	// The strobes act on any access, reads included: SDI starts its copper
+	// list with MOVE.W $DFF088,D0. The data read is meaningless.
+	if c.amiga != nil && c.amiga.Copper != nil {
+		for _, st := range [2]int{0x088, 0x08A} {
+			if offset <= st && st < offset+n {
+				c.amiga.Copper.Restart(1 + (st-0x088)/2)
+			}
+		}
+	}
+
 	switch offset {
 	case 0x002: // DMACONR
 		copy(p, c.regs[0x096:0x098]) // mirror DMACON write register
@@ -144,6 +154,9 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 				val |= 0x2200 // Alice, PAL
 			case c.amiga.ECSAgnus:
 				val |= 0x2000 // 8372A, PAL
+			}
+			if c.amiga.NTSC {
+				val |= 0x1000 // the NTSC part of each
 			}
 			p[0] = byte(val >> 8)
 			if len(p) > 1 {
@@ -261,7 +274,6 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 	}
 
 	offset := addr & 0x1FF
-
 	n := len(p)
 	if offset+n > len(c.regs) {
 		n = len(c.regs) - offset

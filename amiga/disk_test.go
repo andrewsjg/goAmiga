@@ -275,3 +275,43 @@ func finishDiskDMA(d *DiskDrive) {
 		d.TickCycles(c)
 	}
 }
+
+// A loader may set DSKSYNC to a word other than $4489 that occurs in the
+// sector data at any bit offset (Prince of Persia's $4891 check). Paula
+// matches it in the bit stream, and the transfer starts after it.
+func TestDMASyncAtBitOffset(t *testing.T) {
+	a := createTestAmiga(t)
+	d := a.Disk
+	d.InsertDisk(patternADF())
+	d.HandleCIABWrite(prb(false), prb(true, 0))
+	mfm := d.DF(0).encodeMFMTrack(0)
+	tk := &bitTrack{cells: mfm, n: len(mfm) * 8}
+	const at = 3000*16 + 5 // inside sector data, not word aligned
+	sync := tk.word(at)
+	// The first place the word occurs from the head on.
+	pos := int(a.cycles*16/DiskCyclesPerWord) % tk.n
+	first := -1
+	for k := 0; k < tk.n; k++ {
+		if tk.word(pos+k) == sync {
+			first = pos + k
+			break
+		}
+	}
+	d.dskpt = 0x20000
+	d.WriteDSKSYNC(sync)
+	d.WriteADKCON(0x8400) // WORDSYNC
+	d.WriteDSKLEN(0x8000 | 4)
+	d.WriteDSKLEN(0x8000 | 4)
+	if d.xfer == nil {
+		t.Fatalf("DMA did not start: sync $%04X not found", sync)
+	}
+	finishDiskDMA(d)
+	got := make([]byte, 8)
+	a.ChipRAM.Read(0x20000, got)
+	for i := 0; i < 4; i++ {
+		w := uint16(got[2*i])<<8 | uint16(got[2*i+1])
+		if want := tk.word(first + 16 + 16*i); w != want {
+			t.Errorf("word %d: $%04X, want $%04X (sync $%04X at cell %d)", i, w, want, sync, first)
+		}
+	}
+}

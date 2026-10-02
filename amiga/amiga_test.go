@@ -186,6 +186,31 @@ func TestCopperMOVE(t *testing.T) {
 	}
 }
 
+// The COPJMP strobes act on reads too (SDI starts its list with
+// MOVE.W $DFF088,D0), and a long read that covers one counts.
+func TestCopperJumpOnRead(t *testing.T) {
+	for _, tc := range []struct {
+		addr, n, which int
+	}{
+		{0x088, 2, 1}, {0x08A, 2, 2}, {0x086, 4, 1}, {0x088, 4, 2},
+	} {
+		a := createTestAmiga(t)
+		a.Copper.cop1lc, a.Copper.cop2lc = 0x1000, 0x2000
+		a.Copper.pc = 0x3000
+		a.Custom.Read(0xDFF000+tc.addr, make([]byte, tc.n))
+		want := uint32(0x1000)
+		if tc.which == 2 {
+			want = 0x2000
+		}
+		if tc.addr == 0x088 && tc.n == 4 {
+			want = 0x2000 // both strobes; COPJMP2 last
+		}
+		if a.Copper.pc != want {
+			t.Errorf("%d-byte read of $%03X: copper at $%X, want $%X", tc.n, tc.addr, a.Copper.pc, want)
+		}
+	}
+}
+
 func TestCopperWAIT(t *testing.T) {
 	a := createTestAmiga(t)
 

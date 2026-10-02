@@ -34,9 +34,19 @@ Timing: the beam counts PAL colour clocks (3.546895 MHz); the CPU runs at
 twice that. A line is `ColorClocksPerLine = 227` colour clocks =
 `CPUClocksPerLine = 454` CPU cycles. A frame is 313 lines when LOF is set
 (always, unless interlaced) and 312 when clear; with BPLCON0 LACE set,
-`startFrame()` toggles LOF each frame. `a.hpos` is in CPU cycles; the chipset sees `hpos/2` (VHPOSR, and
+`startFrame()` toggles LOF each frame. With `NTSC` set
+(`SetVideoStandard`), frames are 263/262 lines, and the colour clock
+(`ColorClock()`) is 3.579545 MHz. The CPU and chipset run the same number of
+cycles per line, so only frame length, audio resampling and host pacing
+(`FrameRate()`) change. `a.hpos` is in CPU cycles; the chipset sees `hpos/2` (VHPOSR, and
 the Copper via `beamHP()`). The Copper starts one instruction per
 `CopperCyclesPerInstr = 8` CPU cycles.
+
+The CPU emulates the 68000's prefetch (`m68k.Processor.Prefetch`). Code
+that rewrites the instruction words just ahead of itself still runs the
+old ones, as copy protection expects. Exceptions stack 68000 frames:
+illegal, line A and line F stack the faulting instruction's own address,
+and the T bit raises trace exceptions.
 
 DMA contention (`dma.go`): CPU chip RAM/custom accesses are counted by a
 `busCounter` wrapper in the Mapper; after each instruction `chipBusWait` adds
@@ -77,14 +87,14 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `sprites.go` | Sprites | 8 hardware sprites, DMA and manual modes; `lineBuffer` gives per-column sprite colour and pair, with attached sprites |
 | `cia.go` | 8520 CIAs | Timers A/B, ICR, TOD with alarm, serial shift register (keyboard), CPU address decoding and E-clock access timing |
 | `drive.go` | Floppy drives | One `Drive` per unit: disk image, motor latch, head, select, change latch, swap, external-drive ID |
-| `disk.go` | Disk controller | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), read DMA with WORDSYNC, DSKSYN/DSKBLK timing, index pulse; write DMA decoded back to ADF sectors and saved to the `--disk` file (`--write-protect` to prevent); eject and `SwapDisk` (insert once trackdisk has polled the empty drive) |
+| `disk.go` | Disk controller | ADF → AmigaDOS MFM track encoding (6,250 words per revolution), rotating head position (227 CPU cycles per word), bit-level read DMA (`readTrack`, shared with IPF) where WORDSYNC matches any sync word at any bit offset and re-aligns on each one, DSKSYN/DSKBLK timing, index pulse; write DMA decoded back to ADF sectors and saved to the `--disk` file (`--write-protect` to prevent); eject and `SwapDisk` (insert once trackdisk has polled the empty drive) |
 | `memory.go`, `autoconfig.go` | Expansion memory | Slow RAM at `$C00000`; Zorro II Autoconfig chain; fast RAM board (`ConfigureMemory`) |
 | `aga.go` | AGA | Alice/Lisa IDs, the 256-entry 24-bit palette (banks, LOCT), 8 planes, HAM8, PF2OF, BPLCON4, FMODE fetch widths; drawLine uses a 24-bit line palette for every chipset |
-| `ipf.go`, `diskimage.go` | Disk images | ADF, zipped/gzipped ADF, and IPF images. IPF tracks are decoded to raw MFM cells (`bitTrack`), and the controller reads them at bit level (`readIPF`). See `ipf-format.md` |
+| `ipf.go`, `diskimage.go` | Disk images | ADF, zipped/gzipped ADF, and IPF images. IPF tracks are decoded to raw MFM cells (`bitTrack`), and the controller reads them at bit level (`readTrack`). See `ipf-format.md` |
 | `hdboard.go`, `hardfile.go` | Hard disk | Autoboot Zorro II board and `goamiga.device`. Go generates the 68000 boot ROM (DiagArea, RomTag, BootPoint, driver glue) for the board's address. The code writes trap numbers to the board and Go performs the request. Hardfiles are plain or RDB (`AttachHardfile`, `--hdf`) |
 | `paula.go` | Paula audio | 4 DMA/manual channels, interrupts, ADKCON modulation; 48 kHz box-filtered stereo mix with A500 fixed and LED filters into an `AudioBuffer` (played by `display.go`) |
 | `keyboard.go`, `mouse.go`, `joystick.go` | Input | Keyboard serial handshake via CIA-A. Mouse counters in JOY0DAT. Port 2 joystick in JOY1DAT. Fire buttons on CIA-A PRA. Second and third buttons on the POTGO pins |
-| `display.go`, `display_joystick.go`, `display_disk.go`, `display_host.go`, `keyboard_ebiten.go` | Host window: F11 disk dialog (zenity), Cmd host commands, warp, status bar | Ebitengine, 50 fps; excluded by `-tags noebitengine` |
+| `display.go`, `display_joystick.go`, `display_disk.go`, `display_host.go`, `keyboard_ebiten.go` | Host window: F11 disk dialog (zenity), Cmd host commands, warp, status bar | Ebitengine, 50 fps (60 on NTSC); excluded by `-tags noebitengine` |
 
 ## Tests
 

@@ -40,6 +40,13 @@ const (
 	LinesPerFrame      = LinesPerLongFrame                // nominal (non-interlaced) frame
 	VBlankLine         = 0                                // VBLANK interrupt fires at line 0
 	CyclesPerFrame     = CPUClocksPerLine * LinesPerFrame // 142102 CPU cycles per frame (~50 Hz)
+	PALColorClock      = 3546895                          // Hz
+
+	// NTSC (SetVideoStandard): 262.5 lines a frame at 3.579545 MHz, about
+	// 60 frames a second. Real NTSC lines alternate 227 and 228 colour
+	// clocks; here every line is 227, which is 0.2% fast.
+	NTSCLinesPerLongFrame = 263
+	NTSCColorClock        = 3579545 // Hz
 
 	CPUCyclesPerColorClock = 2
 	// CopperCyclesPerInstr is the Copper's throughput: it fetches one word
@@ -98,6 +105,8 @@ type Amiga struct {
 	// AGA: the A1200/A4000 chipset (Alice and Lisa); implies the ECS
 	// features as well. See aga.go.
 	AGA bool
+	// NTSC: the American video standard (see SetVideoStandard).
+	NTSC bool
 	// CPUSpeed is the CPU's speed in percent of a 7 MHz 68000 (see SetCPU).
 	CPUSpeed int
 	chipSize int // chip RAM fitted, in bytes
@@ -229,6 +238,9 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	decoder := m68kmem.NewDecoder(a.Mapper)
 	a.CPU = &m68k.Processor{
 		M: decoder,
+		// Copy protection relies on the 68000's prefetch (the 68020 path
+		// ignores it).
+		Prefetch: true,
 	}
 	if logger != nil {
 		a.CPU.TraceWriter = logger
@@ -583,12 +595,35 @@ func (a *Amiga) Run(maxCycles uint64) error {
 }
 
 // linesThisFrame is the length of the current frame: long frames have
-// 313 lines, short (interlace odd-field) frames 312.
+// 313 lines, short (interlace odd-field) frames 312; on NTSC, 263 and 262.
 func (a *Amiga) linesThisFrame() int {
-	if a.lof {
-		return LinesPerLongFrame
+	n := LinesPerLongFrame
+	if a.NTSC {
+		n = NTSCLinesPerLongFrame
 	}
-	return LinesPerShortFrame
+	if !a.lof {
+		n--
+	}
+	return n
+}
+
+// ColorClock is the chipset's clock in Hz: the colour carrier of the video
+// standard. The 68000 runs at twice it.
+func (a *Amiga) ColorClock() int {
+	if a.NTSC {
+		return NTSCColorClock
+	}
+	return PALColorClock
+}
+
+// FrameRate is the number of (long) frames a second: about 50 on PAL,
+// 60 on NTSC.
+func (a *Amiga) FrameRate() float64 {
+	lines := LinesPerLongFrame
+	if a.NTSC {
+		lines = NTSCLinesPerLongFrame
+	}
+	return float64(a.ColorClock()) / float64(ColorClocksPerLine*lines)
 }
 
 // nextLine moves the beam to the start of the next scanline, starting a new

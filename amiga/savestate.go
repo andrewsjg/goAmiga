@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 8
+	stateVersion = 9
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -189,11 +189,12 @@ func (a *Amiga) state(s *stateCodec) {
 	if a.FastRAM != nil {
 		fastKB = len(a.FastRAM.mem.b) / 1024
 	}
-	chipset := a.Chipset()
+	chipset, video := a.Chipset(), a.VideoStandard()
 	num(s, &chipKB)
 	num(s, &slowKB)
 	num(s, &fastKB)
 	s.str(&chipset)
+	s.str(&video)
 	var hdfs []string
 	if a.HardDisk != nil {
 		for _, f := range a.HardDisk.Files {
@@ -222,6 +223,10 @@ func (a *Amiga) state(s *stateCodec) {
 			return
 		}
 		if err := a.SetChipset(chipset); err != nil {
+			s.err = err
+			return
+		}
+		if err := a.SetVideoStandard(video); err != nil {
 			s.err = err
 			return
 		}

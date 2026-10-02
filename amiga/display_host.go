@@ -203,7 +203,7 @@ func (d *Display) runWarp() {
 
 	d.warpFrames += frames
 	if el := time.Since(d.warpSince); el >= time.Second {
-		d.warpSpeed = float64(d.warpFrames) / el.Seconds() / (2 * PaulaClock / CyclesPerFrame)
+		d.warpSpeed = float64(d.warpFrames) / el.Seconds() / d.amiga.FrameRate()
 		d.warpFrames, d.warpSince = 0, time.Now()
 	}
 }

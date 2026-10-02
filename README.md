@@ -74,6 +74,10 @@ adds a floating-point coprocessor.
   go run ./cmd/goamiga --rom ROMS/kick32a1200.rom --chipset aga --cpu 68020 --hdf dh0.hdf
   ```
 
+`--video ntsc` makes it an American machine: 60 Hz, 263-line frames, and
+200-line Workbench screens. Some US games only display properly on NTSC,
+Bubble Bobble among them. The default is `pal`.
+
 By default the machine has 1 MB chip RAM and 2 MB Zorro II fast RAM, enough
 for Workbench 3.2 and its installer. That's an A500 with the 8372A "Fat
 Agnus" and a side expansion. `--chipram 512|1024`, `--slowram

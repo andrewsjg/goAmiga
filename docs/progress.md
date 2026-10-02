@@ -35,12 +35,118 @@ verified. Longer investigations get their own write-up in `docs/`.
    Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). AGA lacks scan
    doubling, sprite resolutions beyond lores, and the A1200's Gayle
    (IDE/PCMCIA). On ECS, BEAMCON0 is stored
-   but ignored (always PAL, no programmable beam), productivity and
+   but ignored (PAL or NTSC is chosen with `--video`; no programmable beam), productivity and
    scan-doubled modes aren't emulated, and super-hires is averaged into
    the hires-wide picture. Hardfiles use Kickstart's filesystem;
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-02 — Game testing: Copylock, prefetch, strobes, NTSC
+
+Triage of the games in `ADF/` (mostly A1200 titles, plus some A500 ones)
+found seven emulator bugs. Each is described below with the game that
+exposed it.
+
+**Batch harness.** `TestGameBatch` (`amiga/game_batch_test.go`) boots a
+list of games in parallel. For each game it:
+- clicks the mouse and presses fire at intervals;
+- writes contact sheets of screenshots taken at a third, two thirds and
+  the end;
+- takes options per game: ROM, CPU, chipset, video standard, memory and
+  frame count.
+
+```
+GOAMIGA_BATCH=games.txt GOAMIGA_OUT=/tmp/sheets go test -tags noebitengine -run TestGameBatch -v ./amiga/
+```
+
+A list line is `label | disk | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512`.
+When a zip holds several disks, the boot disk is picked by name (`disk1`,
+`boot`, ...), and an ADF is preferred to an IPF.
+
+1. **IPF reads: sync on every sync word** (Bubble Bobble, Colonization,
+   Pinball Mania: "read error on disk block"). Paula re-aligns the word
+   boundary each time the sync word passes during a WORDSYNC read, not
+   just at the start. IPF tracks record each sector at its own bit offset,
+   so after the first sector everything arrived misaligned. Disk DMA now
+   shifts cells through a modelled shift register.
+2. **Trace exception** (Bubble Bobble's Rob Northen Copylock). The CPU
+   didn't implement the T bit. Copylock decrypts its code one traced
+   instruction at a time: each trace exception decrypts the next
+   instruction and re-encrypts the last. Implemented in go-m68k: a trace
+   exception follows any instruction that starts with T set, except
+   illegal, line A/F and privilege violations. It is taken before pending
+   interrupts.
+3. **Illegal instruction, line A and line F stack the instruction's own
+   address**, not the address after it. Copylock's ILLEGAL handler adds 2
+   to the stacked PC, so it resumed one word late, in encrypted code.
+4. **Bit-level sync on ADF tracks** (Prince of Persia hung after the
+   title). The ADF path only found syncs at word boundaries of its
+   synthesized MFM. Prince of Persia's check reads 16 words after DSKSYNC
+   `$4891`, a word that occurs in ordinary sector data at an odd bit
+   offset. ADF tracks now go through the same bit-level reader as IPF
+   (`readTrack`).
+5. **68000 prefetch** (SDI: "Software error - task held", an address error
+   in garbage code). SDI's decryption loop is:
+
+   ```
+   loop: MOVE.W (A0)+,D0
+         EOR.W  D0,(A1)+   ; the first pass decrypts the DBRA's displacement
+         DBRA   D1,loop
+   ```
+
+   On a 68000 the DBRA's displacement was prefetched before the EOR wrote
+   it, so the loop exits on its first pass into the real decryptor. Ours
+   looped 575 times over the wrong data. go-m68k now emulates the
+   two-word prefetch queue (`Processor.Prefetch`, on for the Amiga's
+   68000): an instruction's writes to the next instruction's first two
+   words aren't seen by that instruction. MOVE is the exception: it makes
+   its final prefetch after writing, so the second word reads fresh. See
+   `prefetch.go`. Both Reset functions also dropped the new
+   `OnException` hook; they keep it now.
+6. **Strobe registers act on reads** (SDI black after loading). SDI
+   starts its copper list with `MOVE.W $DFF088,D0`, a read of COPJMP1. On
+   the real chips any access to a strobe address triggers it. Reads of
+   COPJMP1/2 now restart the Copper, including long reads that span them.
+7. **NTSC** (`--video ntsc`; Bubble Bobble, the US release, stayed black on
+   PAL). The game sets BPLCON0 from the CPU at line 255 and leaves it out
+   of its own copper list. The system's copper list is still running for
+   the rest of that frame, and on PAL it turns the planes off at line 300,
+   the end of Kickstart's 256-line screen. On NTSC that screen ends at
+   line 244, so the write survives. NTSC means:
+   - 263/262-line frames;
+   - the colour clock at 3.579545 MHz (audio resampling, warp speed);
+   - 60 Hz host pacing;
+   - the NTSC Agnus ID bit (VPOSR bit 12), from which Kickstart builds
+     200-line screens.
+
+   Lines are all 227 colour clocks, not alternating 227/228. The save
+   state records the standard (version 9).
+
+Prince of Persia's red screen was not a bug: its loader paints COLOR00 red
+when TypeOfMem finds no memory beyond 512 KB, so it needs `slowram 512`.
+
+**Results.**
+- A500 (Kickstart 1.3):
+  - Bubble Bobble plays (with `--video ntsc`).
+  - Prince of Persia reaches its title (1 MB).
+  - SDI, from both the IPF and the crack, reaches the cockpit.
+- A1200: Bubble Bobble and Prince of Persia now reach gameplay. Still
+  failing or blocked:
+  - Chaos Engine, James Pond 2, Worms, Deluxe Galaga and Alien Breed TA
+    (black or empty screens).
+  - Kick Off 96: asks for disk 2.
+  - Colonization and SkidMarks: want icon.library, which Kickstart 3.2
+    doesn't have in ROM.
+
+**Tests:**
+- go-m68k:
+  - `TestTraceException`.
+  - `TestPrefetchSelfModifyingBranch`, `TestPrefetchWriteOrder` and
+    `TestPrefetchCarriesOver`.
+  - `TestIllegalStacksInstructionAddress`.
+- goAmiga: `TestDMASyncAtBitOffset`, `TestCopperJumpOnRead` and
+  `TestBootDiskName`.
 
 ## 2026-10-02 — AGA
 

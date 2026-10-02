@@ -68,3 +68,16 @@ func TestReadDiskImage(t *testing.T) {
 		}
 	}
 }
+
+func TestBootDiskName(t *testing.T) {
+	for _, c := range []struct{ a, b string }{
+		{"Skidmarks_ProgramDisk.ipf", "Skidmarks_AGACarDisk.ipf"},
+		{"Game_Disk1of3.ipf", "Game_Disk2of3.ipf"},
+		{"ChaosEngine,The_DiskOne.ipf", "ChaosEngine,The_DiskTwo.ipf"},
+		{"Civ (Disk 1 of 4).adf", "Civ (Disk 3 of 4).adf"},
+	} {
+		if bootDiskName(c.a) <= bootDiskName(c.b) {
+			t.Errorf("%q should be preferred over %q", c.a, c.b)
+		}
+	}
+}

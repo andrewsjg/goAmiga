@@ -4,6 +4,7 @@ package amiga
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -438,7 +439,7 @@ func (d *Display) Run() error {
 	// Resizing scales the picture; the emulated screen size is fixed by
 	// Layout.
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-	ebiten.SetTPS(50)
+	ebiten.SetTPS(int(math.Round(d.amiga.FrameRate())))
 	ebiten.SetScreenClearedEveryFrame(false)
 	d.applyGrab(false)
 	return ebiten.RunGame(d)
