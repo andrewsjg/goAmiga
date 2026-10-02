@@ -98,7 +98,7 @@ func NewDisplay(a *Amiga) *Display {
 	}
 }
 
-// Update runs one PAL frame worth of CPU cycles.
+// Update runs one frame worth of CPU cycles (PAL or NTSC, see FrameRate).
 func (d *Display) Update() error {
 	d.pollHostKeys()
 	d.pollMouseGrab()

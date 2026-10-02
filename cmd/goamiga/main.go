@@ -223,7 +223,7 @@ func main() {
 	}
 
 	// Windowed mode: open the Ebitengine display
-	fmt.Println("Starting display (50fps PAL)...")
+	fmt.Printf("Starting display (%.2f fps %s)...\n", a.FrameRate(), strings.ToUpper(a.VideoStandard()))
 	a.Video.SetOverscan(*overscan)
 	err = runDisplay(a, displayOptions{
 		mute: *mute, scale: *scale, statusBar: *statusBar, warp: *warp, joyKeys: *joyKeys, drives: drives,
