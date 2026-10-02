@@ -200,3 +200,25 @@ func TestBootAGA(t *testing.T) {
 		t.Errorf("GfxBase ChipRevBits0 = $%02X, want $0F (ECS Agnus+Denise, AA Alice+Lisa)", got)
 	}
 }
+
+// Words fetched per plane per line with AGA's wide fetches: the unit
+// under way at DDFSTOP completes and one more follows, as on the original
+// chips. The hires cases are Kickstart 3.2's 640-pixel screen (modulo -8)
+// and Worms' title (modulo 0).
+func TestFetchWordsFactor(t *testing.T) {
+	for _, tc := range []struct {
+		hires            bool
+		ddfstrt, ddfstop uint16
+		factor, want     int
+	}{
+		{true, 0x38, 0xD8, 4, 44},
+		{true, 0x38, 0xC0, 4, 40},
+		{false, 0x38, 0xA0, 4, 20},
+		{false, 0x38, 0xD0, 1, 20},
+		{true, 0x3C, 0xD4, 1, 40},
+	} {
+		if got := fetchWordsFactor(tc.hires, tc.ddfstrt, tc.ddfstop, tc.factor); got != tc.want {
+			t.Errorf("hires %v DDF $%02X-$%02X factor %d: %d words, want %d", tc.hires, tc.ddfstrt, tc.ddfstop, tc.factor, got, tc.want)
+		}
+	}
+}

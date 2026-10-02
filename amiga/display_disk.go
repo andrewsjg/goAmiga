@@ -5,6 +5,7 @@ package amiga
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -110,17 +111,24 @@ func (d *Display) pollChooser() {
 		fmt.Printf("DF%d: file dialog: %v\n", c.unit, c.err)
 		return
 	}
-	i := -1
-	for j, p := range d.Disks[c.unit] {
-		if p == c.path {
-			i = j
+	// A zip of several disks adds them all; its boot disk goes in.
+	paths, err := DiskImagesIn(c.path)
+	if err != nil {
+		fmt.Printf("DF%d: %v\n", c.unit, err)
+		return
+	}
+	first := -1
+	for _, p := range paths {
+		i := slices.Index(d.Disks[c.unit], p)
+		if i < 0 {
+			d.Disks[c.unit] = append(d.Disks[c.unit], p)
+			i = len(d.Disks[c.unit]) - 1
+		}
+		if first < 0 {
+			first = i
 		}
 	}
-	if i < 0 {
-		d.Disks[c.unit] = append(d.Disks[c.unit], c.path)
-		i = len(d.Disks[c.unit]) - 1
-	}
-	d.insert(c.unit, i)
+	d.insert(c.unit, first)
 }
 
 // insert puts disk i of the drive's list in the drive. SwapDisk waits

@@ -212,7 +212,11 @@ func fetchWordsFactor(hires bool, ddfstrt, ddfstop uint16, factor int) int {
 	if stop <= start {
 		stop = start
 	}
-	words := ((stop-start)/unit + 1) * factor
+	// As with the original chips (fetchWords), the unit under way at
+	// DDFSTOP completes, and one more follows. Kickstart's FMODE 3 hires
+	// screen (DDF $38-$D8, modulo -8) fetches 44 words; Worms' (DDF
+	// $38-$C0, modulo 0) 40.
+	words := ((stop-start+unit-1)/unit + 1) * factor
 	return min(words, maxShresFetchWords)
 }
 

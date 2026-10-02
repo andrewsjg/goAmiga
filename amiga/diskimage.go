@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -21,16 +22,25 @@ type DiskImage struct {
 }
 
 // ReadDiskImage reads a floppy image: a plain ADF; an IPF; a zip archive
-// holding either (the first .adf, else the first .ipf, in it is used, as
-// game collections are distributed); or a gzip-compressed ADF (.adz,
-// .adf.gz). A compressed ADF keeps what the Amiga writes in memory only;
-// an IPF is read-only.
+// holding either, as game collections are distributed; or a
+// gzip-compressed ADF (.adz, .adf.gz). A compressed ADF keeps what the
+// Amiga writes in memory only; an IPF is read-only.
+//
+// From a zip with several disks it reads the boot disk (see bootDiskName),
+// an ADF before an IPF; "game.zip#Disk2.adf" names a particular one (see
+// DiskImagesIn).
 func ReadDiskImage(path string) (*DiskImage, error) {
-	raw, err := os.ReadFile(path)
+	file, member := splitZipMember(path)
+	raw, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-	img, err := diskImageFrom(raw)
+	var img *DiskImage
+	if member != "" {
+		img, err = imageFromZipMember(raw, member)
+	} else {
+		img, err = diskImageFrom(raw)
+	}
 	if err != nil {
 		return nil, wrapImageErr(path, err)
 	}
@@ -77,53 +87,113 @@ func wrapImageErr(path string, err error) error {
 	return fmt.Errorf("%s: %w", filepath.Base(path), err)
 }
 
-// imageFromZip returns the first ADF in a zip archive, or failing that
-// the first IPF.
+// zipDisks lists the disk images in a zip archive, the boot disk first and
+// the rest in name order: the ADFs, or if there are none the IPFs.
+func zipDisks(zr *zip.Reader) []*zip.File {
+	var adfs, ipfs []*zip.File
+	for _, f := range zr.File {
+		lower := strings.ToLower(f.Name)
+		switch {
+		case strings.HasSuffix(lower, ".ipf"):
+			ipfs = append(ipfs, f)
+		case strings.HasSuffix(lower, ".adf") && f.UncompressedSize64 == ADFSize:
+			adfs = append(adfs, f)
+		}
+	}
+	disks := adfs
+	if len(disks) == 0 {
+		disks = ipfs
+	}
+	slices.SortStableFunc(disks, func(a, b *zip.File) int {
+		if c := bootDiskName(b.Name) - bootDiskName(a.Name); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return disks
+}
+
+// imageFromZip returns the boot disk in a zip archive (see zipDisks).
 func imageFromZip(raw []byte) (*DiskImage, error) {
+	return imageFromZipMember(raw, "")
+}
+
+// imageFromZipMember returns the disk image called name in a zip archive,
+// or with name "" its boot disk.
+func imageFromZipMember(raw []byte, name string) (*DiskImage, error) {
 	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if err != nil {
 		return nil, err
 	}
-	read := func(f *zip.File, limit int64) ([]byte, error) {
-		rc, err := f.Open()
-		if err != nil {
-			return nil, err
+	var f *zip.File
+	if name == "" {
+		if disks := zipDisks(zr); len(disks) > 0 {
+			f = disks[0]
 		}
-		defer rc.Close()
-		return io.ReadAll(io.LimitReader(rc, limit))
-	}
-	var names []string
-	var ipf, adf *zip.File
-	for _, f := range zr.File {
-		names = append(names, f.Name)
-		lower := strings.ToLower(f.Name)
-		switch {
-		case strings.HasSuffix(lower, ".ipf") && (ipf == nil || bootDiskName(f.Name) > bootDiskName(ipf.Name)):
-			ipf = f
-		case strings.HasSuffix(lower, ".adf") && f.UncompressedSize64 == ADFSize &&
-			(adf == nil || bootDiskName(f.Name) > bootDiskName(adf.Name)):
-			adf = f
+	} else {
+		for _, zf := range zr.File {
+			if zf.Name == name {
+				f = zf
+			}
 		}
 	}
-	if adf != nil {
-		data, err := read(adf, ADFSize)
-		if err != nil {
-			return nil, err
+	if f == nil {
+		var names []string
+		for _, zf := range zr.File {
+			names = append(names, zf.Name)
 		}
-		return &DiskImage{ADF: data}, nil
+		want := "no ADF or IPF"
+		if name != "" {
+			want = "no " + name
+		}
+		return nil, fmt.Errorf("%s in the archive (it holds %s)", want, strings.Join(names, ", "))
 	}
-	if ipf != nil {
-		data, err := read(ipf, 16<<20)
-		if err != nil {
-			return nil, err
-		}
-		p, err := ParseIPF(data)
-		if err != nil {
-			return nil, err
-		}
-		return &DiskImage{IPF: p}, nil
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("no ADF or IPF in the archive (it holds %s)", strings.Join(names, ", "))
+	defer rc.Close()
+	data, err := io.ReadAll(io.LimitReader(rc, 16<<20))
+	if err != nil {
+		return nil, err
+	}
+	return diskImageFrom(data)
+}
+
+// splitZipMember splits "game.zip#Disk2.adf" into the archive and the
+// member; other paths come back whole.
+func splitZipMember(path string) (file, member string) {
+	i := strings.LastIndex(path, "#")
+	if i < 0 || !strings.HasSuffix(strings.ToLower(path[:i]), ".zip") {
+		return path, ""
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path, "" // a file really called that
+	}
+	return path[:i], path[i+1:]
+}
+
+// DiskImagesIn expands a zip archive holding several disks into a path for
+// each ("game.zip#Disk1.adf", ...), the boot disk first; any other path
+// comes back alone. Drives cycle through the list to change disks.
+func DiskImagesIn(path string) ([]string, error) {
+	if !strings.HasSuffix(strings.ToLower(path), ".zip") {
+		return []string{path}, nil
+	}
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	disks := zipDisks(&zr.Reader)
+	if len(disks) < 2 {
+		return []string{path}, nil
+	}
+	paths := make([]string, len(disks))
+	for i, f := range disks {
+		paths[i] = path + "#" + f.Name
+	}
+	return paths, nil
 }
 
 // bootDiskName scores how much a file name in a multi-disk archive looks

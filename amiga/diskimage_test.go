@@ -81,3 +81,50 @@ func TestBootDiskName(t *testing.T) {
 		}
 	}
 }
+
+// A zip of several disks lists them all, boot disk first, and each can be
+// read by its member path.
+func TestDiskImagesInZip(t *testing.T) {
+	var b bytes.Buffer
+	zw := zip.NewWriter(&b)
+	for _, n := range []string{"Game_Disk2.adf", "Game_Disk1.adf", "readme.txt"} {
+		w, _ := zw.Create(n)
+		data := make([]byte, ADFSize)
+		data[0] = n[9] // '2', '1'
+		if n == "readme.txt" {
+			data = []byte("hello")
+		}
+		w.Write(data)
+	}
+	zw.Close()
+	p := filepath.Join(t.TempDir(), "game.zip")
+	os.WriteFile(p, b.Bytes(), 0o644)
+
+	paths, err := DiskImagesIn(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{p + "#Game_Disk1.adf", p + "#Game_Disk2.adf"}
+	if strings.Join(paths, "|") != strings.Join(want, "|") {
+		t.Fatalf("DiskImagesIn = %q, want %q", paths, want)
+	}
+	for i, path := range append([]string{p}, paths...) {
+		img, err := ReadDiskImage(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantDisk := byte('1')
+		if i == 2 {
+			wantDisk = '2'
+		}
+		if img.ADF[0] != wantDisk || img.Saveable {
+			t.Errorf("%s: disk %c (saveable %v), want disk %c", filepath.Base(path), img.ADF[0], img.Saveable, wantDisk)
+		}
+	}
+	if _, err := ReadDiskImage(p + "#nope.adf"); err == nil {
+		t.Error("a missing member read without error")
+	}
+	if single, _ := DiskImagesIn(filepath.Join(t.TempDir(), "x.adf")); len(single) != 1 {
+		t.Errorf("a plain path expanded to %q", single)
+	}
+}

@@ -22,6 +22,11 @@ import (
 //	label | disk image | options
 //
 // options are comma-separated key=value: rom (path), cpu (68000/68020),
+// speed (CPU speed percent), swap (the frame to change DF0: to the next
+// disk of a multi-disk zip, and again half as long again later, round
+// the disks; "auto" swaps whenever the drive has sat idle for six seconds
+// after use, as at a disk prompt), df1 (any value: put the second disk of a multi-disk zip in
+// DF1:),
 // chipset, video (pal/ntsc), chip (KB), slow (KB), fast (KB), frames. The defaults are an A1200:
 // rom=../ROMS/kick32a1200.rom cpu=68020 chipset=aga chip=2048 slow=0
 // fast=0 frames=3000. Each game gets left clicks and joystick fire presses at
@@ -99,7 +104,7 @@ func TestGameBatch(t *testing.T) {
 				return
 			}
 			a, _ := New(rom, nil)
-			if err := a.SetCPU(opt("cpu", "68020"), 0); err != nil {
+			if err := a.SetCPU(opt("cpu", "68020"), num("speed", "0")); err != nil {
 				notes[i] = err.Error()
 				return
 			}
@@ -116,9 +121,21 @@ func TestGameBatch(t *testing.T) {
 				notes[i] = err.Error()
 				return
 			}
-			if err := a.LoadDisk(g.disk); err != nil {
+			disks, err := DiskImagesIn(g.disk)
+			if err == nil {
+				err = a.LoadDisk(disks[0])
+			}
+			if err != nil {
 				notes[i] = err.Error()
 				return
+			}
+			swapAt, next := num("swap", "0"), 1
+			autoSwap, idle, used := opt("swap", "") == "auto", 0, false
+			if opt("df1", "") != "" && len(disks) > 1 {
+				if err := a.LoadDiskUnit(1, disks[1]); err != nil {
+					notes[i] = err.Error()
+					return
+				}
 			}
 			a.Reset()
 			a.Video.DisplayActive = true
@@ -127,6 +144,21 @@ func TestGameBatch(t *testing.T) {
 				phase := fr % 600
 				a.Mouse.LeftButton = fr > 600 && phase >= 300 && phase < 304
 				a.Joystick.Fire = fr > 600 && phase >= 450 && phase < 456
+				if autoSwap && len(disks) > 1 {
+					// Answer a disk prompt: once the drive has been used
+					// and then left idle for six seconds, the next disk.
+					if a.Disk.DF(0).motor {
+						idle, used = 0, true
+					} else if idle++; used && idle == 300 {
+						a.SwapDisk(disks[next])
+						next, used = (next+1)%len(disks), false
+					}
+				}
+				if fr == swapAt && len(disks) > 1 {
+					a.SwapDisk(disks[next])
+					// Later the one after, round to the first again.
+					swapAt, next = swapAt+(swapAt+1)/2, (next+1)%len(disks)
+				}
 				if err := a.RunFrame(); err != nil {
 					notes[i] = fmt.Sprintf("frame %d: %v", fr, err)
 					break

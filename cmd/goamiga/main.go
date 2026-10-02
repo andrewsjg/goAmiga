@@ -128,12 +128,24 @@ func main() {
 	for n := 1; n < *numDrives && n < 4; n++ {
 		a.Disk.ConnectDrive(n)
 	}
+	// A zip holding several disks stands for all of them, boot disk first.
 	for n, list := range drives {
+		var all diskList
 		for _, p := range list {
 			if _, err := os.Stat(p); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: DF%d: disk %v\n", n, err)
 				os.Exit(1)
 			}
+			disks, err := amiga.DiskImagesIn(p)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: DF%d: %v\n", n, err)
+				os.Exit(1)
+			}
+			all = append(all, disks...)
+		}
+		drives[n], list = all, all
+		if len(list) > 1 {
+			fmt.Printf("DF%d: %d disks; Cmd+F11 changes to the next\n", n, len(list))
 		}
 		if len(list) == 0 {
 			continue

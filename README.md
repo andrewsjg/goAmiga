@@ -87,6 +87,10 @@ power of two up to 8192) change it. For an original 512 KB A500, pass
 
 Sound plays through the host's audio output (`--mute` to turn it off).
 
+A zip holding several disks of one game inserts the boot disk; Cmd+F11
+changes to the next. `game.zip#Disk2.adf` names one disk in a zip, e.g.
+`--df1 "game.zip#Disk2.adf"` to give a game its second disk in DF1:.
+
 The floppy is writable: anything the Amiga saves to DF0: is written back
 into the ADF file. Keep a copy of disks you care about, or pass
 `--write-protect`.

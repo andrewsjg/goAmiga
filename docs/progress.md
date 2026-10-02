@@ -42,6 +42,65 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-02 — Multi-disk zips; The Chaos Engine
+
+**Multi-disk zips.** Collections often zip all of a game's disks
+together. A zip holding several disks now stands for all of them:
+- `--df0 game.zip` inserts the boot disk (named "boot", "disk 1", ...;
+  an ADF before an IPF).
+- The other disks go into DF0:'s list, so Cmd+F11 changes to the next.
+  The F11 chooser does the same when you pick such a zip.
+- A single disk can be named with `game.zip#Disk2.ipf`, e.g. to put
+  disk two in DF1: (`--df1 "game.zip#Disk2.ipf"`). Many games then never
+  ask for a swap.
+
+The batch harness gained three options:
+- `speed`: the CPU speed.
+- `swap=FRAME`: change DF0: to the next disk at that frame, then again
+  later, cycling.
+- `df1`: put disk two in DF1:.
+
+**68020 address errors.** A jump to an odd address panicked the emulator
+on the 68020: the fault was raised, but only the 68000 path caught it.
+The 68020 now takes exception 3 with its own short bus fault frame
+(format $A, 32 bytes), which RTE pops. Odd data addresses stay legal.
+Test: `TestAddressError020`.
+
+**AGA fetch width rounding** (Worms: The Director's Cut's title was
+sheared). With FMODE's wide fetches, the words fetched per line were
+computed as floor((DDFSTOP−DDFSTRT)/unit) + 1 units. The original chips
+round up: the unit under way when DDFSTOP is reached completes, and
+`fetchWords` already did that. Two hires FMODE 3 screens pin it down:
+- Kickstart 3.2's own: DDF $38-$D8, modulo −8, needs 44 words;
+- Worms': DDF $38-$C0, modulo 0, needs 40. Floor gave 36.
+
+Rounding up fits both. On the way I tried 32-clock blocks with two
+fetches per plane, which fixed Worms but sheared Kickstart's screen.
+Test: `TestFetchWordsFactor`.
+
+**The Chaos Engine (AGA)** hangs at a dark screen, or shows "Software
+Failure" in input.device, on the A1200 with Kickstart 3.2. The cause is
+in the game's bootblock:
+1. It allocates the largest free chip block and copies itself there.
+2. It sets SSP 26 bytes into that block.
+3. It calls DoIO from supervisor mode to load the game.
+
+Exec's dispatcher and the interrupt handlers then push frames below the
+block, into memory the game doesn't own. With Kickstart 3.2's layout
+that is the last 50 bytes of trackdisk's DMA buffer, which sits directly
+beneath. The track read overwrites the saved registers. The idle loop's
+A0 came back as MFM data and it stopped seeing ready tasks.
+
+Whether it bites depends on where the DMA is when an interrupt runs:
+- At CPU speeds 290-330% and 370-400% it boots cleanly. Most other
+  speeds show the Software Failure first and continue after a click.
+- With disk two in DF1: it reaches World 1.
+
+The code is the game's, so the emulator is not at fault. A real A1200
+probably has a different layout: its Gayle chip's IDE driver allocates
+memory at boot, and goAmiga has no Gayle yet. Kickstart 3.1 may also
+differ. This is a reason to emulate Gayle next.
+
 ## 2026-10-02 — Game testing: Copylock, prefetch, strobes, NTSC
 
 Triage of the games in `ADF/` (mostly A1200 titles, plus some A500 ones)
