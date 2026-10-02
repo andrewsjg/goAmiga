@@ -194,6 +194,55 @@ func (c *Processor) CheckInterrupts() error {
 	return nil
 }
 
+// raiseAddressError020 takes exception 3 with the 68020's short bus cycle
+// fault frame (format $A, 32 bytes). On the 68020 only instruction fetches
+// fault (a jump to an odd address); the special status word marks a fault
+// on pipe stage B, to be rerun.
+func (c *Processor) raiseAddressError020(ae *addressError, fc uint16) error {
+	ssw := fc
+	if ae.program {
+		ssw |= 0x4000 | 0x1000 // FB, RB
+	} else {
+		ssw |= 0x0100 // DF
+		if !ae.write {
+			ssw |= 0x0040 // RW: read
+		}
+	}
+	for _, f := range []struct {
+		v    uint32
+		size int
+	}{
+		{0, 4},                          // internal registers
+		{0, 4},                          // data output buffer
+		{0, 4},                          // internal registers
+		{ae.addr, 4},                    // data cycle fault address
+		{0, 2},                          // instruction pipe stage B
+		{uint32(c.op), 2},               // instruction pipe stage C
+		{uint32(ssw), 2},                // special status word
+		{0, 2},                          // internal register
+		{0xA000 | VecAddressError*4, 2}, // format and vector
+		{c.instrAddr, 4},
+		{ae.sr & 0xFFFF, 2},
+	} {
+		var err error
+		if f.size == 4 {
+			err = c.push32(f.v)
+		} else {
+			err = c.push16(uint16(f.v))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	newPC, err := c.M.Long(int(c.VBR) + VecAddressError*4)
+	if err != nil {
+		return err
+	}
+	c.PC = newPC
+	c.LastCycles = 50
+	return nil
+}
+
 // addressError describes a word or long access at an odd address.
 type addressError struct {
 	addr     uint32 // the faulting address (full 32 bits)
@@ -253,9 +302,12 @@ func (c *Processor) raiseAddressError(ae *addressError) error {
 		c.SR |= StatusSupervisor
 	}
 	c.SR &^= StatusTrace
-	if c.A[7]&1 != 0 {
+	if c.A[7]&1 != 0 && !c.is020() {
 		c.runState = RunStateStopped // double fault
 		return nil
+	}
+	if c.is020() {
+		return c.raiseAddressError020(ae, fc)
 	}
 	push := func(v uint32, size int) {
 		c.A[7] -= uint32(size)

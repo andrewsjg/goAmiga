@@ -305,11 +305,14 @@ func (c *Processor) Step() (err error) {
 	// Trace: with T set as the instruction starts, a trace exception
 	// follows it (see the end of Step).
 	traced := c.SR&StatusTrace != 0
-	// The 68020 allows data at odd addresses (see m68020.go).
-	if !c.NoAddressErrors && !c.is020() {
+	// The 68020 allows data at odd addresses (see m68020.go), but not
+	// instructions: both fault on a jump to an odd address.
+	if !c.NoAddressErrors {
 		snapSR := c.SR
 		c.faultPCAdjust = 0
-		c.M.OnOddAccess = c.oddAccess
+		if !c.is020() {
+			c.M.OnOddAccess = c.oddAccess
+		}
 		defer func() {
 			c.M.OnOddAccess = nil
 			if r := recover(); r != nil {

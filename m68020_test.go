@@ -449,3 +449,33 @@ func TestTraceException(t *testing.T) {
 		}
 	}
 }
+
+// A jump to an odd address faults on the 68020 too (data may be odd, code
+// may not), with a format $A frame that RTE can pop.
+func TestAddressError020(t *testing.T) {
+	c := new020(t, 0x4EB9, 0x0000, 0x2001) // JSR $2001
+	c.pokeL(VecAddressError*4, 0x3000)
+	c.pokeW(0x3000, 0x4E71) // NOP
+	sp := c.A[7]
+	step(t, c, 1)
+	if c.PC != 0x3000 {
+		t.Fatalf("PC $%X, want the address error handler", c.PC)
+	}
+	if got := sp - c.A[7]; got != 32 {
+		t.Errorf("frame is %d bytes, want 32", got)
+	}
+	if fv := c.peekW(c.A[7] + 6); fv != 0xA00C {
+		t.Errorf("format/vector $%04X, want $A00C", fv)
+	}
+	if pc := c.peekL(c.A[7] + 2); pc != 0x1000 {
+		t.Errorf("stacked PC $%X, want the JSR at $1000", pc)
+	}
+	// The handler can fix the PC and return.
+	c.pokeL(c.A[7]+2, 0x3000)
+	c.pokeW(0x3002, 0x4E73) // RTE at $3002, after the NOP
+	c.PC = 0x3002
+	step(t, c, 1)
+	if c.A[7] != sp || c.PC != 0x3000 {
+		t.Errorf("after RTE: A7 $%X PC $%X, want $%X and $3000", c.A[7], c.PC, sp)
+	}
+}
