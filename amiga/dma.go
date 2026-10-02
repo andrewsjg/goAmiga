@@ -1,6 +1,9 @@
 package amiga
 
-import "github.com/cavaliercoder/go-m68k/m68kmem"
+import (
+	m68k "github.com/cavaliercoder/go-m68k"
+	"github.com/cavaliercoder/go-m68k/m68kmem"
+)
 
 // Chip bus slot allocation (DMA cycle stealing).
 //
@@ -22,18 +25,37 @@ import "github.com/cavaliercoder/go-m68k/m68kmem"
 // between the CPU's Mapper and chip RAM, the custom registers and the CIAs;
 // DMA channels and emulator code call those devices directly and are not
 // counted.
+//
+// On the A1200 (AGA with a 68020) chip RAM is 32 bits wide, so a longword
+// is one access, and instruction fetches that hit the 68020's cache never
+// reach the bus. The cache isn't modelled: with it on, every fetch counts
+// as a hit, which suits the loops that matter (a 256-byte cache holds
+// them) and flatters straight-line code.
 type busCounter struct {
 	m        m68kmem.Memory
 	accesses *int
+	a        *Amiga // for the CPU's cache and the bus width (chip RAM only)
+}
+
+func (c *busCounter) count(n int) int {
+	if a := c.a; a != nil && a.CPU.Model >= m68k.Model68020 {
+		if a.CPU.M.Fetch && a.CPU.ICacheEnabled() {
+			return 0
+		}
+		if a.AGA {
+			return (n + 3) / 4
+		}
+	}
+	return (n + 1) / 2
 }
 
 func (c *busCounter) Read(addr int, p []byte) (int, error) {
-	*c.accesses += (len(p) + 1) / 2
+	*c.accesses += c.count(len(p))
 	return c.m.Read(addr, p)
 }
 
 func (c *busCounter) Write(addr int, p []byte) (int, error) {
-	*c.accesses += (len(p) + 1) / 2
+	*c.accesses += c.count(len(p))
 	return c.m.Write(addr, p)
 }
 

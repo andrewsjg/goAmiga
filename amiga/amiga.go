@@ -299,18 +299,18 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		// so the CPU finds its reset vectors at $000000.
 		a.mapROM(0x000000)
 	} else {
-		a.Mapper.Map(&busCounter{a.ChipRAM, &a.cpuChipAccesses}, ChipRAMBase, ChipRAMBase+a.ChipRAMSize()-1)
+		a.Mapper.Map(&busCounter{m: a.ChipRAM, accesses: &a.cpuChipAccesses, a: a}, ChipRAMBase, ChipRAMBase+a.ChipRAMSize()-1)
 	}
 
 	// Zorro II boards: fast RAM, the hard disk controller.
 	a.mapZorro()
 
-	a.Mapper.Map(&busCounter{&ciaSpace{a.CIAA, a.CIAB}, &a.cpuCIAAccesses}, CIASpaceBase, CIASpaceEnd)
+	a.Mapper.Map(&busCounter{m: &ciaSpace{a.CIAA, a.CIAB}, accesses: &a.cpuCIAAccesses}, CIASpaceBase, CIASpaceEnd)
 	// Slow RAM is on the chip bus: CPU accesses contend with DMA.
 	if a.SlowRAM != nil {
-		a.Mapper.Map(&busCounter{a.SlowRAM, &a.cpuChipAccesses}, SlowRAMBase, SlowRAMBase+len(a.SlowRAM.b)-1)
+		a.Mapper.Map(&busCounter{m: a.SlowRAM, accesses: &a.cpuChipAccesses}, SlowRAMBase, SlowRAMBase+len(a.SlowRAM.b)-1)
 	}
-	a.Mapper.Map(&busCounter{a.Custom, &a.cpuChipAccesses}, CustomBase, CustomEnd)
+	a.Mapper.Map(&busCounter{m: a.Custom, accesses: &a.cpuChipAccesses}, CustomBase, CustomEnd)
 
 	a.mapROM(ROMBase)
 

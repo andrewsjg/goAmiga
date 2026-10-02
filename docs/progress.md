@@ -42,6 +42,51 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-02 — A1200 chip bus: 68020 cache and 32-bit chip RAM
+
+Alien Breed: Tower Assault hung after loading from disk 3. Its VERTB
+handler fades 256 24-bit colours into a copper list, then calls a "wait 8
+lines" routine. That routine adds 8 to VPOS and waits for the result, so
+it never returns if called after line 304. Here the fade took 290 lines
+of a 313-line frame.
+
+The fade runs from chip RAM (no fast RAM on a stock A1200) while 8 lores
+planes take every slot during the display window. goAmiga charged two
+things the A1200 doesn't pay for:
+- **Instruction fetches.** The 68EC020's 256-byte instruction cache holds
+  a loop like this, so its fetches don't use the bus.
+- **Longwords.** Alice's chip RAM bus is 32 bits wide, so a longword is
+  one access, not two.
+
+Now, with a 68020:
+- While CACR's enable bit is set, instruction fetches don't count as chip
+  bus accesses. go-m68k's `Decoder.Fetch` flags code reads and
+  `Processor.ICacheEnabled` reports the cache. Kickstart turns it on.
+  The cache itself isn't modelled, so straight-line code is a little
+  flattered.
+- On AGA, chip RAM accesses count in 32-bit units. Custom registers stay
+  16-bit.
+
+With that, and auto-swapping disks in the batch, the A1200 list now
+reaches:
+- Alien Breed TA: options menu.
+- Bubble Bobble: play.
+- Frontier: 3D flight over a city.
+- James Pond 2: in game.
+- Lotus: racing.
+- Pinball Mania: table select.
+- Prince of Persia: play.
+- Speedball 2: menu.
+- Worms DC: intro.
+
+Still not working:
+- The Chaos Engine (stack overlap, see below).
+- Deluxe Galaga.
+- SDI (black or CLI on the A1200; both work on the A500).
+- Kick Off 96: its disks are separate zips.
+- Colonization and SkidMarks: they need icon.library on disk under
+  Kickstart 3.2.
+
 ## 2026-10-02 — Multi-disk zips; The Chaos Engine
 
 **Multi-disk zips.** Collections often zip all of a game's disks
