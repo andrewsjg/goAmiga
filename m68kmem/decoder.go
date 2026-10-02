@@ -11,6 +11,10 @@ type Decoder struct {
 	// installs it while executing an instruction.
 	OnOddAccess func(addr int, write bool)
 
+	// OnWrite, when set, is called before every write with its address and
+	// length (the CPU's prefetch emulation keeps what it overwrites).
+	OnWrite func(addr, n int)
+
 	// Accesses counts bus cycles (one per byte or word, two per long)
 	// completed through this Decoder; the CPU uses it to time exceptions.
 	Accesses int
@@ -33,6 +37,9 @@ func NewDecoder(m Memory) *Decoder {
 // Write writes to the underlying Memory interface.
 func (m *Decoder) Write(addr int, p []byte) (n int, err error) {
 	m.checkOdd(addr, len(p), true)
+	if m.OnWrite != nil {
+		m.OnWrite(addr, len(p))
+	}
 	return m.M.Write(addr, p)
 }
 

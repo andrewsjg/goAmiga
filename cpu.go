@@ -106,6 +106,11 @@ type Processor struct {
 	// in user mode (useful for debugging privilege violations and mode switches).
 	DebugExceptions bool
 
+	// OnException, if set, is called for every exception the processor
+	// takes (vector, the PC it will stack, the instruction's address),
+	// before the stack frame is built. A diagnostic hook.
+	OnException func(vector int, pc, instr uint32)
+
 	SSP uint32 // Supervisor Stack Pointer (saved when entering user mode)
 	USP uint32 // User Stack Pointer (saved when entering supervisor mode)
 
@@ -141,6 +146,11 @@ type Processor struct {
 	// 68020 control registers (MOVEC). ISP is SSP.
 	VBR, CACR, CAAR, SFC, DFC, MSP uint32
 	instrAddr                      uint32 // address of the instruction being executed
+
+	// Prefetch emulates the 68000's two-word prefetch queue (prefetch.go)
+	// for self-modifying code that relies on it. 68000 only.
+	Prefetch bool
+	pf       prefetchState
 
 	// FPU is the floating-point coprocessor on a 68020: FPUNone, FPU68881
 	// or FPU68882 (fpu.go).
@@ -186,6 +196,8 @@ func (c *Processor) Reset() {
 		ResetHandler: rh,
 		Model:        c.Model,
 		FPU:          c.FPU,
+		Prefetch:     c.Prefetch,
+		OnException:  c.OnException,
 	}
 	c.M.Reset()
 }
@@ -206,6 +218,8 @@ func (c *Processor) ResetWithVectors() error {
 		Model:           c.Model,
 		FPU:             c.FPU,
 		NoAddressErrors: c.NoAddressErrors,
+		Prefetch:        c.Prefetch,
+		OnException:     c.OnException,
 	}
 	c.M.Reset()
 
@@ -288,6 +302,9 @@ func (c *Processor) Step() (err error) {
 	// instruction (see raiseAddressError). Register updates made before the
 	// faulting access (e.g. -(An)) stand, as on the 68000.
 	c.instrAddr = c.PC
+	// Trace: with T set as the instruction starts, a trace exception
+	// follows it (see the end of Step).
+	traced := c.SR&StatusTrace != 0
 	// The 68020 allows data at odd addresses (see m68020.go).
 	if !c.NoAddressErrors && !c.is020() {
 		snapSR := c.SR
@@ -315,10 +332,10 @@ func (c *Processor) Step() (err error) {
 
 	// read from program pointer into op
 	// TODO: consider prefetching a whole page of instructions and measure
-	if _, err = c.M.Read(int(c.PC), c.buf[0:2]); err != nil {
+	c.prefetchBegin()
+	if c.op, err = c.fetchWord(c.PC); err != nil {
 		return
 	}
-	c.op = uint16(c.buf[0])<<8 + uint16(c.buf[1])
 	if c.op == 0 && c.HaltOnZero {
 		c.runState = RunStateStopped
 		return
@@ -343,7 +360,6 @@ func (c *Processor) Step() (err error) {
 			if c.TraceWriter != nil {
 				fmt.Fprintf(c.TraceWriter, "%08X Line-A trap $%04X (vec %d)\n", c.PC, c.op, VecLine1010)
 			}
-			c.PC += 2
 			c.LastCycles = 34 // exception processing
 			err = c.RaiseException(VecLine1010)
 			return
@@ -352,7 +368,6 @@ func (c *Processor) Step() (err error) {
 			if c.TraceWriter != nil {
 				fmt.Fprintf(c.TraceWriter, "%08X Line-F trap $%04X (vec %d)\n", c.PC, c.op, VecLine1111)
 			}
-			c.PC += 2
 			c.LastCycles = 34 // exception processing
 			err = c.RaiseException(VecLine1111)
 			return
@@ -361,7 +376,6 @@ func (c *Processor) Step() (err error) {
 		if c.TraceWriter != nil {
 			fmt.Fprintf(c.TraceWriter, "%08X ILLEGAL opcode $%04X\n", c.PC, c.op)
 		}
-		c.PC += 2
 		c.LastCycles = 34 // exception processing
 		err = c.RaiseException(VecIllegal)
 		return
@@ -383,7 +397,7 @@ func (c *Processor) Step() (err error) {
 			if c.TraceWriter != nil {
 				fmt.Fprintf(c.TraceWriter, "  -> ILLEGAL: %v at $%08X op=$%04X\n", t.err, t.addr, c.op)
 			}
-			c.PC = t.addr + 2
+			c.PC = t.addr
 			err = c.RaiseException(VecIllegal)
 			return
 		}
@@ -401,6 +415,27 @@ func (c *Processor) Step() (err error) {
 			cycles: 50 + c.cycles() - 8})
 		return
 	}
+
+	// Trace exception: after the instruction (and after any trap it took
+	// itself, so the handler sees the trap handler's first instruction),
+	// but not after illegal instructions, line A/F or privilege
+	// violations, and before any pending interrupt. Copy protection (Rob
+	// Northen's Copylock) decrypts its code one traced instruction at a
+	// time.
+	if traced {
+		switch c.tim.exception {
+		case VecIllegal, VecPrivilege, VecLine1010, VecLine1111:
+		default:
+			exc, trapped := c.tim.exception, c.tim.trapped
+			if err = c.RaiseException(VecTrace); err != nil {
+				return
+			}
+			c.tim.exception, c.tim.trapped = exc, trapped
+			c.LastCycles += 34
+		}
+	}
+
+	c.prefetchEnd()
 
 	// check for pending interrupts after each instruction
 	err = c.CheckInterrupts()
@@ -576,7 +611,7 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -586,7 +621,7 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}
@@ -615,7 +650,7 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 
 		case 0x04: // immediate byte
 			var n uint16
-			n, err = c.M.Word(int(c.PC))
+			n, err = c.fetchWord(c.PC)
 			b = byte(n)
 			c.PC += 2
 			opr = fmt.Sprintf("#$%X", byteToInt32(b))
@@ -685,7 +720,7 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -695,7 +730,7 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}
@@ -723,7 +758,7 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 			n, err = c.M.Word(int(addr))
 
 		case 0x04: // immediate word
-			n, err = c.M.Word(int(c.PC))
+			n, err = c.fetchWord(c.PC)
 			c.PC += 2
 			opr = fmt.Sprintf("#$%X", wordToInt32(n))
 		}
@@ -792,7 +827,7 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -802,7 +837,7 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}
@@ -830,7 +865,7 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 			n, err = c.M.Long(int(addr))
 
 		case 0x04: // immediate long
-			n, err = c.M.Long(int(c.PC))
+			n, err = c.fetchLong(c.PC)
 			c.PC += 4
 			opr = fmt.Sprintf("#$%X", int32(n))
 		}
@@ -889,7 +924,7 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -899,7 +934,7 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}
@@ -960,7 +995,7 @@ func (c *Processor) readImmInt(sz uint16) (i Int, opr string, err error) {
 // counter address and increments the counter by 2 (16-bits) for word alignment.
 func (c *Processor) readImmByte() (b byte, opr string, err error) {
 	var n uint16
-	n, err = c.M.Word(int(c.PC))
+	n, err = c.fetchWord(c.PC)
 	if err != nil {
 		return
 	}
@@ -973,7 +1008,7 @@ func (c *Processor) readImmByte() (b byte, opr string, err error) {
 // readImmWord reads a 16-bit word of immediate data from the current program
 // counter address and increments the counter by 2 (16-bits).
 func (c *Processor) readImmWord() (n uint16, opr string, err error) {
-	n, err = c.M.Word(int(c.PC))
+	n, err = c.fetchWord(c.PC)
 	if err != nil {
 		return
 	}
@@ -985,7 +1020,7 @@ func (c *Processor) readImmWord() (n uint16, opr string, err error) {
 // readImmLong reads a 32-bit long-word of immediate data from the current
 // program counter address and increments the counter by 4 (32-bits).
 func (c *Processor) readImmLong() (n uint32, opr string, err error) {
-	n, err = c.M.Long(int(c.PC))
+	n, err = c.fetchLong(c.PC)
 	if err != nil {
 		return
 	}
@@ -1071,7 +1106,7 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -1081,7 +1116,7 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}
@@ -1155,7 +1190,7 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -1166,7 +1201,7 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}
@@ -1247,7 +1282,7 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -1258,7 +1293,7 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}
@@ -1320,7 +1355,7 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 
 		case 0x00: // absolute word (sign-extended to 32 bits)
 			var addr uint16
-			addr, err = c.M.Word(int(c.PC))
+			addr, err = c.fetchWord(c.PC)
 			if err != nil {
 				return
 			}
@@ -1330,7 +1365,7 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 
 		case 0x01: // absolute long
 			var addr uint32
-			addr, err = c.M.Long(int(c.PC))
+			addr, err = c.fetchLong(c.PC)
 			if err != nil {
 				return
 			}

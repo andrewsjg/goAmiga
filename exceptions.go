@@ -68,6 +68,9 @@ func (c *Processor) setSR(newSR uint32) {
 // 5. Clear trace bit
 func (c *Processor) RaiseException(vector int) error {
 	c.tim.exception, c.tim.trapped = vector, true
+	if c.OnException != nil {
+		c.OnException(vector, c.PC, c.instrAddr)
+	}
 	return c.raiseInterruptException(vector, 0)
 }
 
@@ -222,6 +225,9 @@ func (c *Processor) oddAccess(addr int, write bool) {
 // halts the processor, as on the 68000.
 func (c *Processor) raiseAddressError(ae *addressError) error {
 	c.M.OnOddAccess = nil
+	if c.OnException != nil {
+		c.OnException(VecAddressError, ae.pc, c.instrAddr)
+	}
 	c.runState = RunStateRunning
 	super := ae.sr&StatusSupervisor != 0
 	fc := uint16(1) // user data

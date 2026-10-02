@@ -200,7 +200,6 @@ func opMovec(c *Processor) (t stepTrace) {
 // illegal takes the illegal instruction exception for the instruction at
 // PC.
 func (c *Processor) illegal() error {
-	c.PC += 2
 	return c.RaiseException(VecIllegal)
 }
 

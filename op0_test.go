@@ -165,17 +165,18 @@ func TestEori(t *testing.T) {
 		p := LoadBytes(t, []byte{
 			0x0A, 0x7C, 0xFF, 0xFF, // eori #$FFFF,SR
 		})
-		p.SR = m68k.StatusMask
+		// T clear: these tests have no trace vector to go to.
+		p.SR = m68k.StatusMask &^ m68k.StatusTrace
 		AssertRun(t, p)
-		AssertStatusRegister(t, p, 0)
+		AssertStatusRegister(t, p, m68k.StatusTrace) // every other bit flipped off, T on
 	})
 
 	t.Run("ToSR", func(t *testing.T) {
 		p := LoadBytes(t, []byte{
 			0x0A, 0x3C, 0xFF, 0xFF, // eori #$FFFF,SR
 		})
-		p.SR = m68k.StatusMask
+		p.SR = m68k.StatusMask &^ m68k.StatusTrace
 		AssertRun(t, p)
-		AssertStatusRegister(t, p, 0xA700)
+		AssertStatusRegister(t, p, 0x2700)
 	})
 }

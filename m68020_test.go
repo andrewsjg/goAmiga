@@ -423,3 +423,29 @@ func TestBsetImmStill020(t *testing.T) {
 		t.Errorf("BSET #3,D0 = $%X, want 8", c.D[0])
 	}
 }
+
+// With the T bit set, each instruction is followed by the trace exception
+// (vector 9), whose handler sees the next instruction's address.
+func TestTraceException(t *testing.T) {
+	for _, m := range []Model{Model68000, Model68020} {
+		c := new020(t, 0x7001, 0x7002) // MOVEQ #1,D0 ; MOVEQ #2,D0
+		c.Model = m
+		c.pokeL(9*4, 0x3000)
+		c.pokeW(0x3000, 0x4E73) // RTE
+		c.SR |= StatusTrace
+		step(t, c, 1)
+		if c.PC != 0x3000 || c.D[0] != 1 {
+			t.Fatalf("%v: after a traced MOVEQ PC=$%X D0=%d, want the trace handler", m, c.PC, c.D[0])
+		}
+		if pc := c.peekL(c.A[7] + 2); pc != 0x1002 {
+			t.Errorf("%v: trace frame PC $%X, want $1002", m, pc)
+		}
+		if c.SR&StatusTrace != 0 {
+			t.Errorf("%v: trace handler runs with T set", m)
+		}
+		step(t, c, 2) // RTE back (T set again), then the traced second MOVEQ
+		if c.D[0] != 2 || c.PC != 0x3000 {
+			t.Errorf("%v: second traced instruction: D0=%d PC=$%X", m, c.D[0], c.PC)
+		}
+	}
+}

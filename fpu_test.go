@@ -129,8 +129,8 @@ func TestFSaveFRestore(t *testing.T) {
 		c := newFPU(t, m.model,
 			0xF327,         // FSAVE -(A7)
 			0xF200, 0x0000, // FMOVE.X FP0,FP0
-			0xF327,         // FSAVE -(A7)
-			0xF35F,         // FRESTORE (A7)+
+			0xF327, // FSAVE -(A7)
+			0xF35F, // FRESTORE (A7)+
 		)
 		step(t, c, 1)
 		if c.A[7] != 0x8000-4 || c.peekL(c.A[7]) != 0 {

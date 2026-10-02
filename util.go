@@ -58,7 +58,7 @@ func decodeExEA(op uint16) uint16 {
 // and a formatted operand string.
 func (c *Processor) decodeBriefExt(baseAddr uint32, baseName string) (addr uint32, opr string, err error) {
 	var ext uint16
-	ext, err = c.M.Word(int(c.PC))
+	ext, err = c.fetchWord(c.PC)
 	if err != nil {
 		return
 	}

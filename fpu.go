@@ -420,7 +420,6 @@ func opFPU(c *Processor) (t stepTrace) {
 
 // lineF takes the F-line exception for the instruction at PC.
 func (c *Processor) lineF() error {
-	c.PC += 2
 	return c.RaiseException(VecLine1111)
 }
 
