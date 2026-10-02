@@ -117,13 +117,19 @@ func (c *Processor) fetchWord(addr uint32) (uint16, error) {
 			}
 		}
 	}
-	return c.M.Word(int(addr))
+	c.M.Fetch = true
+	w, err := c.M.Word(int(addr))
+	c.M.Fetch = false
+	return w, err
 }
 
 // fetchLong reads two instruction words at addr.
 func (c *Processor) fetchLong(addr uint32) (uint32, error) {
 	if !c.Prefetch || !c.pf.in.valid[0] && !c.pf.in.valid[1] {
-		return c.M.Long(int(addr))
+		c.M.Fetch = true
+		l, err := c.M.Long(int(addr))
+		c.M.Fetch = false
+		return l, err
 	}
 	hi, err := c.fetchWord(addr)
 	if err != nil {

@@ -46,6 +46,12 @@ func (m Model) String() string {
 
 func (c *Processor) is020() bool { return c.Model >= Model68020 }
 
+// ICacheEnabled reports whether the 68020's instruction cache is on (CACR
+// bit 0). Instruction fetches that hit it make no bus cycles; the
+// processor doesn't model the cache itself, but a memory system can use
+// this with Decoder.Fetch.
+func (c *Processor) ICacheEnabled() bool { return c.is020() && c.CACR&1 != 0 }
+
 // opcodes020 are the 68020's additions, matched before the 68000 table.
 var opcodes020 = []opcode{
 	{0x4E7A, 0xFFFE, opMovec},

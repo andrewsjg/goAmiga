@@ -11,6 +11,10 @@ type Decoder struct {
 	// installs it while executing an instruction.
 	OnOddAccess func(addr int, write bool)
 
+	// Fetch is set while the CPU reads instruction words, so memory can
+	// tell code fetches from data (to model an instruction cache).
+	Fetch bool
+
 	// OnWrite, when set, is called before every write with its address and
 	// length (the CPU's prefetch emulation keeps what it overwrites).
 	OnWrite func(addr, n int)
