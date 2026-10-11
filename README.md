@@ -10,6 +10,41 @@ You need a Kickstart ROM and, optionally, ADF disk images. Neither is
 included. Kickstart 1.3 (256KB) runs Workbench 1.3; Kickstart 3.2 for the
 A500/A600/A2000 (512KB) runs too, but wants Workbench 3.2 disks.
 
+Started with no arguments, goAmiga opens its configuration screen:
+
+```bash
+go run ./cmd/goamiga
+```
+
+![The configuration screen](docs/images/config-screen.png)
+
+The screen is laid out like this:
+- **Saved configurations** are on the left. Click one to load it,
+  double-click to start it, and use Save, New and Delete to manage them.
+- **The settings** are in tabs on the right:
+  - Machine: model presets, Kickstart ROM, CPU, FPU, chipset, PAL/NTSC.
+  - Memory.
+  - Floppies (DF0:-DF3:).
+  - Hard disks.
+  - Ports: serial, bsdsocket.library, the keyboard joystick.
+  - Display and sound.
+
+Settings use cycle gadgets: click to step through the choices, or
+right-click to step back. Choose… opens a file dialog.
+
+**Start** builds the machine and boots it; problems, such as a missing ROM,
+are shown at the bottom instead.
+
+While it runs, **Cmd+,** switches the machine off and returns to the
+configuration screen, to change something and start again.
+
+goAmiga opens with the configuration you started last. Saved
+configurations are settings files in `~/.config/goamiga/configs/`, so
+`--config NAME` starts one from the command line without the screen.
+`--launcher` opens the screen even with other flags.
+
+Flags still work as before and skip the configuration screen:
+
 ```bash
 go run ./cmd/goamiga --rom ROMS/Kick13.rom --disk "disks/Workbench1.3.adf"
 go run ./cmd/goamiga --rom ROMS/Kick32.rom --df0 disks/Install3.2.adf --df1 disks/Workbench3.2.adf
@@ -103,8 +138,9 @@ the keys are the flag names, and `df0` or `hdf` can repeat. A bare key
 turns a switch on, and relative paths are from the file's folder.
 
 goAmiga reads `./goamiga.conf`, then `~/.config/goamiga/goamiga.conf`, or
-the file given with `--config FILE`. Flags on the command line override
-the file.
+the file given with `--config FILE` (or the name of a configuration saved
+from the configuration screen). Flags on the command line override the
+file.
 
 ```
 rom     = ROMS/Kick32.rom

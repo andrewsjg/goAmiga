@@ -5,10 +5,13 @@ package main
 import (
 	"errors"
 
-	"github.com/cavaliercoder/goAmiga/amiga"
+	"github.com/cavaliercoder/goAmiga/internal/config"
 )
 
-// runDisplay is unavailable in a build without Ebitengine: use --headless.
-func runDisplay(*amiga.Amiga, displayOptions) error {
-	return errors.New("built with -tags noebitengine: no display; use --headless")
-}
+var errNoDisplay = errors.New("built with -tags noebitengine: no display; use --headless")
+
+// runMachine is unavailable in a build without Ebitengine: use --headless.
+func runMachine(*machine, *config.Settings) error { return errNoDisplay }
+
+// runLauncher is unavailable in a build without Ebitengine.
+func runLauncher() error { return errNoDisplay }

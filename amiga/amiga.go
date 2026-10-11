@@ -877,3 +877,21 @@ func LoadROM(path string) ([]byte, error) {
 	}
 	return data, nil
 }
+
+// Shutdown releases what the machine holds on the host: hardfiles and
+// network sockets. The Amiga can't run afterwards.
+func (a *Amiga) Shutdown() {
+	if a.Net != nil {
+		a.Net.closeAll()
+	}
+	if a.HardDisk != nil {
+		for _, f := range a.HardDisk.Files {
+			if f.f != nil {
+				f.f.Close()
+			}
+		}
+	}
+	if a.Paula != nil {
+		a.Paula.Output = nil
+	}
+}

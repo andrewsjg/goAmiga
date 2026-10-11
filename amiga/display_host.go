@@ -30,6 +30,7 @@ import (
 //	Cmd+S  screenshot: a PNG of the picture in ScreenshotDir
 //	Cmd+Shift+1..9  save state to slot 1-9 (in StateDir)
 //	Cmd+1..9        load state from slot 1-9
+//	Cmd+,  back to the configuration screen (when started from it)
 
 // hostKey reports whether the host command modifier is held.
 func hostKey() bool { return ebiten.IsKeyPressed(ebiten.KeyMeta) }
@@ -64,6 +65,8 @@ func (d *Display) pollHostKeys() {
 		}
 	case inpututil.IsKeyJustPressed(ebiten.KeyF):
 		ebiten.SetFullscreen(!ebiten.IsFullscreen())
+	case inpututil.IsKeyJustPressed(ebiten.KeyComma):
+		d.ConfigRequested = true
 	case inpututil.IsKeyJustPressed(ebiten.KeyS):
 		if path, err := d.screenshot(); err != nil {
 			d.message("screenshot failed: %v", err)

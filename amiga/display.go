@@ -85,6 +85,10 @@ type Display struct {
 	// same); Run lowers it if the window would not fit the monitor.
 	Scale       int
 	audioPlayer *audio.Player
+
+	// ConfigRequested is set by Cmd+,: whoever runs the display (Start
+	// rather than Run) may go back to its configuration screen.
+	ConfigRequested bool
 }
 
 // NewDisplay creates a new Ebitengine display for the given Amiga.
@@ -421,8 +425,15 @@ func (d *Display) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return w, h + d.statusBarHeight()
 }
 
-// Run starts the Ebitengine game loop at 50fps (PAL).
+// Run opens the window and runs the Ebitengine game loop until it closes.
 func (d *Display) Run() error {
+	d.Start()
+	return ebiten.RunGame(d)
+}
+
+// Start sets up the window, frame rate and sound for the display, for a
+// game loop that is already running or about to (Run does both).
+func (d *Display) Start() {
 	d.amiga.Video.DisplayActive = true
 	if !d.Mute {
 		if err := d.startAudio(); err != nil {
@@ -442,7 +453,18 @@ func (d *Display) Run() error {
 	ebiten.SetTPS(int(math.Round(d.amiga.FrameRate())))
 	ebiten.SetScreenClearedEveryFrame(false)
 	d.applyGrab(false)
-	return ebiten.RunGame(d)
+}
+
+// Stop ends the display's sound and lets go of the mouse, so that the
+// window can show something else.
+func (d *Display) Stop() {
+	if d.audioPlayer != nil {
+		d.audioPlayer.Close()
+		d.audioPlayer = nil
+	}
+	d.amiga.Paula.Output = nil
+	d.applyGrab(false)
+	ebiten.SetScreenClearedEveryFrame(true)
 }
 
 // windowScale is the largest scale up to d.Scale at which a w×h screen
@@ -480,7 +502,11 @@ const (
 )
 
 func (d *Display) startAudio() error {
-	ctx := audio.NewContext(AudioSampleRate)
+	// There can be only one audio context per process.
+	ctx := audio.CurrentContext()
+	if ctx == nil {
+		ctx = audio.NewContext(AudioSampleRate)
+	}
 	d.amiga.Paula.Output = NewAudioBuffer(audioMaxFrames)
 	p, err := ctx.NewPlayerF32(d.amiga.Paula.Output)
 	if err != nil {

@@ -8,7 +8,8 @@ directive in `go.mod`).
 
 | Path | Contents |
 |---|---|
-| `cmd/goamiga/` | CLI: `goamiga --rom Kick13.rom --disk wb13.adf` (windowed) or `--headless --cycles N` |
+| `cmd/goamiga/` | CLI and window: `main.go` (flags, no arguments opens the configuration screen), `machine.go` (builds an Amiga from `config.Settings`), `display.go` (the `app` game: configuration screen or running machine), `launcher.go` and `ui.go` (the configuration screen) |
+| `internal/config/` | Settings: the `Settings` struct behind the flags, settings files, and saved configurations (`~/.config/goamiga/configs/`) |
 | `amiga/` | The machine: chipset, CIAs, floppy, input, display, and all tests |
 | `diag/` | One-off diagnostic tools: Go programs (`bootdiag/`, `romanalysis/`) and Python ROM disassembly/search scripts |
 | `docs/` | This file, the progress log, and write-ups of the harder bugs |

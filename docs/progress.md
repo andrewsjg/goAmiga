@@ -42,6 +42,55 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-11 — Configuration screen
+
+Started with no arguments, goAmiga opens a configuration screen instead of
+printing its usage:
+- saved configurations on the left: load, save, new, delete, and
+  double-click to start;
+- the settings in tabs: Machine (with A500, A500+, A600, A1200 and
+  A1200 + fast presets), Memory, Floppies, Hard disks, Ports and Display;
+- Start and Quit.
+
+**Settings.** `internal/config.Settings` holds everything a machine and
+its window need. It registers the command-line flags (`Register`), so
+flags, settings files and saved configurations all fill in the same
+struct:
+- `Write` saves the values that differ from the defaults, with absolute
+  paths, as an ordinary settings file in `~/.config/goamiga/configs/`.
+- `Load` reads one back.
+- `Saved`, `LastUsed` and `Resolve` back the list, the start-up choice
+  and `--config NAME`.
+
+**Startup.** `cmd/goamiga` builds the machine in `buildMachine`, which
+returns errors rather than exiting, so the screen can show them.
+Ebitengine runs one game per process. A small `app` game is either the
+configuration screen or a machine's `Display`:
+- `Display.Start`/`Stop` replace `Run` for this. Ebitengine allows one
+  audio context per process, so it's now shared between machines.
+- `Amiga.Shutdown` releases hardfiles and sockets, and the serial
+  listener is closed.
+- Cmd+, in the emulator returns to the screen with the machine's settings.
+
+**UI.** The screen is drawn with a small immediate-mode kit (`ui.go`) in
+the style of Workbench 2.0:
+- bevelled buttons;
+- cycle gadgets (click forward, right-click back);
+- checkboxes, text fields and a list;
+- Go's typeface through text/v2;
+- native file dialogs (zenity), as F11 already used.
+
+`GOAMIGA_UISHOT=DIR` renders each tab to a PNG and quits, which is how the
+layout was checked and the README's screenshot made.
+
+**Verified:**
+- Each tab rendered and inspected.
+- A start, return and start-again cycle: the second machine boots, the
+  serial port is bound again (the first was released), and the shared
+  audio context works.
+- Tests: `TestSettingsRoundTrip`, `TestValidName` and
+  `TestSettingsAbsolutePaths`.
+
 ## 2026-10-11 — bsdsocket.library
 
 `--bsdsocket` adds a network board (`netboard.go`, `bsdsocket.go`): a
