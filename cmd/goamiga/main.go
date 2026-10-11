@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -33,6 +34,8 @@ func main() {
 	cpuSpeed := flag.Int("cpu-speed", 0, "CPU speed in percent of a 7 MHz 68000 (default 100 for the 68000, 250 for the 68020)")
 	fpuModel := flag.String("fpu", "none", "Floating-point coprocessor with --cpu 68020: none, 68881 or 68882")
 	chipset := flag.String("chipset", "", "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise), ecs (A500+/A600) or aga (A1200/A4000); default ecs-agnus with 1 MB chip RAM, else ocs")
+	bsdsocket := flag.Bool("bsdsocket", false, "Fit a network board with bsdsocket.library: Amiga TCP/IP programs use the host's network")
+	serial := flag.String("serial", "", "Connect the serial port to a TCP port: telnet:PORT (a terminal; try NewShell AUX: on the Amiga) or tcp:PORT (raw bytes); HOST:PORT to listen beyond this machine")
 	video := flag.String("video", "pal", "Video standard: pal (50 Hz) or ntsc (60 Hz, for American games that need it)")
 	slowRAM := flag.Int("slowram", 0, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
 	fastRAM := flag.Int("fastram", 2048, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
@@ -155,6 +158,24 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("DF%d: %s\n", n, list[0])
+	}
+	if *bsdsocket {
+		a.EnableBSDSocket()
+		fmt.Println("bsdsocket.library: on (host network)")
+	}
+	if *serial != "" {
+		ns, err := amiga.ListenSerial(*serial)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		a.Serial.Host = ns
+		how := "nc"
+		if ns.Telnet {
+			how = "telnet"
+		}
+		host, port, _ := net.SplitHostPort(ns.Addr().String())
+		fmt.Printf("Serial port: %s %s %s\n", how, host, port)
 	}
 	a.Disk.SetWriteProtected(*writeProtect)
 	if *writeProtect {

@@ -223,13 +223,13 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 				p[1] = byte(val)
 			}
 		}
-	case 0x018: // SERDATR - serial port status/data
-		// Return TBE (bit 13) + TSRE (bit 12) set (transmitter ready).
-		// RBF (bit 14) = 0 (no data received).
-		// Data bits = $00 (no valid frame received).
-		// Kickstart serial detection checks bits 6:0 for $7F — returning $00
-		// correctly indicates "no serial terminal" and avoids serial console mode.
-		val := uint16(0x3000)
+	case 0x018: // SERDATR - serial port status/data (serial.go)
+		// With nothing received the data bits are $00, which Kickstart's
+		// check for a debug terminal (bits 6-0 = $7F) reads as none.
+		val := uint16(0x3800)
+		if c.amiga != nil && c.amiga.Serial != nil {
+			val = c.amiga.Serial.ReadSERDATR()
+		}
 		p[0] = byte(val >> 8)
 		if len(p) > 1 {
 			p[1] = byte(val)
@@ -592,6 +592,15 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		0x0D0, 0x0D2, 0x0D4, 0x0D6, 0x0D8, 0x0DA: // AUD3
 		if c.amiga != nil && c.amiga.Paula != nil && n == 2 {
 			c.amiga.Paula.WriteReg(offset, uint16(p[0])<<8|uint16(p[1]))
+		}
+
+	case 0x030: // SERDAT
+		if c.amiga != nil && c.amiga.Serial != nil {
+			c.amiga.Serial.WriteSERDAT(uint16(p[0])<<8 | uint16(p[1]))
+		}
+	case 0x032: // SERPER
+		if c.amiga != nil && c.amiga.Serial != nil {
+			c.amiga.Serial.WriteSERPER(uint16(p[0])<<8 | uint16(p[1]))
 		}
 
 	case 0x09E: // ADKCON

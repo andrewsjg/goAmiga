@@ -28,7 +28,7 @@ verified. Longer investigations get their own write-up in `docs/`.
    isn't shown, and neither are sprite data rewrites while a sprite is
    being shifted out. Collisions are only detected on lines that are drawn
    (not in headless mode).
-3. **Paula (other).** No serial port (UART). The POTxDAT proportional
+3. **Paula (other).** The POTxDAT proportional
    counters (analogue joysticks, paddles) are not implemented. Audio DMA
    slots are not charged against the blitter.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
@@ -41,6 +41,87 @@ verified. Longer investigations get their own write-up in `docs/`.
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-11 — bsdsocket.library
+
+`--bsdsocket` adds a network board (`netboard.go`, `bsdsocket.go`): a
+Zorro II board whose ROM adds bsdsocket.library v4 and a PORTS interrupt
+server. It is the AmiTCP API, implemented on the host's sockets, as UAE's
+bsdsocket emulation is.
+
+**Mechanism.** Each of the library's 46 vectors (LVO -30 to -300) traps
+into Go, which reads the arguments from the CPU's registers.
+- Host sockets are always non-blocking.
+- When a call on a blocking Amiga socket would block, Go returns a signal
+  mask in D1. The vector's stub `Wait()`s on it, then traps again to retry.
+- The board polls the waiting calls' descriptors eight times a frame.
+  When one is ready, or a timeout has passed, it raises INT2. The
+  library's PORTS server then `Signal()`s the task.
+- A break signal (Ctrl-C, or `SetSocketSignals`) ends the wait with EINTR
+  and stays set. `WaitSelect`'s own signal mask is honoured.
+- Name lookups run in goroutines, so the emulator never blocks.
+
+**Library state.** Each task that opens the library gets:
+- its own descriptor table (64, adjustable);
+- errno and h_errno, with the pointers `SetErrnoPtr` and the tag list
+  set;
+- the break mask;
+- a buffer on the board for the netdb results (hostent, servent,
+  `Inet_NtoA`).
+
+`ObtainSocket`/`ReleaseSocket` pass sockets between tasks.
+
+**Translation.** Constants are AmiTCP's (BSD 4.4) and are translated to
+the host's:
+- errno values;
+- socket options (SOL_SOCKET, TCP_NODELAY, IP_TOS/TTL), with
+  SO_RCVTIMEO/SNDTIMEO done in the emulator;
+- MSG_ flags and the 4.4BSD sockaddr_in.
+
+Save states record that the board is fitted; host sockets can't be saved,
+so they are closed on load.
+
+**Tests.** Two Amiga programs are assembled in the test (`pcAsm`), wrapped
+as AmigaDOS executables, and written over `c:DiskDoctor` on a Workbench
+1.3 image. The startup-sequence runs them, against a Go TCP peer:
+- `TestBSDSocketTCP`: gethostbyname("localhost") (asynchronous), socket,
+  connect, send, a recv that sleeps until the reply arrives, and an echo.
+- `TestBSDSocketServer`: setsockopt, bind, listen, WaitSelect with a
+  timeout, accept, recv/send, and errno EBADF for a bad descriptor.
+
+Also: `TestInetAddr`, `TestSocketBaseTagList`.
+
+## 2026-10-11 — Serial port
+
+Paula's UART is emulated (`serial.go`):
+- SERPER sets the bit time and word length.
+- SERDAT has a buffer in front of the shift register. Each word sends its
+  own stop bits, and transmission takes the real frame time.
+- SERDATR reports RBF, OVRUN, TBE, TSRE and RXD.
+- The TBE (level 1) and RBF (level 5) interrupts are raised.
+- On CIA-B, /DSR and /CTS are asserted and /CD follows the connection.
+
+Received bytes arrive at the baud rate. The next byte waits until RBF is
+cleared, so pasted text can't overrun.
+
+The far end is a `SerialHost`. `NetSerial` (`serial_host.go`) listens on
+TCP. In telnet mode it:
+- asks the client for character mode with remote echo;
+- strips option negotiation from the input;
+- turns CR LF or CR NUL into CR;
+- sends LF as CR LF.
+
+Raw mode passes bytes through untouched. CLI: `--serial telnet:PORT` or
+`--serial tcp:PORT`. The save state includes the UART (version 10).
+
+**Tests:**
+- Frame timing and TBE/TSRE.
+- Reception and RBF pacing.
+- The modem lines.
+- Telnet over a real loopback connection.
+- `TestSerialAUXShell`: Workbench 1.3 with its startup-sequence patched to
+  `mount aux:` and `newshell aux:`. A command typed over the serial port
+  runs, and its output comes back.
 
 ## 2026-10-02 — A1200 chip bus: 68020 cache and 32-bit chip RAM
 

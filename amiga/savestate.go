@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 9
+	stateVersion = 10
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -195,6 +195,12 @@ func (a *Amiga) state(s *stateCodec) {
 	num(s, &fastKB)
 	s.str(&chipset)
 	s.str(&video)
+	hasNet := a.Net != nil
+	s.bool(&hasNet)
+	if s.load && hasNet != (a.Net != nil) {
+		s.err = cmpErr(s.err, fmt.Errorf("state was saved with bsdsocket.library %v; it is %v now (--bsdsocket)", onOff(hasNet), onOff(a.Net != nil)))
+		return
+	}
 	var hdfs []string
 	if a.HardDisk != nil {
 		for _, f := range a.HardDisk.Files {
@@ -278,6 +284,9 @@ func (a *Amiga) state(s *stateCodec) {
 	if a.HardDisk != nil {
 		a.HardDisk.state(s)
 	}
+	if a.Net != nil {
+		a.Net.state(s)
+	}
 
 	// Chips.
 	s.fixed(a.Custom.regs[:])
@@ -289,6 +298,7 @@ func (a *Amiga) state(s *stateCodec) {
 	a.Sprites.state(s)
 	a.Disk.state(s)
 	a.Paula.state(s)
+	a.Serial.state(s)
 	a.Keyboard.state(s)
 	num(s, &a.Mouse.CounterX)
 	num(s, &a.Mouse.CounterY)
@@ -638,4 +648,11 @@ func (k *Keyboard) state(s *stateCodec) {
 	s.bool(&k.handshakePending)
 	s.bool(&k.started)
 	num(s, &k.frameCount)
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }

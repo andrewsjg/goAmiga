@@ -93,6 +93,8 @@ Chipset DMA (Copper, blitter, bitplanes, sprites, disk) reads and writes
 | `ipf.go`, `diskimage.go` | Disk images | ADF, zipped/gzipped ADF, and IPF images. IPF tracks are decoded to raw MFM cells (`bitTrack`), and the controller reads them at bit level (`readTrack`). See `ipf-format.md` |
 | `hdboard.go`, `hardfile.go` | Hard disk | Autoboot Zorro II board and `goamiga.device`. Go generates the 68000 boot ROM (DiagArea, RomTag, BootPoint, driver glue) for the board's address. The code writes trap numbers to the board and Go performs the request. Hardfiles are plain or RDB (`AttachHardfile`, `--hdf`) |
 | `paula.go` | Paula audio | 4 DMA/manual channels, interrupts, ADKCON modulation; 48 kHz box-filtered stereo mix with A500 fixed and LED filters into an `AudioBuffer` (played by `display.go`) |
+| `netboard.go`, `bsdsocket*.go` | Network | `--bsdsocket`: Zorro II board whose ROM adds bsdsocket.library; each vector traps to Go, which runs host sockets non-blocking; calls that must wait `Wait()` in 68000 code and are woken by the board's INT2 server |
+| `serial.go`, `serial_host.go` | Serial port | Paula's UART (SERDAT/SERDATR/SERPER, TBE and RBF interrupts, baud-rate timing), CIA-B modem lines; `NetSerial` connects it to a telnet or raw TCP listener (`--serial`) |
 | `keyboard.go`, `mouse.go`, `joystick.go` | Input | Keyboard serial handshake via CIA-A. Mouse counters in JOY0DAT. Port 2 joystick in JOY1DAT. Fire buttons on CIA-A PRA. Second and third buttons on the POTGO pins |
 | `display.go`, `display_joystick.go`, `display_disk.go`, `display_host.go`, `keyboard_ebiten.go` | Host window: F11 disk dialog (zenity), Cmd host commands, warp, status bar | Ebitengine, 50 fps (60 on NTSC); excluded by `-tags noebitengine` |
 

@@ -166,6 +166,44 @@ Kickstart ROM and the same hard disk images attached. Hard disk contents
 aren't in the state, so loading an old state after the hard disk has
 changed can confuse its filesystem.
 
+### Networking
+
+`--bsdsocket` fits a network board carrying bsdsocket.library, the
+AmiTCP socket interface, like UAE's emulation of it. Amiga Internet
+software uses the host's network directly, with no TCP/IP stack to
+install or configure: telnet and FTP clients, IRC, mail, browsers like
+AWeb and IBrowse, and servers.
+
+Supported:
+- TCP and UDP over IPv4;
+- blocking and non-blocking sockets, and `WaitSelect`;
+- host name lookups through the host's resolver;
+- the usual socket options;
+- the netdb calls and `SocketBaseTagList`.
+
+Limits:
+- Servers bind on the host, so ports below 1024 need the host's
+  permission.
+- Raw sockets are refused unless the host allows them.
+- It works on macOS and Linux.
+
+### Serial port
+
+`--serial telnet:2323` connects the Amiga's serial port to TCP port 2323,
+listening on this machine only. Connect with `telnet localhost 2323`, then
+start a shell on the serial port from the Amiga:
+- Workbench 1.3: `mount aux:` then `newshell aux:`.
+- Workbench 2.0 and later: `newshell aux:`.
+
+Terminal programs on the Amiga talk to the telnet client the same way.
+`--serial tcp:2323` passes bytes through untouched, for file transfers or
+`nc`. `HOST:PORT` listens on another interface.
+
+Details:
+- The serial line runs at whatever baud rate the Amiga sets.
+- The Amiga sees carrier (CD) while a client is connected.
+- Telnet mode converts line endings both ways.
+
 ### Joystick
 
 A joystick is always plugged into port 2 (the mouse stays in port 1). Any

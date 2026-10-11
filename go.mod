@@ -6,6 +6,7 @@ require (
 	github.com/cavaliercoder/go-m68k v0.0.0
 	github.com/hajimehoshi/ebiten/v2 v2.10.4
 	github.com/ncruces/zenity v0.10.15
+	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -20,7 +21,6 @@ require (
 	github.com/randall77/makefat v0.0.0-20260406194835-1b91746796b7 // indirect
 	golang.org/x/image v0.45.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 )
 
 replace github.com/cavaliercoder/go-m68k => ../go-m68k

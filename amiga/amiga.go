@@ -72,6 +72,11 @@ type Amiga struct {
 	Disk     *DiskDrive
 	Keyboard *Keyboard
 	Paula    *Paula
+	// Serial is Paula's UART; attach a host with Serial.Host.
+	Serial *Serial
+	// Net is the network board with bsdsocket.library (EnableBSDSocket),
+	// or nil.
+	Net *netBoard
 
 	// Expansion memory (ConfigureMemory): slow RAM at $C00000 and a Zorro
 	// II fast RAM board. nil when not fitted.
@@ -180,6 +185,8 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	a.Disk = NewDiskDrive(a)
 	a.Keyboard = NewKeyboard(a)
 	a.Paula = NewPaula(a)
+	a.Serial = NewSerial(a)
+	a.CIAB.OnPRARead = a.Serial.ciabPRA
 	a.Mouse = NewMouse(a)
 	a.Joystick = &Joystick{}
 
@@ -371,6 +378,9 @@ func (a *Amiga) Reset() error {
 	if a.Paula != nil {
 		a.Paula.Reset()
 	}
+	if a.Serial != nil {
+		a.Serial.Reset()
+	}
 
 	if a.logger != nil {
 		fmt.Fprintf(a.logger, "RESET: SSP=$%08X PC=$%08X\n", a.CPU.A[7], a.CPU.PC)
@@ -423,6 +433,11 @@ func (a *Amiga) Step() error {
 		}
 		if a.Paula != nil {
 			if c := a.Paula.CyclesToNextInterrupt(); c > 0 && c < skip {
+				skip = c
+			}
+		}
+		if a.Serial != nil {
+			if c := a.Serial.CyclesToNextEvent(); c > 0 && c < skip {
 				skip = c
 			}
 		}
@@ -507,6 +522,12 @@ func (a *Amiga) Step() error {
 	}
 	if a.Paula != nil {
 		a.Paula.Tick(elapsed)
+	}
+	if a.Serial != nil {
+		a.Serial.Tick(elapsed)
+	}
+	if a.Net != nil {
+		a.Net.tick()
 	}
 
 	// Use fast per-line beam advance when the CPU is stopped (no instruction
