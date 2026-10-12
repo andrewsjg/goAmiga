@@ -24,7 +24,7 @@ import (
 //	mute
 
 // pathKeys are the settings that name files.
-var pathKeys = map[string]bool{"ide": true, "rom": true, "df0": true, "disk": true, "df1": true, "df2": true, "df3": true, "hdf": true, "screenshot-dir": true, "state-dir": true, "load-state": true}
+var pathKeys = map[string]bool{"dir": true, "ide": true, "rom": true, "df0": true, "disk": true, "df1": true, "df2": true, "df3": true, "hdf": true, "screenshot-dir": true, "state-dir": true, "load-state": true}
 
 // Find returns the config file to use: the one named, else
 // ./goamiga.conf, else ~/.config/goamiga/goamiga.conf, else "".
@@ -86,9 +86,7 @@ func Apply(fs *flag.FlagSet, path string) error {
 			}
 			val = "true"
 		}
-		if pathKeys[key] && val != "" && !filepath.IsAbs(val) {
-			val = filepath.Join(dir, val)
-		}
+		val = mapPath(key, val, func(p string) string { return filepath.Join(dir, p) })
 		if err := fs.Set(key, val); err != nil {
 			return fmt.Errorf("%s:%d: %s: %v", path, n, key, err)
 		}

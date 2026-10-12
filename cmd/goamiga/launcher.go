@@ -422,24 +422,49 @@ func (l *launcher) hardDiskTab(x, y int) {
 	u.text(x, y, "IDE drives need a Rigid Disk Block; they fit Gayle.", uiDim)
 	y += 34
 	x -= 130
-	u.text(x, y, "Hardfiles on goamiga.device (any Amiga), units 0, 1, ...", uiBlack)
+	u.text(x, y, "Hardfiles and host folders on goamiga.device (any Amiga)", uiBlack)
 	y += 26
-	for i := 0; i < len(l.s.Hardfiles); i++ {
+	row := func(label string, remove func()) {
 		u.fill(x, y, 400, 22, uiDarker)
 		u.bevel(x, y, 400, 22, false)
-		u.text(x+6, y+3, u.fit(fmt.Sprintf("%d: %s", i, l.s.Hardfiles[i]), 388), uiBlack)
+		u.text(x+6, y+3, u.fit(label, 388), uiBlack)
 		if u.button(x+406, y, 70, 22, "Remove") {
-			l.s.Hardfiles = slices.Delete(l.s.Hardfiles, i, i+1)
-			i--
+			remove()
 		}
 		y += 28
 	}
-	if len(l.s.Hardfiles) < 8 && u.button(x, y, 110, 24, "Add hardfile…") {
-		l.choose("hdf", "", hdfFilter, false)
+	for i := 0; i < len(l.s.Hardfiles); i++ {
+		row(fmt.Sprintf("Unit %d: %s", i, l.s.Hardfiles[i]), func() {
+			l.s.Hardfiles = slices.Delete(l.s.Hardfiles, i, i+1)
+			i--
+		})
+	}
+	for i := 0; i < len(l.s.Dirs); i++ {
+		vol, p := config.SplitDir(l.s.Dirs[i])
+		if vol == "" {
+			vol = filepath.Base(p)
+		}
+		row(fmt.Sprintf("Folder %s: %s", vol, p), func() {
+			l.s.Dirs = slices.Delete(l.s.Dirs, i, i+1)
+			i--
+		})
+	}
+	rows := len(l.s.Hardfiles) + len(l.s.Dirs)
+	if rows < 8 {
+		if u.button(x, y, 120, 24, "Add hardfile…") {
+			l.choose("hdf", "", hdfFilter, false)
+		}
+		if u.button(x+128, y, 120, 24, "Add folder…") {
+			l.choose("dir", "", nil, true)
+		}
 	}
 	y += 34
+	if rows > 5 {
+		return
+	}
 	for _, ln := range u.wrap("Plain hardfiles and RDB images both work here. A new, empty hardfile "+
-		"can be made with --hdf-create from the command line and formatted from Workbench.", 520) {
+		"can be made with --hdf-create from the command line and formatted from Workbench. "+
+		"A folder appears as a volume named after it, and boots if it has S/Startup-Sequence.", 520) {
 		u.text(x, y, ln, uiDim)
 		y += 18
 	}
@@ -529,6 +554,7 @@ func (l *launcher) choose(target, current string, filters zenity.FileFilters, di
 	go func() {
 		opts := []zenity.Option{zenity.Filename(start)}
 		title := map[string]string{"rom": "Choose a Kickstart ROM", "hdf": "Choose a hardfile",
+			"dir":  "Choose a folder to use as an Amiga drive",
 			"ide0": "Hardfile for the IDE master", "ide1": "Hardfile for the IDE slave",
 			"shots": "Folder for screenshots", "states": "Folder for save states"}[target]
 		if strings.HasPrefix(target, "df") {
@@ -571,6 +597,8 @@ func (l *launcher) pollChooser() {
 		l.s.Drives[n] = config.List{c.path}
 	case c.target == "hdf":
 		l.s.Hardfiles = append(l.s.Hardfiles, c.path)
+	case c.target == "dir":
+		l.s.Dirs = append(l.s.Dirs, c.path)
 	case strings.HasPrefix(c.target, "ide"):
 		if i := int(c.target[3] - '0'); i < len(l.s.IDE) {
 			l.s.IDE[i] = c.path

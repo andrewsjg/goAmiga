@@ -13,7 +13,7 @@ verified. Longer investigations get their own write-up in `docs/`.
   keys.
 - Sound plays through Paula.
 - Up to four floppy drives, writable and swappable. Hardfiles on an
-  autobooting controller.
+  autobooting controller or IDE, and host folders as drives.
 - The CPU passes the SingleStepTests 68000 suite with 68000 cycle timing,
   and can be a 68020 (`--cpu 68020`).
 
@@ -42,6 +42,81 @@ verified. Longer investigations get their own write-up in `docs/`.
    68030 or later, and no MMU.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-12 — Host folders as drives
+
+`--dir [VOLUME=]PATH` mounts a host folder as an Amiga drive, on any
+Kickstart, as UAE's "filesystem" does. The configuration screen's Hard
+disks tab has "Add folder…".
+
+**How it works** (`hostfs.go`):
+- goamiga.device mounts each folder like a partition: a parameter packet
+  for `MakeDosNode`, then a BootNode, bootable (priority -10) if the
+  folder has `S/Startup-Sequence`. The device is the next free DH name.
+- The DeviceNode is patched to run a handler in the board's ROM: dn_SegList
+  points to a segment there, dn_GlobalVec is -1, dn_StackSize 4096.
+- The handler is a short 68000 loop. At start it finds its process and
+  port, and allocates a 16 KB pool for FileLocks. Then it waits on its
+  port, passes each message to Go (a trap), and `PutMsg`s it back to the
+  port Go names.
+- Go handles the packet against the host folder and fills in Res1/Res2
+  and the reply fields.
+  - The first packet is the startup one. Go matches it to a folder by its
+    DeviceNode (Arg3, from 2.0) or dn_Startup (Arg2: Kickstart 1.3 leaves
+    Arg3 0).
+  - It sets dn_Task, builds the volume's DeviceList node in the pool and
+    links it at the head of the DOS list.
+- **Packets:**
+  - Locks: LOCATE_OBJECT, FREE_LOCK, COPY_DIR, PARENT, SAME_LOCK.
+  - Directories: EXAMINE_OBJECT, EXAMINE_NEXT, CREATE_DIR.
+  - Files: FINDINPUT/OUTPUT/UPDATE, READ, WRITE, SEEK, END,
+    SET_FILE_SIZE.
+  - The 2.0 filehandle packets: FH_FROM_LOCK, COPY_DIR_FH, PARENT_FH,
+    EXAMINE_FH.
+  - Objects: DELETE_OBJECT, RENAME_OBJECT, SET_PROTECT, SET_COMMENT,
+    SET_DATE.
+  - The volume: INFO, DISK_INFO, CURRENT_VOLUME, RENAME_DISK.
+  - IS_FILESYSTEM, FLUSH, INHIBIT and the like simply succeed.
+  - EXAMINE_ALL isn't handled: dos.library falls back to Examine/ExNext.
+    That also keeps pattern matching on the Amiga side.
+- **Locks** are real FileLock structures (DOS reads fl_Volume and fl_Task)
+  from the pool. Go keeps each one's path, and checks shared and
+  exclusive use. File handles need only an ID in fh_Arg1. A rename
+  moves the locks and open files inside what was renamed.
+- **Names** are matched case-insensitively in Amiga terms. Each host name
+  is converted to Latin-1 and compared, so names with unshowable
+  characters still resolve.
+- **Protection bits and comments** go in WinUAE/FS-UAE `.uaem` files.
+- **Save states** record each handler's locks and open files (path and
+  position) and reopen the files on load (`stateVersion` 12).
+
+**Two bugs on the way to the first boot:**
+- *Kickstart 1.3's startup packet.* It has no DeviceNode in Arg3, so no
+  folder matched and DOS waited forever. Matching dn_Startup in Arg2
+  fixed it.
+- *Assign prefixes.* DOS sends the name exactly as typed,
+  `devs:system-configuration`, along with the lock that DEVS: stands for.
+  The handler treated any colon as "from the root" and looked in the
+  wrong place. Only a leading `:` means the root; otherwise the prefix is
+  dropped and the lock kept.
+
+**Testing:**
+- `TestFolderBootKS13` and `TestFolderBootKS32` boot Workbench from
+  folders holding the files of the Workbench 1.3 and Install 3.2 disks.
+  The 3.2 boot takes 256 frames, against 283 from the same files on a
+  hardfile.
+- `TestFolderBesideHardfile`: with Workbench on a hardfile, a data
+  folder's handler starts at boot on 1.3 and 3.2, and its volume's icon
+  is on the Workbench (checked by screenshot, `HOSTFS_PNG`).
+- `TestHostfsFiles` and `TestHostfsReadOnly` drive the packet code
+  directly. They cover writing, reading and seeking; locks relative to
+  locks and `/`; ExNext listings; and rename with a lock held. They also
+  cover delete refusing an open file, a full drawer or a delete-protected
+  file; the `.uaem` files coming and going; Latin-1 names; and a
+  read-only folder.
+- `TestSaveStateResumesExactly` has a folder case. It saves mid-boot with
+  11 locks and 2 files open, and the loaded machine runs on exactly as
+  the original did.
 
 ## 2026-10-12 — Filesystems from the RDB
 

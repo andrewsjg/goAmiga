@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
@@ -59,17 +60,22 @@ const (
 	hdTrapBeginIO
 	hdTrapFSPrepare
 	hdTrapFSLoad
+	hdTrapDirStart
+	hdTrapDirPool
+	hdTrapDirPacket
 )
 
 type hdBoard struct {
 	autoconfigState
 	amiga *Amiga
 	Files []*Hardfile
+	Dirs  []*HostDir // host folders (hostfs.go)
 	mem   [hdBoardSize]byte
 
 	// Offsets in mem of code the traps need, set when the ROM is built.
 	diagOff, romtagOff, diagEnd uint32
 	devNameAddr                 uint32
+	dirSeg                      uint32 // the folder handler's segment
 
 	configDev uint32 // from DiagPoint
 	parts     []hdPart
@@ -79,6 +85,10 @@ type hdBoard struct {
 	// DeviceNodes this boot, and the one waiting for memory.
 	mounts  map[uint32]fsMount
 	pending *fsPending
+
+	// Folder handlers that have started, by port, with their lock pools,
+	// until their startup packets say which folder they serve.
+	newPorts map[uint32]uint32
 
 	// Trace, if set, logs driver activity.
 	Trace io.Writer
@@ -103,6 +113,7 @@ func (h *hdBoard) Activity() (active, write bool) {
 type hdPart struct {
 	unit int
 	p    *Partition
+	dir  *HostDir // a host folder rather than a partition of a hardfile
 }
 
 // AttachHardfile connects a hard disk image as the next unit of the
@@ -271,6 +282,10 @@ func (s *asm68k) trap(base uint32, n int) {
 const (
 	lvoFindResident = -96
 	lvoAllocMem     = -198
+	lvoFindTask     = -294
+	lvoPutMsg       = -366
+	lvoGetMsg       = -372
+	lvoWaitPort     = -384
 	lvoEnqueue      = -270
 	lvoReplyMsg     = -378
 	lvoCloseLibrary = -414
@@ -398,6 +413,33 @@ func (h *hdBoard) buildROM(base uint32) {
 	s.label("beginIODone")
 	s.rts()
 
+	// The folder handler: a segment, run as a process by DOS for each
+	// folder's DeviceNode (GlobalVec -1: plain machine code).
+	s.align(4)
+	s.l(16) // segment size: not freed, as DOS never unloads it
+	s.label("dirSeg")
+	s.l(0) // next segment
+	s.execBase()
+	s.w(0x93C9) // suba.l a1,a1
+	s.jsrLVO(lvoFindTask)
+	s.w(0x2640, 0x47EB, 0x005C)  // movea.l d0,a3; lea pr_MsgPort(a3),a3
+	s.trap(base, hdTrapDirStart) // d0 = pool size
+	s.w(0x223C)
+	s.l(memfClear | 1) // move.l #MEMF_PUBLIC|MEMF_CLEAR,d1
+	s.jsrLVO(lvoAllocMem)
+	s.trap(base, hdTrapDirPool) // d0 = pool, a3 = port
+	s.label("dirLoop")
+	s.w(0x204B) // movea.l a3,a0
+	s.jsrLVO(lvoWaitPort)
+	s.w(0x204B)
+	s.jsrLVO(lvoGetMsg)
+	s.tstD0()
+	s.branch(beq, "dirLoop")
+	s.w(0x2240)                   // movea.l d0,a1
+	s.trap(base, hdTrapDirPacket) // a0 = reply port, a1 = message
+	s.jsrLVO(lvoPutMsg)
+	s.branch(bra, "dirLoop")
+
 	s.resolve()
 	if len(s.code) > hdRAM-hdROM {
 		panic("hdBoard: ROM too big")
@@ -407,6 +449,7 @@ func (h *hdBoard) buildROM(base uint32) {
 	off := func(l string) uint32 { return s.labels[l] - base }
 	h.diagOff, h.romtagOff, h.diagEnd = off("diag"), off("romtag"), off("diagEnd")
 	h.devNameAddr = s.labels["devName"]
+	h.dirSeg = s.labels["dirSeg"]
 
 	// Device base: jump table below it, Library above.
 	for i, fn := range []string{"devOpen", "devClose", "devNull", "devNull", "devBeginIO", "devNull"} {
@@ -428,11 +471,25 @@ func (h *hdBoard) buildROM(base uint32) {
 	}
 
 	h.parts = h.parts[:0]
+	used := map[string]bool{}
 	for u, f := range h.Files {
 		for i := range f.Partitions {
 			if len(h.parts) < hdMaxParts {
-				h.parts = append(h.parts, hdPart{u, &f.Partitions[i]})
+				h.parts = append(h.parts, hdPart{u, &f.Partitions[i], nil})
+				used[strings.ToUpper(f.Partitions[i].Name)] = true
 			}
+		}
+	}
+	// Folders are DH devices after the hardfiles' partitions.
+	n := 0
+	for i, d := range h.Dirs {
+		for used[fmt.Sprintf("DH%d", n)] {
+			n++
+		}
+		d.Device = fmt.Sprintf("DH%d", n)
+		used[d.Device] = true
+		if len(h.parts) < hdMaxParts {
+			h.parts = append(h.parts, hdPart{hostDirUnit + i, d.partition(), d})
 		}
 	}
 }
@@ -465,6 +522,10 @@ func (h *hdBoard) trap(n int) {
 	case hdTrapInit:
 		h.nextPart = 0
 		h.mounts, h.pending = map[uint32]fsMount{}, nil
+		h.newPorts = map[uint32]uint32{}
+		for _, d := range h.Dirs {
+			d.reset()
+		}
 		cpu.A[1] = h.base + hdDevBase
 		h.tracef("init: device at $%06X, %d partitions", cpu.A[1], len(h.parts))
 
@@ -514,6 +575,12 @@ func (h *hdBoard) trap(n int) {
 		h.fsPrepare()
 	case hdTrapFSLoad:
 		h.fsLoad()
+	case hdTrapDirStart:
+		h.dirStart()
+	case hdTrapDirPool:
+		h.dirPool()
+	case hdTrapDirPacket:
+		h.dirPacket()
 	case hdTrapOpen:
 		h.open(cpu.A[1], cpu.D[0])
 	case hdTrapClose:

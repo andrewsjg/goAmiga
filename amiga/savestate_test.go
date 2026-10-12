@@ -58,13 +58,16 @@ func TestSaveStateResumesExactly(t *testing.T) {
 		name, rom, floppy, hdf string
 		bootFrames             int
 		aga                    bool
+		folder                 string // an ADF whose files are a host folder
 	}{
 		// Mid-boot from floppy: disk DMA, drive motor, trackdisk.
-		{"KS1.3 floppy", "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "", 150, false},
+		{"KS1.3 floppy", "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "", 150, false, ""},
 		// Workbench 3.2 from a hardfile, with fast RAM and the controller.
-		{"KS3.2 hardfile", "../ROMS/Kick32.rom", "", "../disks/Install3.2.adf", 350, false},
+		{"KS3.2 hardfile", "../ROMS/Kick32.rom", "", "../disks/Install3.2.adf", 350, false, ""},
 		// AGA: the 256-colour palette, FMODE, the 68020.
-		{"KS3.2 A1200 AGA", "../ROMS/kick32a1200.rom", "", "../disks/Install3.2.adf", 300, true},
+		{"KS3.2 A1200 AGA", "../ROMS/kick32a1200.rom", "", "../disks/Install3.2.adf", 300, true, ""},
+		// Mid-boot from a host folder: locks and open files.
+		{"KS3.2 folder", "../ROMS/Kick32.rom", "", "", 250, false, "../disks/Install3.2.adf"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -76,6 +79,11 @@ func TestSaveStateResumesExactly(t *testing.T) {
 			var hdfBytes []byte
 			if c.hdf != "" {
 				hdfPath = hardfileFromADF(t, c.hdf)
+			}
+			folder := ""
+			if c.folder != "" {
+				folder = t.TempDir()
+				adfExtract(t, readDisk(t, c.folder), folder)
 			}
 			newMachine := func() *Amiga {
 				a, _ := New(rom, nil)
@@ -89,6 +97,11 @@ func TestSaveStateResumesExactly(t *testing.T) {
 				a.ConfigureMemory(0, 2048)
 				if hdfPath != "" {
 					if err := a.AttachHardfile(hdfPath, false); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if folder != "" {
+					if err := a.AttachDirectory(folder, "Install3.2", false); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -113,6 +126,10 @@ func TestSaveStateResumesExactly(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Logf("state: %d KB", state.Len()/1024)
+			if folder != "" {
+				d := a.HardDisk.Dirs[0]
+				t.Logf("folder: %d locks, %d open files at the save", len(d.locks), len(d.files))
+			}
 			if hdfPath != "" {
 				hdfBytes, _ = os.ReadFile(hdfPath)
 			}

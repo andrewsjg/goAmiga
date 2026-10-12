@@ -147,6 +147,12 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			return fail(fmt.Errorf("hardfile %v", err))
 		}
 	}
+	for _, v := range s.Dirs {
+		vol, p := config.SplitDir(v)
+		if err := a.AttachDirectory(p, vol, s.WriteProtect); err != nil {
+			return fail(fmt.Errorf("folder %v", err))
+		}
+	}
 	gayle := false
 	switch s.Gayle {
 	case "on":
@@ -183,6 +189,13 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			}
 			fmt.Fprintf(out, "goamiga.device unit %d: %s (%d MB) as %s\n", u, f.Path, f.Size()>>20, strings.Join(names, " "))
 			printFileSystems(out, f)
+		}
+		for _, d := range a.HardDisk.Dirs {
+			boot := ""
+			if d.Bootable {
+				boot = ", bootable"
+			}
+			fmt.Fprintf(out, "Folder %s as volume %s:%s\n", d.Path, d.Volume, boot)
 		}
 	}
 

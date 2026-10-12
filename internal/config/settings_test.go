@@ -88,3 +88,24 @@ func TestSettingsAbsolutePaths(t *testing.T) {
 		t.Errorf("ROM %q, want an absolute path to kick.rom", got.ROM)
 	}
 }
+
+// A --dir value may name the volume; relative folders are made absolute
+// either way, and the name kept.
+func TestDirSetting(t *testing.T) {
+	for _, c := range []struct{ in, vol, path string }{
+		{"work", "", "work"},
+		{"Work=stuff/work", "Work", "stuff/work"},
+		{"/a=b/c", "", "/a=b/c"}, // '=' after a slash is part of the path
+	} {
+		if vol, p := SplitDir(c.in); vol != c.vol || p != c.path {
+			t.Errorf("SplitDir(%q) = %q, %q", c.in, vol, p)
+		}
+	}
+	got := mapPath("dir", "Work=stuff", func(p string) string { return "/base/" + p })
+	if got != "Work=/base/stuff" {
+		t.Errorf("mapPath kept %q", got)
+	}
+	if got := mapPath("dir", "Work=/abs", func(p string) string { return "x" }); got != "Work=/abs" {
+		t.Errorf("mapPath changed an absolute folder: %q", got)
+	}
+}

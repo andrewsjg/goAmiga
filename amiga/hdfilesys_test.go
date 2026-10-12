@@ -161,9 +161,14 @@ func adfRead(d []byte, path string) []byte {
 			return nil
 		}
 	}
-	size := int(adfLong(d, cur, 324))
+	return adfFileData(d, cur)
+}
+
+// adfFileData reads the file whose header is block h.
+func adfFileData(d []byte, h int) []byte {
+	size := int(adfLong(d, h, 324))
 	var data []byte
-	for _, b := range adfDataBlocks(d, cur) {
+	for _, b := range adfDataBlocks(d, h) {
 		if d[3]&1 != 0 {
 			data = append(data, d[b*512:b*512+512]...)
 		} else {

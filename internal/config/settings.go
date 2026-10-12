@@ -19,6 +19,7 @@ type Settings struct {
 	Drives       [4]List // per drive: the first disk goes in, the rest are for Cmd+F11
 	NumDrives    int
 	Hardfiles    List
+	Dirs         List   // host folders as drives: PATH or VOLUME=PATH
 	IDE          List   // IDE drives on Gayle: the master, then the slave
 	Gayle        string // auto (with AGA, as in the A1200), on or off
 	HDFCreate    int
@@ -76,6 +77,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.Var(&s.Drives[2], "df2", "ADF for DF2: (connects the drive); repeat for more")
 	fs.Var(&s.Drives[3], "df3", "ADF for DF3: (connects the drive); repeat for more")
 	fs.Var(&s.Hardfiles, "hdf", "Hard disk image (.hdf, plain or RDB) as the next unit of goamiga.device; repeat for more")
+	fs.Var(&s.Dirs, "dir", "Host folder as an Amiga drive: PATH, or VOLUME=PATH to name its volume (else the folder's name); bootable if it has S/Startup-Sequence; repeat for more")
 	fs.Var(&s.IDE, "ide", "Hardfile (with a Rigid Disk Block) as an IDE drive on Gayle, booted by Kickstart's own scsi.device: the master, then the slave")
 	fs.StringVar(&s.Gayle, "gayle", s.Gayle, "Gayle, the A600/A1200 IDE interface: auto (fitted with the AGA chipset), on or off; --ide fits it")
 	fs.IntVar(&s.HDFCreate, "hdf-create", s.HDFCreate, "Create any --hdf file that does not exist, blank, this many MB (format it from the Amiga)")
@@ -148,16 +150,45 @@ func (s *Settings) clone() *Settings {
 	}
 	c.Hardfiles = append(List(nil), s.Hardfiles...)
 	c.IDE = append(List(nil), s.IDE...)
+	c.Dirs = append(List(nil), s.Dirs...)
 	return &c
 }
 
 func absPath(key, v string) string {
-	if pathKeys[key] && v != "" && !filepath.IsAbs(v) {
-		if a, err := filepath.Abs(v); err == nil {
+	return mapPath(key, v, func(p string) string {
+		if a, err := filepath.Abs(p); err == nil {
 			return a
 		}
+		return p
+	})
+}
+
+// mapPath applies fn to the path in a setting's value, if it names a file
+// and the path is relative.
+func mapPath(key, v string, fn func(string) string) string {
+	if !pathKeys[key] {
+		return v
 	}
-	return v
+	vol, p := "", v
+	if key == "dir" {
+		vol, p = SplitDir(v)
+	}
+	if p == "" || filepath.IsAbs(p) {
+		return v
+	}
+	if vol != "" {
+		return vol + "=" + fn(p)
+	}
+	return fn(p)
+}
+
+// SplitDir splits a --dir value into the volume name (or "") and the
+// folder.
+func SplitDir(v string) (volume, path string) {
+	if i := strings.IndexByte(v, '='); i > 0 && i <= 30 && !strings.ContainsAny(v[:i], `/\:`) {
+		return v[:i], v[i+1:]
+	}
+	return "", v
 }
 
 func quote(v string) string {

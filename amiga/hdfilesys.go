@@ -366,6 +366,15 @@ func (h *hdBoard) fsPrepare() {
 	cpu.D[0] = 0
 	h.pending = nil
 	p := h.parts[h.nextPart]
+	if d := p.dir; d != nil {
+		// A host folder: the handler in the ROM.
+		node := cpu.D[7]
+		d.devNode = node
+		h.patchNode(node, fsMount{patch: 1<<fsStackSize | 1<<fsSegList | 1<<fsGlobalVec,
+			fields: [9]uint32{fsStackSize: 4096, fsSegList: h.dirSeg >> 2, fsGlobalVec: 0xFFFFFFFF}})
+		h.tracef("%s: folder %s as %s:", d.Device, d.Path, d.Volume)
+		return
+	}
 	dt := p.p.Env[deDosType]
 	fs := h.Files[p.unit].FileSystem(dt)
 	if fs == nil {

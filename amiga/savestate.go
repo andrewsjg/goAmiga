@@ -9,6 +9,7 @@ import (
 	"hash/crc32"
 	"io"
 	"math"
+	"os"
 	"slices"
 
 	m68k "github.com/andrewsjg/goamiga/m68k"
@@ -31,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 11
+	stateVersion = 12
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -206,6 +207,9 @@ func (a *Amiga) state(s *stateCodec) {
 		for _, f := range a.HardDisk.Files {
 			hdfs = append(hdfs, f.Path)
 		}
+		for _, d := range a.HardDisk.Dirs {
+			hdfs = append(hdfs, "dir:"+d.Path)
+		}
 	}
 	// The IDE drives count as hardfiles too (empty positions as "").
 	hasGayle := a.Gayle != nil
@@ -379,6 +383,88 @@ func (h *hdBoard) state(s *stateCodec) {
 	num(s, &h.nextPart)
 	num(s, &h.lastIO)
 	s.bool(&h.lastWrite)
+	ports := sortedKeys(h.newPorts)
+	count(s, &ports, 64)
+	for _, p := range ports {
+		pool := h.newPorts[p]
+		num(s, &pool)
+		if s.load {
+			if h.newPorts == nil {
+				h.newPorts = map[uint32]uint32{}
+			}
+			h.newPorts[p] = pool
+		}
+	}
+	for _, d := range h.Dirs {
+		d.state(s)
+	}
+}
+
+// count saves or loads a slice of numbers.
+func count[T ~uint32 | ~int](s *stateCodec, p *[]T, max int) {
+	n := len(*p)
+	num(s, &n)
+	if s.load {
+		if s.err != nil || n < 0 || n > max {
+			s.err = cmpErr(s.err, errors.New("state: bad list length"))
+			return
+		}
+		*p = make([]T, n)
+	}
+	for i := range *p {
+		num(s, &(*p)[i])
+	}
+}
+
+// state saves a folder's handler: its locks, and its open files by path
+// and position, reopened on load.
+func (d *HostDir) state(s *stateCodec) {
+	if s.load {
+		d.reset()
+	}
+	for _, v := range []*uint32{&d.devNode, &d.port, &d.volNode, &d.pool, &d.poolEnd, &d.poolTop, &d.nextKey} {
+		num(s, v)
+	}
+	count(s, &d.free, hostPoolSize/hostLockSize)
+	locks := sortedKeys(d.locks)
+	count(s, &locks, hostPoolSize/hostLockSize)
+	for _, addr := range locks {
+		l := d.locks[addr]
+		if s.load {
+			l = &hostLock{}
+			d.locks[addr] = l
+		}
+		s.str(&l.path)
+		s.bool(&l.exclusive)
+		num(s, &l.key)
+	}
+	files := sortedKeys(d.files)
+	count(s, &files, 1<<16)
+	for _, id := range files {
+		f := d.files[id]
+		var pos int64
+		if s.load {
+			f = &hostFile{}
+		} else {
+			pos, _ = f.f.Seek(0, io.SeekCurrent)
+		}
+		s.str(&f.path)
+		s.bool(&f.write)
+		s.bool(&f.exclusive)
+		num(s, &pos)
+		if s.load && s.err == nil {
+			flag := os.O_RDONLY
+			if f.write {
+				flag = os.O_RDWR
+			}
+			var err error
+			if f.f, err = os.OpenFile(d.host(f.path), flag, 0); err != nil {
+				continue // gone from the host: the handle is invalid now
+			}
+			f.f.Seek(pos, io.SeekStart)
+			d.files[id] = f
+		}
+	}
 }
 
 func (c *CIA) state(s *stateCodec) {

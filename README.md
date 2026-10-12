@@ -32,6 +32,7 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
   on the A600/A1200's Gayle, booted by Kickstart's own `scsi.device`.
   Filesystems stored in the RDB (PFS3, SFS, FFS for Kickstart 1.3) are
   loaded at boot.
+- Folders on your computer as Amiga drives, bootable or not.
 
 **Connections:**
 - The serial port over telnet or TCP.
@@ -227,6 +228,44 @@ least as new (most RDBs carry an older FFS than Kickstart 3.x's). goAmiga
 lists the filesystems it finds in an RDB when it starts. A plain hardfile
 has no RDB, so it can only use Kickstart's own filesystems.
 
+### Host folders as drives
+
+`--dir PATH` mounts a folder on your computer as an Amiga drive, on any
+Amiga and any Kickstart. Files copied into the folder appear on the
+Amiga, and files the Amiga saves appear in the folder. This is the easy
+way to move files in and out without disk image tools.
+- **The volume** is named after the folder; `--dir Work=PATH` names it
+  `Work:`.
+- **The device** is the next free DH name: after `--hdf`'s partitions,
+  so `DH1:` with one plain hardfile.
+- **Booting.** A folder holding `S/Startup-Sequence` is bootable. It boots
+  if nothing with a higher priority does: a floppy in DF0: or a hardfile
+  goes first. Copy a Workbench disk's files into a folder and it boots
+  from there.
+- **Repeat** `--dir` for more folders. `--write-protect` makes them
+  read-only too.
+
+```bash
+goamiga --rom ROMS/Kick32.rom --hdf dh0.hdf --dir Transfer="$HOME/Amiga/transfer"
+```
+
+Some details:
+- **Names** ignore case, as on the Amiga. Accented letters (Latin-1)
+  become UTF-8 on the host. A host name with characters the Amiga can't
+  show appears with `?` in place of each.
+- **Protection bits and comments** have nowhere to go in a host folder.
+  goAmiga keeps them in a `NAME.uaem` file next to the file, the format
+  WinUAE and FS-UAE use, so folders move between the three. The file exists
+  only while they differ from the defaults. A file the host won't let you
+  write shows as write- and delete-protected.
+- **Hidden:** the `.uaem` files, and the Finder's `.DS_Store` and `._`
+  files. Deleting a drawer removes the Finder's files in it.
+- **Change the folder from the host** only when the Amiga isn't using the
+  same files. goAmiga caches nothing, but a program with a file open
+  won't expect it to change underneath it.
+- **Free space** is the host disk's, capped at 2 GB because older Amiga
+  programs can't count higher.
+
 ### Settings files
 
 Instead of typing flags each time, put them in a settings file, one
@@ -258,8 +297,8 @@ kind, in `~/.config/goamiga/configs/`.
 Under the picture are the activity lights:
 - **POWER:** bright or dimmed, as the A500's LED is with the audio filter.
 - **Each drive:** its motor LED and the head's cylinder.
-- **HD** (goamiga.device) and **IDE**: green for reads, orange for
-  writes.
+- **HD** (goamiga.device, including folders) and **IDE**: green for
+  reads, orange for writes.
 - **The warp speed**, while warp is on.
 
 At the right are three buttons. Click them with the mouse pointer free;
