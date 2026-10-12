@@ -18,8 +18,9 @@ package amiga
 //     sprites 16, 32 or 64 pixels wide (bits 3-2).
 //   - 2 MB of chip RAM.
 //
-// Not modelled: scan doubling and the other BEAMCON0/productivity modes,
-// sprite resolution and horizontal precision beyond lores, border sprites.
+//   - Super-hires with up to 8 planes; BPLCON1's longer, finer scroll.
+//   - Sprites: BPLCON3 SPRES resolution, SPRxCTL's two extra position
+//     bits, and BRDSPRT sprites in the border.
 
 // expand12 widens a 12-bit OCS colour to 24 bits.
 func expand12(c uint16) uint32 {

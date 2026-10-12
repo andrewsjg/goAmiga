@@ -53,6 +53,17 @@ func (s *Sprite) hstart() int {
 	return h
 }
 
+// hstartShres is the horizontal start in super-hires pixels. AGA adds
+// two bits of precision below the lores bit: SPRxCTL bit 4 (a hires
+// pixel) and bit 3 (a super-hires pixel).
+func (s *Sprite) hstartShres(aga bool) int {
+	h := s.hstart() << 2
+	if aga {
+		h |= int(s.ctl>>4&1)<<1 | int(s.ctl>>3&1)
+	}
+	return h
+}
+
 // SpriteEngine manages the 8 hardware sprites.
 type SpriteEngine struct {
 	sprites [8]Sprite
@@ -93,7 +104,7 @@ func (se *SpriteEngine) note(sprite, reg int, val uint16, hpos int) {
 		return
 	}
 	lores := 2*(hpos/CPUCyclesPerColorClock) + writeColumnOffset
-	se.events = append(se.events, sprEvent{col: 2 * (lores - v.left), sprite: sprite, reg: reg, val: val})
+	se.events = append(se.events, sprEvent{col: 2 * v.cs * (lores - v.left), sprite: sprite, reg: reg, val: val})
 }
 
 // startLine records the sprites' state at the start of a line.
@@ -341,6 +352,29 @@ func (se *SpriteEngine) lineBuffer(col, pair, present *[MaxOutputWidth]byte, lef
 	return true
 }
 
+// pixelWidth is the width of a sprite pixel in super-hires pixels: 4
+// (lores), 2 (hires) or 1 (super-hires). AGA's BPLCON3 SPRES (bits 7-6)
+// picks lores, hires or super-hires; 0, as on ECS, is lores, but hires
+// when the playfield is super-hires.
+func (se *SpriteEngine) pixelWidth() int {
+	c := se.amiga.Custom
+	spres := 0
+	if se.amiga.AGA {
+		spres = int(c.ReadReg16(0x106) >> 6 & 3)
+	}
+	switch spres {
+	case 2:
+		return 2
+	case 3:
+		return 1
+	case 0:
+		if se.amiga.ECSDenise && c.ReadReg16(0x100)&0x0040 != 0 {
+			return 2
+		}
+	}
+	return 4
+}
+
 // paint draws sprite i's 2-bit pixels on the current line into bits,
 // reporting false (and leaving bits untouched) if it shows nothing.
 //
@@ -362,6 +396,11 @@ func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int
 	armed := s.state == sprActive
 	painted := false
 	words := se.spriteWords()
+	// Output columns are half a super-hires pixel each in a hires frame
+	// (cs 1), one in a super-hires frame (cs 2).
+	cs := se.amiga.Video.cs
+	pw := se.pixelWidth()
+	aga := se.amiga.AGA
 	draw := func(from, to int) {
 		if !armed {
 			return
@@ -375,7 +414,9 @@ func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int
 		if blank {
 			return
 		}
-		x0 := 2 * (s.hstart() - left)
+		// Columns are measured in super-hires pixels times cs/2.
+		sx := s.hstartShres(aga) - 4*left
+		x0 := sx * cs / 2
 		if x0 < from || x0 >= to {
 			return
 		}
@@ -390,10 +431,12 @@ func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int
 			if v == 0 {
 				continue
 			}
-			for _, x := range [2]int{x0 + 2*b, x0 + 2*b + 1} {
-				if x >= 0 && x < width {
-					bits[x] = v
-				}
+			first, last := (sx+b*pw)*cs/2, (sx+(b+1)*pw)*cs/2
+			if last == first {
+				last++ // narrower than a column: it still shows
+			}
+			for x := max(first, 0); x < last && x < width; x++ {
+				bits[x] = v
 			}
 		}
 	}

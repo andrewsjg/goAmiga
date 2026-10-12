@@ -32,16 +32,61 @@ verified. Longer investigations get their own write-up in `docs/`.
    counters (analogue joysticks, paddles) are not implemented. Audio DMA
    slots are not charged against the blitter.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
-   Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). AGA lacks scan
-   doubling and sprite resolutions beyond lores. Gayle's IDE interface is
-   emulated, but not its PCMCIA slot. On ECS, BEAMCON0 is stored
-   but ignored (PAL or NTSC is chosen with `--video`; no programmable beam), productivity and
-   scan-doubled modes aren't emulated, and super-hires is averaged into
-   the hires-wide picture. A plain hardfile (no RDB) can only use
+   Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). Gayle's IDE
+   interface is emulated, but not its PCMCIA slot. BEAMCON0 is stored
+   but ignored: PAL or NTSC is chosen with `--video`, and there is no
+   programmable beam. So the 31 kHz modes (Productivity, Multiscan,
+   DblPAL/DblNTSC, Euro72) and AGA scan doubling aren't emulated. A plain hardfile (no RDB) can only use
    Kickstart's own filesystems. The CPU stops at the 68020: there is no
    68030 or later, and no MMU.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-12 — AGA: super-hires, scrolling and sprites
+
+Four gaps in AGA's display (and one in ECS's) are closed.
+
+**Super-hires at full resolution** (`video.go`):
+- Before, a super-hires line put two pixels in each hires-wide column and
+  showed their average.
+- Now a frame that showed super-hires makes the next frame twice as wide,
+  with a column per super-hires pixel. Lores and hires pixels in it are 4
+  and 2 columns.
+  - `Video.cs` is the columns per hires pixel. Every column computation
+    (playfield, sprites, register writes during the line, the window
+    edges) scales by it.
+  - `DisplaySize` stays hires-wide, so the host window keeps its size and
+    a 2× window shows each super-hires pixel as one host pixel.
+  - The first frame of super-hires still averages (`pf.half`), and the
+    frame after the last one returns to hires width.
+- AGA shows up to 8 planes in super-hires (ECS 2), with the whole palette,
+  HAM and dual playfield.
+- Fetch lengths have one formula for every resolution (`fetchWordsRes`).
+  A fetch cycle is 8 colour clocks, or as long as the fetch width's words
+  take to show if that is longer. Each plane fetches what its cycle
+  shows, until DDFSTOP and one cycle more. It gives the same counts as
+  before for OCS, ECS and the hires/lores AGA modes, and 84 words for
+  FMODE 3 super-hires at DDF $38-$D8.
+
+**Scrolling.** AGA's BPLCON1 has four more bits per playfield: two above
+(delays up to 63 lores pixels, which 64-bit fetch modes need for smooth
+scrolling) and two below (to a super-hires pixel).
+
+**Sprites** (`sprites.go`):
+- BPLCON3 SPRES sets their pixels to lores, hires or super-hires.
+  0 is ECS's rule: lores, but hires on a super-hires screen.
+- SPRxCTL bits 4 and 3 place them to a hires or super-hires pixel.
+- BRDSPRT (with ECSENA) shows them in the border.
+
+**Testing:**
+- `TestAGASuperHiresFrame`: an 8-colour, FMODE 3 super-hires line. It
+  checks the pointer advance (84 words), the frame width switching both
+  ways, and each pixel's colour.
+- `TestAGAScroll`, `TestAGASpriteResolution`, `TestAGABorderSprites`.
+- `TestWorkbenchSuperHiresAGA` boots the A1200 from a host folder holding
+  the Install 3.2 disk. The folder also has IPrefs and a
+  `screenmode.prefs` for PAL Super-High Res in 16 colours, so Workbench
+  opens in a 1280-wide 16-colour screen. The screenshot shows it sharp.
 
 ## 2026-10-12 — Host folders as drives
 

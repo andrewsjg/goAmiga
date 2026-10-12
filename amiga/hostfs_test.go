@@ -1,6 +1,7 @@
 package amiga
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -324,5 +325,79 @@ func TestFolderBesideHardfile(t *testing.T) {
 		if d.Device != "DH1" {
 			t.Errorf("device %s, want DH1", d.Device)
 		}
+	}
+}
+
+// screenModePrefs builds ENV:Sys/screenmode.prefs for a display mode.
+func screenModePrefs(displayID uint32, w, h, depth uint16) []byte {
+	be := binary.BigEndian
+	var b []byte
+	b = append(b, "FORM\x00\x00\x00\x00PREF"...)
+	b = append(b, "PRHD\x00\x00\x00\x06\x00\x00\x00\x00\x00\x00"...)
+	b = append(b, "SCRM\x00\x00\x00\x1c"...)
+	b = append(b, make([]byte, 16)...)
+	b = be.AppendUint32(b, displayID)
+	b = be.AppendUint16(b, w)
+	b = be.AppendUint16(b, h)
+	b = be.AppendUint16(b, depth)
+	b = be.AppendUint16(b, 0)
+	be.PutUint32(b[4:], uint32(len(b)-8))
+	return b
+}
+
+// workbenchInMode boots the A1200 from a folder holding the Install 3.2
+// disk, with IPrefs and screen mode preferences for displayID, and returns
+// the machine some frames after Workbench starts.
+func workbenchInMode(t *testing.T, displayID uint32, w, h, depth uint16) *Amiga {
+	t.Helper()
+	rom, err := LoadROM("../ROMS/kick32a1200.rom")
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := filepath.Join(t.TempDir(), "Install3.2")
+	os.Mkdir(dir, 0o755)
+	adfExtract(t, readDisk(t, "../disks/Install3.2.adf"), dir)
+	wb := readDisk(t, "../disks/Workbench3.2.adf")
+	os.WriteFile(filepath.Join(dir, "C", "IPrefs"), adfRead(wb, "C/IPrefs"), 0o644)
+	ss := filepath.Join(dir, "S", "Startup-Sequence")
+	b, _ := os.ReadFile(ss)
+	os.WriteFile(ss, []byte(strings.Replace(string(b), "LoadWB", "C:IPrefs\nLoadWB", 1)), 0o644)
+	os.WriteFile(filepath.Join(dir, "Prefs", "Env-Archive", "Sys", "screenmode.prefs"),
+		screenModePrefs(displayID, w, h, depth), 0o644)
+
+	a, _ := New(rom, nil)
+	a.SetCPU("68020", 0)
+	a.SetChipset("aga")
+	a.SetChipRAM(2048)
+	a.ConfigureMemory(0, 4096)
+	if err := a.AttachDirectory(dir, "", false); err != nil {
+		t.Fatal(err)
+	}
+	a.Reset()
+	if !waitWorkbench(t, a) {
+		t.Fatal("Workbench did not start")
+	}
+	a.Video.DisplayActive = true
+	for range 400 {
+		a.RunFrame()
+	}
+	return a
+}
+
+// Workbench on AGA in PAL Super-High Res, 16 colours: a frame of
+// super-hires columns.
+func TestWorkbenchSuperHiresAGA(t *testing.T) {
+	a := workbenchInMode(t, 0x00029020, 1280, 256, 4)
+	bplcon0 := a.Custom.ReadReg16(0x100)
+	t.Logf("BPLCON0 $%04X, FMODE $%04X, BPLCON3 $%04X, %d columns", bplcon0,
+		a.Custom.ReadReg16(0x1FC), a.Custom.ReadReg16(0x106), a.Video.Width)
+	if png := os.Getenv("HOSTFS_PNG"); png != "" {
+		savePNG(t, a, png)
+	}
+	if bplcon0&0x0040 == 0 || planesOf(bplcon0, true) != 4 {
+		t.Fatalf("Workbench isn't in 16-colour super-hires: BPLCON0 $%04X", bplcon0)
+	}
+	if a.Video.Width != 2*a.Video.baseW {
+		t.Errorf("frame is %d columns, want %d", a.Video.Width, 2*a.Video.baseW)
 	}
 }

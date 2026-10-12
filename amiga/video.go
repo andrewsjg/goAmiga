@@ -42,6 +42,13 @@ type Video struct {
 	pfIdxB [MaxOutputWidth]byte
 	shres  bool // this line is super-hires (ECS)
 
+	// cs is the output columns per hires pixel: 1, or 2 for a frame
+	// showing super-hires, so that its pixels each get a column.
+	// sawShres notes a super-hires line in the frame, for the next frame.
+	cs       int
+	sawShres bool
+	baseW    int // Width with cs 1
+
 	// diwHigh: DIWHIGH has been written since DIWSTRT/DIWSTOP, so the
 	// window's high bits come from it (ECS) rather than the OCS rules.
 	diwHigh bool
@@ -89,14 +96,16 @@ const (
 	OverscanTop   = 28
 	OverscanRows  = 284
 
-	// MaxOutputWidth sizes the per-line buffers for either view.
-	MaxOutputWidth = OverscanWidth
+	// MaxOutputWidth sizes the per-line buffers for either view, in
+	// super-hires columns.
+	MaxOutputWidth = 2 * OverscanWidth
 )
 
 // NewVideo allocates a Video subsystem for the given Amiga.
 func NewVideo(a *Amiga) *Video {
 	v := &Video{
 		amiga: a,
+		cs:    1,
 	}
 	v.SetOverscan(false)
 	return v
@@ -106,15 +115,16 @@ func NewVideo(a *Amiga) *Video {
 // the overscan view (720x284 from H $6D, line 28). Interlace doubles the
 // rows in either.
 func (v *Video) SetOverscan(on bool) {
-	v.left, v.top, v.rows, v.Width = OutputLeft, DisplayTop, PALVisibleLines, OutputWidth
+	v.left, v.top, v.rows, v.baseW = OutputLeft, DisplayTop, PALVisibleLines, OutputWidth
 	if on {
-		v.left, v.top, v.rows, v.Width = OverscanLeft, OverscanTop, OverscanRows, OverscanWidth
+		v.left, v.top, v.rows, v.baseW = OverscanLeft, OverscanTop, OverscanRows, OverscanWidth
 	}
 	v.resize()
 }
 
 // resize allocates the framebuffer for the current view and interlace.
 func (v *Video) resize() {
+	v.Width = v.baseW * v.cs
 	v.Height = v.rows
 	if v.laced {
 		v.Height *= 2
@@ -122,11 +132,11 @@ func (v *Video) resize() {
 	v.Pixels = make([]byte, v.Width*v.Height*4)
 }
 
-// DisplaySize is the size to show the framebuffer at on the host: full
-// width, and two host rows per non-interlaced line so pixels keep the
-// Amiga's aspect ratio.
+// DisplaySize is the size to show the framebuffer at on the host: hires
+// width (a super-hires frame has twice the columns), and two host rows per
+// non-interlaced line so pixels keep the Amiga's aspect ratio.
 func (v *Video) DisplaySize() (w, h int) {
-	return v.Width, 2 * v.rows
+	return v.baseW, 2 * v.rows
 }
 
 // UpdatePalette reads COLOR00-31 from custom registers and converts
@@ -167,8 +177,13 @@ func (v *Video) GetBplPt(p int) uint32 {
 func (v *Video) StartFrame() {
 	v.SnapshotBitplanePointers()
 	laced := v.amiga.Custom.ReadReg16(0x100)&0x0004 != 0
-	if laced != v.laced {
-		v.laced = laced
+	cs := 1
+	if v.sawShres {
+		cs = 2
+	}
+	v.sawShres = false
+	if laced != v.laced || cs != v.cs {
+		v.laced, v.cs = laced, cs
 		v.resize()
 	}
 }
@@ -204,19 +219,28 @@ const maxShresFetchWords = 2 * maxFetchWords
 // fetchWordsFactor is fetchWords with AGA's wider fetches: factor words
 // per fetch unit, each unit factor times as long.
 func fetchWordsFactor(hires bool, ddfstrt, ddfstop uint16, factor int) int {
-	if factor <= 1 {
+	return fetchWordsRes(hires, false, ddfstrt, ddfstop, factor)
+}
+
+// fetchWordsRes is the words each plane fetches per line in any
+// resolution. A fetch cycle is 8 colour clocks, or as long as factor
+// words take to show if that is longer; each plane fetches the words its
+// cycle shows. As with the original chips (fetchWords), the cycle under
+// way at DDFSTOP completes, and one more follows. Kickstart's FMODE 3
+// hires screen (DDF $38-$D8, modulo -8) fetches 44 words; Worms' (DDF
+// $38-$C0, modulo 0) 40. ECS super-hires (factor 1) fetches four words a
+// cycle, twice hires.
+func fetchWordsRes(hires, shres bool, ddfstrt, ddfstop uint16, factor int) int {
+	if factor <= 1 && !shres {
 		return fetchWords(hires, ddfstrt, ddfstop)
 	}
 	start, stop := int(ddfstrt&0xFC), int(ddfstop&0xFC)
-	unit := fetchUnitCCK(hires, false, factor)
 	if stop <= start {
 		stop = start
 	}
-	// As with the original chips (fetchWords), the unit under way at
-	// DDFSTOP completes, and one more follows. Kickstart's FMODE 3 hires
-	// screen (DDF $38-$D8, modulo -8) fetches 44 words; Worms' (DDF
-	// $38-$C0, modulo 0) 40.
-	words := ((stop-start+unit-1)/unit + 1) * factor
+	word := fetchUnitCCK(hires, shres, 1) // colour clocks a word shows
+	cycle := max(8, word*factor)
+	words := ((stop-start+cycle-1)/cycle + 1) * (cycle / word)
 	return min(words, maxShresFetchWords)
 }
 
@@ -305,17 +329,22 @@ func (v *Video) RenderLine(vpos int) {
 	hires := bplcon0&0x8000 != 0
 	factor := v.fetchFactor()
 	words := fetchWordsFactor(hires, ddfstrt, v.amiga.Custom.ReadReg16(0x094), factor)
-	// Super-hires (ECS, BPLCON0 SHRES): up to two planes, twice the hires
-	// words, two pixels per output column.
+	// Super-hires (ECS and AGA, BPLCON0 SHRES): ECS shows up to two
+	// planes, AGA as many as its fetch width allows.
 	v.shres = v.amiga.ECSAgnus && v.amiga.ECSDenise && !hires && bplcon0&0x0040 != 0
 	if v.shres {
 		hires = true
-		numPlanes = min(numPlanes, 2)
-		words = min(2*fetchWordsFactor(true, ddfstrt, v.amiga.Custom.ReadReg16(0x094), factor), maxShresFetchWords)
+		if !v.amiga.AGA {
+			numPlanes = min(numPlanes, 2)
+		}
+		words = fetchWordsRes(false, true, ddfstrt, v.amiga.Custom.ReadReg16(0x094), factor)
 	}
 
 	fetch := numPlanes > 0 && v.bitplaneFetchWindow(vpos)
 	draw := v.DisplayActive && vpos >= v.top && vpos < v.top+v.rows
+	if draw && fetch && v.shres {
+		v.sawShres = true
+	}
 	if fetch && draw {
 		for p := 0; p < numPlanes; p++ {
 			v.amiga.ChipRAM.Read(int(v.bplpt[p]), v.planeBuf[p][:2*words])
@@ -373,7 +402,7 @@ func (v *Video) noteColor(idx int, old, new uint32, hpos int) {
 	}
 	cck := hpos / CPUCyclesPerColorClock
 	lores := 2*cck + writeColumnOffset
-	v.changes = append(v.changes, regChange{col: 2 * (lores - v.left), cck: cck, reg: 0x180, idx: idx, old24: old, new24: new})
+	v.changes = append(v.changes, regChange{col: 2 * v.cs * (lores - v.left), cck: cck, reg: 0x180, idx: idx, old24: old, new24: new})
 }
 
 func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
@@ -382,7 +411,7 @@ func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
 	}
 	cck := hpos / CPUCyclesPerColorClock
 	lores := 2*cck + writeColumnOffset
-	v.changes = append(v.changes, regChange{col: 2 * (lores - v.left), cck: cck, reg: reg, old: old, new: new})
+	v.changes = append(v.changes, regChange{col: 2 * v.cs * (lores - v.left), cck: cck, reg: reg, old: old, new: new})
 }
 
 // drawLine composes one output row the way Denise does: playfield pixels
@@ -474,16 +503,26 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	// keep the 8-clock delay: graphics.library pairs FMODE 3 hires with
 	// DDFSTRT $38 and DIWSTRT $81.
 	unit := min(fetchUnitCCK(hires, false, v.fetchFactor()), 8)
-	pf := playfieldLayout{planes: numPlanes, words: words, pixW: 2,
-		origin: 2*(2*ddfstrt+2*unit+1) - 2*v.left}
+	cs := v.cs
+	pf := playfieldLayout{planes: numPlanes, words: words, pixW: 2 * cs,
+		origin: cs * (2*(2*ddfstrt+2*unit+1) - 2*v.left), aga: aga}
 	if hires {
-		pf.pixW = 1
+		pf.pixW = cs
 	}
-	pf.half = v.shres
+	if v.shres {
+		if cs == 2 {
+			pf.pixW = 1
+		} else {
+			pf.half = true
+		}
+	}
 	v.fillPlayfield(pf, 0, bplcon1)
 
+	// Sprites show inside the display window, and in the border too with
+	// AGA's BPLCON3 BRDSPRT (and ECSENA).
+	brdsprt := aga && bplcon0&1 != 0 && bplcon3&0x02 != 0
 	anySprite := false
-	if v.amiga.Sprites != nil && lineVisible {
+	if v.amiga.Sprites != nil && (lineVisible || brdsprt) {
 		anySprite = v.amiga.Sprites.lineBuffer(&v.sprCol, &v.sprPair, &v.sprPresent, v.left, v.Width)
 	}
 	// AGA sprite colour banks: even and odd sprites' 16 colours start at
@@ -547,9 +586,13 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 			}
 		}
 
-		lores := v.left + x/2
+		lores := v.left + x/(2*cs)
 		if !lineVisible || lores < win.hstart || lores >= win.hstop {
-			v.put(row, x, border())
+			if brdsprt && anySprite && v.sprCol[x] != 0 {
+				v.put(row, x, rgba(sprColour(x)))
+			} else {
+				v.put(row, x, border())
+			}
 			hold = lp[0]
 			continue
 		}
@@ -593,7 +636,7 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 			}
 		case ehb && idx&0x20 != 0:
 			v.put(row, x, rgba(halfBrite(lp[(idx^xor)&0x1F], aga)))
-		case v.shres:
+		case pf.half:
 			// Two super-hires pixels share the column: show their average.
 			p1, p2 := rgba(lp[idx&3]), rgba(lp[int(v.pfIdxB[x])&planeMask&3])
 			v.put(row, x, [4]byte{byte((int(p1[0]) + int(p2[0])) / 2), byte((int(p1[1]) + int(p2[1])) / 2),
@@ -609,9 +652,28 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 // playfieldLayout is where a line's fetched bitplane data lands.
 type playfieldLayout struct {
 	planes, words int
-	pixW          int  // output columns per playfield pixel (2 lores, 1 hires)
-	half          bool // super-hires: two pixels per column (pfIdx, pfIdxB)
+	pixW          int  // output columns per playfield pixel (2 lores, 1 hires; twice that in a super-hires frame)
+	half          bool // super-hires in a hires frame: two pixels per column (pfIdx, pfIdxB)
 	origin        int  // output column of the first pixel, before scrolling
+	aga           bool // BPLCON1 has AGA's finer and longer scroll
+}
+
+// scrollColumns is the BPLCON1 delay of the odd planes (or with even, the
+// even planes) in output columns. OCS/ECS delay by 0-15 lores pixels. AGA
+// adds two bits above (to 63 lores pixels, for 64-pixel fetches) and two
+// below (to a super-hires pixel): PF1H7-6 in bits 11-10 and PF1H1-0 in
+// bits 9-8, PF2's in bits 15-14 and 13-12.
+func (pf playfieldLayout) scrollColumns(bplcon1 uint16, even bool, cs int) int {
+	b := bplcon1
+	lo, hi4 := b&0xF, b>>8
+	if even {
+		lo, hi4 = b>>4&0xF, b>>12
+	}
+	shres := int(lo) << 2 // in super-hires pixels
+	if pf.aga {
+		shres |= int(hi4&3) | int(hi4>>2&3)<<6
+	}
+	return shres * cs / 2
 }
 
 // fillPlayfield sets pfIdx[from:] to the playfield colour index (plane
@@ -630,11 +692,7 @@ func (v *Video) fillPlayfield(pf playfieldLayout, from int, bplcon1 uint16) {
 		return
 	}
 	for p := 0; p < pf.planes; p++ {
-		delay := int(bplcon1 & 0xF)
-		if p&1 == 1 {
-			delay = int(bplcon1 >> 4 & 0xF)
-		}
-		start := pf.origin + 2*delay // column of pixel 0
+		start := pf.origin + pf.scrollColumns(bplcon1, p&1 == 1, v.cs) // column of pixel 0
 		// Pixels whose columns lie in [from, v.Width).
 		nMin := (from - start + pf.pixW - 1) / pf.pixW
 		if from-start < 0 {
@@ -655,9 +713,8 @@ func (v *Video) fillPlayfield(pf playfieldLayout, from int, bplcon1 uint16) {
 				continue
 			}
 			x := start + n*pf.pixW
-			v.pfIdx[x] |= bit
-			if pf.pixW == 2 && x+1 < v.Width {
-				v.pfIdx[x+1] |= bit
+			for i := 0; i < pf.pixW && x+i < v.Width; i++ {
+				v.pfIdx[x+i] |= bit
 			}
 		}
 	}
@@ -667,11 +724,7 @@ func (v *Video) fillPlayfield(pf playfieldLayout, from int, bplcon1 uint16) {
 // start+n/2, even pixels in pfIdx and odd ones in pfIdxB.
 func (v *Video) fillHalf(pf playfieldLayout, from int, bplcon1 uint16, pixels int) {
 	for p := 0; p < pf.planes; p++ {
-		delay := int(bplcon1 & 0xF)
-		if p&1 == 1 {
-			delay = int(bplcon1 >> 4 & 0xF)
-		}
-		start := pf.origin + 2*delay
+		start := pf.origin + pf.scrollColumns(bplcon1, p&1 == 1, 1)
 		nMin := max(0, 2*(from-start))
 		nMax := min(pixels, 2*(v.Width-start))
 		bit := byte(1) << p

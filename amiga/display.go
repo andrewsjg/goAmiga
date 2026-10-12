@@ -356,8 +356,8 @@ func (d *Display) pollMouse() {
 			d.zeroMotionFrames = 0
 			aw, ah := LowResWidth, PALVisibleLines
 			if d.amiga.Video != nil {
-				if d.amiga.Video.Width > 0 {
-					aw = d.amiga.Video.Width
+				if w, _ := d.amiga.Video.DisplaySize(); w > 0 {
+					aw = w
 				}
 				if d.amiga.Video.Height > 0 {
 					ah = d.amiga.Video.Height

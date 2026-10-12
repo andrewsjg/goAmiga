@@ -222,3 +222,112 @@ func TestFetchWordsFactor(t *testing.T) {
 		}
 	}
 }
+
+// A super-hires frame gets a column per super-hires pixel: AGA shows up
+// to 8 planes there, with the full palette.
+func TestAGASuperHiresFrame(t *testing.T) {
+	fill := func(b byte) []byte {
+		p := make([]byte, 256)
+		for i := range p {
+			p[i] = b
+		}
+		return p
+	}
+	// Pixel n: plane 1 always, plane 2 on even n, plane 4 on n%8 >= 4.
+	a := agaAmiga(t, 0x4240, fill(0xFF), fill(0xAA), fill(0), fill(0x0F)) // SHRES, 4 planes
+	writeCustom16(a, 0x1FC, 0x0003)
+	writeCustom16(a, 0x092, 0x0038)
+	writeCustom16(a, 0x094, 0x00D8)
+	for i, c := range map[int]uint32{1: 0x110000, 3: 0x330000, 9: 0x990000, 11: 0xBB0000} {
+		setColor24(a, i, c)
+	}
+	a.Video.RenderLine(DisplayTop)
+	// FMODE 3 super-hires: 8-clock cycles of 4 words, 20 and one more.
+	if got := a.Video.bplpt[0]; got != 0x1000+2*84 {
+		t.Errorf("plane pointer advanced to $%X, want $%X (84 words)", got, 0x1000+2*84)
+	}
+	a.Video.StartFrame()
+	if a.Video.Width != 2*OutputWidth {
+		t.Fatalf("frame after super-hires is %d columns, want %d", a.Video.Width, 2*OutputWidth)
+	}
+	if w, _ := a.Video.DisplaySize(); w != OutputWidth {
+		t.Errorf("display width %d, want %d", w, OutputWidth)
+	}
+	for p := 0; p < 4; p++ {
+		a.Video.bplpt[p] = uint32(0x1000 + 0x100*p)
+	}
+	a.Video.RenderLine(DisplayTop)
+	for x, want := range map[int]uint32{0: 0x330000, 1: 0x110000, 4: 0xBB0000, 5: 0x990000} {
+		if got := rgbAt24(a, x); got != want {
+			t.Errorf("column %d = $%06X, want $%06X", x, got, want)
+		}
+	}
+	// A frame without super-hires goes back to hires columns.
+	writeCustom16(a, 0x100, 0x4200)
+	a.Video.StartFrame()
+	a.Video.RenderLine(DisplayTop)
+	a.Video.StartFrame()
+	if a.Video.Width != OutputWidth {
+		t.Errorf("frame after lores is %d columns, want %d", a.Video.Width, OutputWidth)
+	}
+}
+
+// AGA's BPLCON1 scrolls further (PF1H7-6) and finer (PF1H1-0).
+func TestAGAScroll(t *testing.T) {
+	plane := make([]byte, 64)
+	plane[0] = 0x80
+	a := agaAmiga(t, 0x1200, plane)
+	setColor24(a, 1, 0xFFFFFF)
+	writeCustom16(a, 0x102, 0x0400) // PF1H6: 64 super-hires pixels, 16 lores
+	a.Video.RenderLine(DisplayTop)
+	if rgbAt24(a, 32) != 0xFFFFFF || rgbAt24(a, 0) != 0 {
+		t.Errorf("PF1H6 should move pixel 0 to column 32: col 0 $%06X, col 32 $%06X", rgbAt24(a, 0), rgbAt24(a, 32))
+	}
+	writeCustom16(a, 0x102, 0x0200) // PF1H1: 2 super-hires pixels, one hires column
+	a.Video.bplpt[0] = 0x1000
+	a.Video.RenderLine(DisplayTop)
+	if rgbAt24(a, 0) != 0 || rgbAt24(a, 1) != 0xFFFFFF {
+		t.Errorf("PF1H1 should move pixel 0 one column: col 0 $%06X, col 1 $%06X", rgbAt24(a, 0), rgbAt24(a, 1))
+	}
+}
+
+// BPLCON3 SPRES sets the sprites' pixel size; SPRxCTL bits 4-3 place them
+// to a super-hires pixel.
+func TestAGASpriteResolution(t *testing.T) {
+	a := agaAmiga(t, 0x0200)
+	setColor24(a, 17, 0xFF0000)
+	setSprite(a, 0, 10, 0xC000, 0, false) // two pixels
+	a.Video.RenderLine(DisplayTop)
+	if rgbAt24(a, 23) != 0xFF0000 || rgbAt24(a, 24) != 0 {
+		t.Errorf("lores sprite: two pixels should cover columns 20-23")
+	}
+	writeCustom16(a, 0x106, a.Custom.ReadReg16(0x106)|0x0080) // SPRES hires
+	a.Video.RenderLine(DisplayTop)
+	if rgbAt24(a, 21) != 0xFF0000 || rgbAt24(a, 22) != 0 {
+		t.Errorf("hires sprite: two pixels should cover columns 20-21")
+	}
+	a.Sprites.sprites[0].ctl |= 0x10 // SH1: one hires pixel right
+	a.Video.RenderLine(DisplayTop)
+	if rgbAt24(a, 20) != 0 || rgbAt24(a, 22) != 0xFF0000 {
+		t.Errorf("SH1 should move the sprite one column")
+	}
+}
+
+// With BRDSPRT (and ECSENA) sprites show in the border.
+func TestAGABorderSprites(t *testing.T) {
+	a := agaAmiga(t, 0x0200)
+	setColor24(a, 17, 0xFF0000)
+	writeCustom16(a, 0x08E, 0x2C91) // window from 16 lores pixels in
+	setSprite(a, 0, 0, 0x8000, 0, false)
+	a.Video.RenderLine(DisplayTop)
+	if rgbAt24(a, 0) != 0 {
+		t.Errorf("sprite shown in the border without BRDSPRT")
+	}
+	// Set outside emulated time, so not a change during the line.
+	a.Custom.WriteReg16(0x100, 0x0201)
+	a.Custom.WriteReg16(0x106, a.Custom.ReadReg16(0x106)|0x0002)
+	a.Video.RenderLine(DisplayTop)
+	if rgbAt24(a, 0) != 0xFF0000 {
+		t.Errorf("sprite not shown in the border with BRDSPRT")
+	}
+}

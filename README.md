@@ -127,9 +127,17 @@ screen even when other flags are given.
     1 MB of chip RAM. This is the default with 1 MB; otherwise it's `ocs`.
   - `ecs`: adds the ECS Denise (A500+, A600), with the super-hires
     modes.
-  - `aga`: the A1200/A4000 chipset. 256 colours from 16.8 million, 8
-    bitplanes, HAM8, wide fetch modes and wide sprites; 2 MB of chip RAM by
-    default. Use it with the A1200 Kickstart and the 68020.
+  - `aga`: the A1200/A4000 chipset. Its features:
+    - 256 colours from 16.8 million, 8 bitplanes and HAM8;
+    - super-hires in up to 256 colours;
+    - wide fetch modes and finer scrolling;
+    - sprites that can be wide, hires or super-hires, and shown in the
+      border;
+    - 2 MB of chip RAM by default.
+
+    Use it with the A1200 Kickstart and the 68020.
+  - **Super-hires** is drawn at its full 1280 pixels across, so a
+    super-hires Workbench is sharp in a window twice the Amiga's width.
 - **Gayle.** `--gayle auto|on|off` fits Gayle, the A600/A1200 chip with
   the IDE interface. `auto`, the default, fits it with the AGA chipset, as
   in every A1200. It also matters with no drive attached: Kickstart's
