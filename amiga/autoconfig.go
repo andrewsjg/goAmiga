@@ -43,6 +43,9 @@ func (a *Amiga) zorroBoards() []zorroBoard {
 	if a.HardDisk != nil {
 		bs = append(bs, a.HardDisk)
 	}
+	if a.SCSI != nil {
+		bs = append(bs, a.SCSI)
+	}
 	if a.Net != nil {
 		bs = append(bs, a.Net)
 	}

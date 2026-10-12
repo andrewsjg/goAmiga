@@ -366,6 +366,16 @@ func (d *Display) drawStatus(screen *ebiten.Image, y int) {
 		}
 		led("IDE", c)
 	}
+	if sc := d.amiga.SCSI; sc != nil {
+		c := color.Color(ledOff)
+		if active, write := sc.Activity(); active {
+			c = ledDrive
+			if write {
+				c = ledWrite
+			}
+		}
+		led("SCSI", c)
+	}
 	var notes []string
 	if d.paused {
 		notes = append(notes, "PAUSED (Cmd+P)")

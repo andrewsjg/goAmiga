@@ -42,6 +42,55 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-12 — The A2091 SCSI controller
+
+The second step towards Amiga Unix, whose kernel drives an A2090, A2091
+or the A3000's SCSI itself. `--scsi ID:FILE` attaches a hardfile as a
+SCSI disk on an emulated A2091 (`a2091.go`, `scsi.go`).
+
+**How AMIX's driver uses it.** This comes from the kernel's `a2091.c`,
+whose disassembly shows each register:
+- `initialize` finds the board with `autocon($02020003)`, Commodore
+  product 3. `autocon` searches `bootinfo`: AMIX's boot loader copies
+  expansion.library's ConfigDev list into the kernel, so the board only
+  has to be configured by Kickstart.
+- It then sets the WD33C93's own ID to 7 with advanced features and
+  resets it. Status $01 means it uses select-and-transfer with ATN
+  ($08).
+- `startany` loads the command descriptor block into registers $03-$0E,
+  the target into $15 ($40 for data in), the LUN and the transfer count.
+  `startdma` sets the DMAC's CNTR ($30 read, $38 write) and ACR (the
+  address), and strobes ST_DMA. `startany` then writes the command.
+- The interrupt routine checks the DMAC's ISTR for INT_P, reads the
+  WD33C93's status, and on $16 takes the target's status byte from
+  register $0F, checking the phase register for $60.
+- `stopdma` flushes the FIFO, waits for FE_FLG, then clears the
+  interrupt and stops DMA.
+
+**The emulation:**
+- The DMAC's registers are as above. The board's interrupt (INT_P, with
+  CNTR's INTEN) holds INT2 until the WD33C93's status is read.
+- The WD33C93 has its register file through SASR/SCMD, with SASR
+  stepping on except at the auxiliary status, command and data
+  registers. Its commands are reset, abort and select-and-transfer.
+- Select-and-transfer runs the whole SCSI exchange at once: data out
+  from memory at ACR, the command, data in to memory, all clipped to the
+  transfer count. It ends with status $16, the status byte in $0F, the
+  phase at $60 and the residual count, or $42 if no target answers.
+- The SCSI disk covers:
+  - TEST UNIT READY, INQUIRY, READ CAPACITY;
+  - READ/WRITE(6) and (10);
+  - REQUEST SENSE with real sense data;
+  - MODE SENSE pages 3 and 4, MODE SELECT;
+  - the seek, start/stop, verify and reserve commands.
+- There's no boot ROM. Kickstart configures the board without a driver,
+  and AmigaOS boots through goamiga.device instead.
+- The status bar has a SCSI light.
+
+`TestA2091` drives the board exactly as `a2091.c` does: reset, INQUIRY,
+READ CAPACITY, READ(10) and WRITE(10) by DMA, CHECK CONDITION then
+REQUEST SENSE, and a select timeout.
+
 ## 2026-10-12 — The 68030 and its MMU
 
 The first step towards Amiga Unix (AMIX 2.1), which needs a 68030 with

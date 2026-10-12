@@ -32,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 13
+	stateVersion = 14
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -211,6 +211,11 @@ func (a *Amiga) state(s *stateCodec) {
 			hdfs = append(hdfs, "dir:"+d.Path)
 		}
 	}
+	if a.SCSI != nil {
+		for _, f := range a.SCSI.files {
+			hdfs = append(hdfs, "scsi:"+f.Path)
+		}
+	}
 	// The IDE drives count as hardfiles too (empty positions as "").
 	hasGayle := a.Gayle != nil
 	s.bool(&hasGayle)
@@ -303,6 +308,9 @@ func (a *Amiga) state(s *stateCodec) {
 	}
 	if a.HardDisk != nil {
 		a.HardDisk.state(s)
+	}
+	if a.SCSI != nil {
+		a.SCSI.state(s)
 	}
 	if a.Net != nil {
 		a.Net.state(s)

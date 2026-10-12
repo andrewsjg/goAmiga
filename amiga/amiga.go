@@ -87,7 +87,10 @@ type Amiga struct {
 	FastRAM *zorroRAM
 	// HardDisk is the hard disk controller, when hardfiles are attached.
 	HardDisk *hdBoard
-	Mouse    *Mouse
+
+	// SCSI is an A2091 SCSI controller (AttachSCSI), or nil.
+	SCSI  *a2091
+	Mouse *Mouse
 	// Joystick is the joystick in game port 2.
 	Joystick *Joystick
 	Mapper   *m68kmem.Mapper
@@ -388,6 +391,9 @@ func (a *Amiga) Reset() error {
 	if a.Gayle != nil {
 		a.Gayle.reset()
 	}
+	if a.SCSI != nil {
+		a.SCSI.reset()
+	}
 	if a.Serial != nil {
 		a.Serial.Reset()
 	}
@@ -546,6 +552,9 @@ func (a *Amiga) Step() error {
 	}
 	if a.Gayle != nil {
 		a.Gayle.tick(elapsed)
+	}
+	if a.SCSI != nil {
+		a.SCSI.tick()
 	}
 
 	// Use fast per-line beam advance when the CPU is stopped (no instruction
@@ -901,6 +910,9 @@ func LoadROM(path string) ([]byte, error) {
 func (a *Amiga) Shutdown() {
 	if a.Gayle != nil {
 		a.Gayle.close()
+	}
+	if a.SCSI != nil {
+		a.SCSI.close()
 	}
 	if a.Net != nil {
 		a.Net.closeAll()

@@ -21,6 +21,7 @@ type Settings struct {
 	Hardfiles    List
 	Dirs         List   // host folders as drives: PATH or VOLUME=PATH
 	IDE          List   // IDE drives on Gayle: the master, then the slave
+	SCSI         List   // SCSI disks on an A2091: ID:PATH
 	Gayle        string // auto (with AGA, as in the A1200), on or off
 	HDFCreate    int
 	WriteProtect bool
@@ -78,6 +79,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.Var(&s.Drives[3], "df3", "ADF for DF3: (connects the drive); repeat for more")
 	fs.Var(&s.Hardfiles, "hdf", "Hard disk image (.hdf, plain or RDB) as the next unit of goamiga.device; repeat for more")
 	fs.Var(&s.Dirs, "dir", "Host folder as an Amiga drive: PATH, or VOLUME=PATH to name its volume (else the folder's name); bootable if it has S/Startup-Sequence; repeat for more")
+	fs.Var(&s.SCSI, "scsi", "Hardfile as a SCSI disk on an A2091 controller, as ID:PATH (ID 0-6); for Amiga Unix, which drives the A2091 itself (AmigaOS has no driver for it here); repeat for more")
 	fs.Var(&s.IDE, "ide", "Hardfile (with a Rigid Disk Block) as an IDE drive on Gayle, booted by Kickstart's own scsi.device: the master, then the slave")
 	fs.StringVar(&s.Gayle, "gayle", s.Gayle, "Gayle, the A600/A1200 IDE interface: auto (fitted with the AGA chipset), on or off; --ide fits it")
 	fs.IntVar(&s.HDFCreate, "hdf-create", s.HDFCreate, "Create any --hdf file that does not exist, blank, this many MB (format it from the Amiga)")
@@ -151,6 +153,7 @@ func (s *Settings) clone() *Settings {
 	c.Hardfiles = append(List(nil), s.Hardfiles...)
 	c.IDE = append(List(nil), s.IDE...)
 	c.Dirs = append(List(nil), s.Dirs...)
+	c.SCSI = append(List(nil), s.SCSI...)
 	return &c
 }
 
@@ -170,8 +173,16 @@ func mapPath(key, v string, fn func(string) string) string {
 		return v
 	}
 	vol, p := "", v
-	if key == "dir" {
+	switch key {
+	case "dir":
 		vol, p = SplitDir(v)
+	case "scsi":
+		if len(v) > 2 && v[1] == ':' && v[0] >= '0' && v[0] <= '9' {
+			if filepath.IsAbs(v[2:]) {
+				return v
+			}
+			return v[:2] + fn(v[2:])
+		}
 	}
 	if p == "" || filepath.IsAbs(p) {
 		return v

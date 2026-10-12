@@ -147,6 +147,15 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			return fail(fmt.Errorf("hardfile %v", err))
 		}
 	}
+	for _, v := range s.SCSI {
+		if len(v) < 3 || v[1] != ':' || v[0] < '0' || v[0] > '6' {
+			return fail(fmt.Errorf("--scsi %q: give it as ID:PATH, ID 0-6", v))
+		}
+		if err := a.AttachSCSI(int(v[0]-'0'), v[2:], s.WriteProtect); err != nil {
+			return fail(fmt.Errorf("SCSI disk %v", err))
+		}
+		fmt.Fprintf(out, "A2091 SCSI ID %c: %s\n", v[0], v[2:])
+	}
 	for _, v := range s.Dirs {
 		vol, p := config.SplitDir(v)
 		if err := a.AttachDirectory(p, vol, s.WriteProtect); err != nil {
