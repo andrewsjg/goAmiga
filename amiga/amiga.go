@@ -89,7 +89,10 @@ type Amiga struct {
 	HardDisk *hdBoard
 
 	// SCSI is an A2091 SCSI controller (AttachSCSI), or nil.
-	SCSI  *a2091
+	SCSI *a2091
+
+	// RTC is the battery-backed clock (EnableClock), or nil.
+	RTC   *rtc
 	Mouse *Mouse
 	// Joystick is the joystick in game port 2.
 	Joystick *Joystick
@@ -328,12 +331,17 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		a.Mapper.Map(gayleView{a.Gayle, gayleIDEBase}, gayleIDEBase, gayleIDEEnd)
 		a.Mapper.Map(gayleView{a.Gayle, gayleIDBase}, gayleIDBase, gayleIDEnd)
 	}
+	if a.RTC != nil {
+		a.Mapper.Map(a.RTC, rtcBase, rtcEnd)
+	}
 
 	a.mapROM(ROMBase)
 
-	// Update CPU decoder if it exists
+	// Update CPU decoder if it exists, keeping the MMU's translation.
 	if a.CPU != nil && a.CPU.M != nil {
+		tr := a.CPU.M.Translate
 		a.CPU.M = m68kmem.NewDecoder(a.Mapper)
+		a.CPU.M.Translate = tr
 	}
 }
 

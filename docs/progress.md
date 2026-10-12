@@ -42,6 +42,80 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-12 — Amiga Unix boots
+
+AMIX 2.1, Commodore's System V Release 4, boots to its first-boot setup
+and takes keyboard input. The pieces are the 68030 and its MMU, the A2091
+and three new ones:
+
+**`cmd/amixdisk`** builds the disk from the distribution's cpio (odc)
+archive, the installed tree of all 28 packages. There's no installation
+floppy, so this replaces the tape install. Everything about the layout
+came from AMIX itself:
+- **Slices.** `sdpartition` makes slice *n* the *n*th PART in the RDB's
+  list, positioned with `rdb_CylBlocks`, and slice 0 the whole disk.
+  The partition types don't matter. The disk has root (s1), swap (s2) and
+  boot (s3). Root and swap are marked not to mount, so AmigaOS leaves
+  them alone.
+- **The root device** is compiled into the kernel: `rootdev` = $480016,
+  major 18 minor $16. The minor's low nibble is the SCSI ID (the device
+  nodes in the archive show the encoding), so it means `c6d0s1`: ID 6,
+  the A3000's internal drive. `/etc/vfstab` is set to match.
+- **The s5 filesystem** follows `sys/fs/s5*.h` from the archive's C
+  development package:
+  - *Alignment:* the superblock needs gcc's 4-byte alignment, which
+    `s5statvfs` confirms by reading `s_fsize` at 4 and `s_tfree` at $1B0.
+  - *Blocks:* 1 KB. The inodes are 64 bytes with 3-byte block addresses,
+    and the free list is chained.
+  - *Device numbers:* `iread` shows the expanded form, a flag in
+    address 1 with major and minor in 2 and 3.
+  - *Names* longer than s5's 14 characters (144, nearly all in the
+    source trees) are cut and listed.
+- **The boot partition** is made as `stand/Makefile` makes it: boot1, an
+  IBLK for boot2, boot2, an IBLK for the kernel, the kernel. The IBLK
+  format comes from disassembling AMIX's `makeiblk`: the size at 8, the
+  SVR4 sum at 16, and $FFFFFFFF at 20 to let the loader place the kernel.
+  The DosEnvec has de_BootBlocks = 2.
+- `diag/s5.py` reads it back independently: partitions, superblock,
+  directories, files, and a check of every block and link count.
+
+**The boot**, as it happened the first time:
+1. Kickstart 3.2's strap finds the boot partition's BootNode on
+   goamiga.device and boots its boot blocks like a floppy, with the
+   I/O request's offset at the partition (`boot1` relies on this from
+   Kickstart 2.0).
+2. boot2 loads the 1.4 MB ELF kernel, relocates it into the 8 MB of
+   fast RAM, and passes `bootinfo` (the ConfigDev list and memory
+   regions).
+3. The kernel turns on the MMU (TC $82B02D60), resets the A2091 and
+   finds the RDB.
+4. It mounts the s5 root from slice 1, marks it active, and runs
+   `init`.
+5. The startup scripts run, through about 860 page faults handled by
+   the restartable bus errors, and AMIX's `system.setup` asks for the
+   node name.
+
+**A battery-backed clock** (`rtc.go`): an Oki MSM6242 at $DC0000, the
+A500/A2000 chip. AMIX's `get_clock_type` recognises it by register F
+reading 4 (24-hour mode), and so does Kickstart's battclock.resource,
+so AmigaOS now gets the date at boot. It runs on the host's local time,
+and setting it under HOLD keeps the difference. The app fits it by
+default (`--rtc`); tests don't, so their results don't depend on the
+date. AMIX's 1992 `date` refuses 2026, as a two-digit year before 70,
+and keeps the filesystem's time.
+
+**Also:** `wireMemoryMap` replaced the CPU's Decoder whenever a board
+was configured, and so would have dropped the MMU's translation hook. It
+keeps it now.
+
+**Testing:**
+- `TestAMIXBoot` runs when `AMIX_HDF` names an image. `AMIX_KEYS` types
+  at the prompts, and `AMIX_PNG` saves screenshots.
+- `cmd/amixdisk`'s test builds a small archive and reads it back:
+  contents through an indirect block, a hard link, a device node, a
+  symbolic link, a cut name, vfstab and the boot partition.
+- `TestClock` covers the clock.
+
 ## 2026-10-12 — The A2091 SCSI controller
 
 The second step towards Amiga Unix, whose kernel drives an A2090, A2091

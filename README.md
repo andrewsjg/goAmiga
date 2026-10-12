@@ -371,6 +371,47 @@ A joystick is always plugged into port 2, with the mouse in port 1.
   software that draws into the border.
 - **Sound** plays through the host's audio output. `--mute` turns it off.
 
+## Amiga Unix
+
+goAmiga runs Amiga Unix (AMIX 2.1), Commodore's System V Release 4 for
+the A3000UX and A2500UX. It needs:
+- the 68030 with its MMU, and an FPU;
+- the A2091 SCSI controller, which the AMIX kernel drives itself;
+- a disk with AMIX installed.
+
+`cmd/amixdisk` makes that disk from the AMIX 2.1 distribution archive (the
+cpio of an installed system), doing what the installer would have done:
+- the RDB;
+- the root filesystem, as s5;
+- swap;
+- the boot partition with AMIX's own bootstrap and kernel.
+
+The tape and installation floppy aren't needed. Bring your own copy of
+AMIX: it isn't included.
+
+```bash
+go run ./cmd/amixdisk -cpio AMIX/amix_2.1.cpio -o amix.hdf
+goamiga --rom ROMS/Kick32.rom --cpu 68030 --fpu 68882 --chipset ecs \
+        --chipram 1024 --fastram 8192 --hdf amix.hdf --scsi 6:amix.hdf
+```
+
+How it starts up:
+- **Booting.** Kickstart 2.0 or later boots the boot partition through
+  goamiga.device (`--hdf`), the way it boots a floppy.
+- **The kernel** then takes over the machine and finds the same disk on
+  the A2091 (`--scsi 6:`). ID 6 is the A3000's internal drive, where the
+  kernel looks for its root.
+- **First boot.** The first boot runs AMIX's setup questions: node name,
+  timezone, passwords, a user account.
+
+Its limits:
+- **Long names.** s5 file names are limited to 14 characters. The 144
+  longer names in the archive, nearly all in the source trees, are cut
+  to fit; `amixdisk` lists them.
+- **The date.** AMIX's `date` doesn't accept years after 1999, so the
+  clock's 2026 is refused at boot and the system keeps the filesystem's
+  time.
+
 ## Networking
 
 `--bsdsocket` fits a network board carrying bsdsocket.library, the AmiTCP

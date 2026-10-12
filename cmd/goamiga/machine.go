@@ -147,6 +147,9 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			return fail(fmt.Errorf("hardfile %v", err))
 		}
 	}
+	if s.Clock {
+		a.EnableClock()
+	}
 	for _, v := range s.SCSI {
 		if len(v) < 3 || v[1] != ':' || v[0] < '0' || v[0] > '6' {
 			return fail(fmt.Errorf("--scsi %q: give it as ID:PATH, ID 0-6", v))

@@ -37,6 +37,7 @@ type Settings struct {
 
 	Serial    string
 	BSDSocket bool
+	Clock     bool
 	JoyKeys   bool
 
 	Mute          bool
@@ -51,7 +52,7 @@ type Settings struct {
 // Defaults are the settings with nothing given: an A500 with 1 MB of chip
 // RAM and 2 MB of fast RAM.
 func Defaults() Settings {
-	return Settings{CPU: "68000", FPU: "none", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true,
+	return Settings{CPU: "68000", FPU: "none", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true,
 		ScreenshotDir: ".", StateDir: "."}
 }
 
@@ -91,6 +92,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.IntVar(&s.CPUSpeed, "cpu-speed", s.CPUSpeed, "CPU speed in percent of a 7 MHz 68000 (default 100 for the 68000, 250 for the 68020, 350 for the 68030)")
 	fs.StringVar(&s.FPU, "fpu", s.FPU, "Floating-point coprocessor with --cpu 68020 or 68030: none, 68881 or 68882")
 	fs.StringVar(&s.Chipset, "chipset", s.Chipset, "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise), ecs (A500+/A600) or aga (A1200/A4000); default ecs-agnus with 1 MB chip RAM, else ocs")
+	fs.BoolVar(&s.Clock, "rtc", s.Clock, "Fit the battery-backed clock (an Oki MSM6242 at $DC0000) running on the host's time; AmigaOS sets its time from it")
 	fs.BoolVar(&s.BSDSocket, "bsdsocket", s.BSDSocket, "Fit a network board with bsdsocket.library: Amiga TCP/IP programs use the host's network")
 	fs.StringVar(&s.Serial, "serial", s.Serial, "Connect the serial port to a TCP port: telnet:PORT (a terminal; try NewShell AUX: on the Amiga) or tcp:PORT (raw bytes); HOST:PORT to listen beyond this machine")
 	fs.StringVar(&s.Video, "video", s.Video, "Video standard: pal (50 Hz) or ntsc (60 Hz, for American games that need it)")
