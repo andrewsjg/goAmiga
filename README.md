@@ -17,6 +17,9 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 - Presets for the A500, A500+, A600 and A1200.
 - Kickstart 1.3 to 3.2. Workbench 1.3 and 3.2 run from floppy or hard
   disk.
+- Amiga Unix (AMIX 2.1) on a 68030 with an A2091 SCSI controller (see
+  [Amiga Unix](#amiga-unix)).
+- A battery-backed clock, so AmigaOS knows the date.
 
 **Chipset:**
 - Copper and blitter, with cycle-based DMA contention.
