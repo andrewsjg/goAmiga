@@ -11,7 +11,7 @@ directive in `go.mod`).
 | `cmd/goamiga/` | CLI and window: `main.go` (flags, no arguments opens the configuration screen), `machine.go` (builds an Amiga from `config.Settings`), `display.go` (the `app` game: configuration screen or running machine), `launcher.go` and `ui.go` (the configuration screen) |
 | `internal/config/` | Settings: the `Settings` struct behind the flags, settings files, and saved configurations (`~/.config/goamiga/configs/`) |
 | `amiga/` | The machine: chipset, CIAs, floppy, input, display, and all tests |
-| `diag/` | One-off diagnostic tools: Go programs (`bootdiag/`, `romanalysis/`) and Python ROM disassembly/search scripts |
+| `diag/` | Diagnostic tools: `adf.py` (list and extract files in OFS/FFS disk images) and `disasm68k.py` (68000/68020 disassembler for ROMs and memory dumps; needs capstone) |
 | `docs/` | This file, the progress log, and write-ups of the harder bugs |
 
 ## Machine (`amiga/amiga.go`)

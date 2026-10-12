@@ -42,6 +42,19 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-12 — diag/ cleanup
+
+Removed 63 one-off diagnostic files: 61 Python scripts from the initial
+import and the `bootdiag` and `romanalysis` Go programs.
+- They were probes for the early Kickstart 1.3 boot, blitter and disk
+  bugs, all long fixed and written up here.
+- Each was tied to a particular ROM address.
+- Most were numbered copies of one another.
+- 59 of them opened `Kick13.rom` from a path that no longer exists.
+
+They remain in git history (`9bca521`). Kept: `adf.py` (disk image
+files) and `disasm68k.py` (disassembler).
+
 ## 2026-10-12 — Power, Reset and Config buttons
 
 The status bar has three buttons at its right:
