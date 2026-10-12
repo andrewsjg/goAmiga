@@ -189,8 +189,13 @@ func (a *Amiga) SetCPU(model string, speed int) error {
 		if speed == 0 {
 			speed = 250
 		}
+	case "68030":
+		a.CPU.Model = m68k.Model68030
+		if speed == 0 {
+			speed = 350 // a 25 MHz 68030, as in the A3000
+		}
 	default:
-		return fmt.Errorf("CPU must be 68000 or 68020, not %q", model)
+		return fmt.Errorf("CPU must be 68000, 68020 or 68030, not %q", model)
 	}
 	if speed < 100 || speed > 2000 {
 		return fmt.Errorf("CPU speed must be 100-2000%%, not %d", speed)
@@ -200,7 +205,7 @@ func (a *Amiga) SetCPU(model string, speed int) error {
 }
 
 // SetFPU fits a floating-point coprocessor: "none", "68881" or "68882".
-// It needs the 68020 (SetCPU first). Call it before Reset.
+// It needs the 68020 or 68030 (SetCPU first). Call it before Reset.
 func (a *Amiga) SetFPU(model string) error {
 	switch model {
 	case "", "none":
@@ -213,9 +218,9 @@ func (a *Amiga) SetFPU(model string) error {
 	default:
 		return fmt.Errorf("FPU must be none, 68881 or 68882, not %q", model)
 	}
-	if a.CPU.Model != m68k.Model68020 {
+	if a.CPU.Model < m68k.Model68020 {
 		a.CPU.FPU = m68k.FPUNone
-		return fmt.Errorf("an FPU needs the 68020 (--cpu 68020)")
+		return fmt.Errorf("an FPU needs the 68020 or 68030 (--cpu 68020)")
 	}
 	return nil
 }

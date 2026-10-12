@@ -314,10 +314,14 @@ func opMoves(c *Processor) (t stepTrace) {
 		regp = &c.A[r]
 	}
 	t.src = opr
+	// The access uses DFC (writes) or SFC (reads) as its function code.
+	defer func() { c.mmu.fcOverride = 0 }()
 	if ext&0x0800 != 0 { // register to memory
+		c.mmu.fcOverride = int(c.DFC&7) | 8
 		t.err = c.writeN(addr, n, *regp)
 		return
 	}
+	c.mmu.fcOverride = int(c.SFC&7) | 8
 	v, err := c.readN(addr, n)
 	if err != nil {
 		t.err = err

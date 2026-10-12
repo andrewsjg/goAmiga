@@ -87,3 +87,43 @@ func TestBootFPU(t *testing.T) {
 		}
 	}
 }
+
+// Kickstart 3.2 on a 68030 with a 68882: exec recognises both and
+// Workbench starts.
+func TestBootKS32On68030(t *testing.T) {
+	rom, err := LoadROM("../ROMS/Kick32.rom")
+	if err != nil {
+		t.Skip(err)
+	}
+	a, _ := New(rom, nil)
+	if err := a.SetCPU("68030", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetFPU("68882"); err != nil {
+		t.Fatal(err)
+	}
+	a.ConfigureMemory(0, 4096)
+	if err := a.AttachHardfile(hardfileFromADF(t, testDisk("Install3.2.adf")), false); err != nil {
+		t.Fatal(err)
+	}
+	a.Reset()
+	if !waitWorkbench(t, a) {
+		t.Fatal("Workbench did not start on the 68030")
+	}
+	eb := a.peek32(4)
+	attn := a.peek16(eb + 0x128)
+	t.Logf("AttnFlags $%04X", attn)
+	if attn&0x04 == 0 || attn&0x20 == 0 {
+		t.Errorf("AttnFlags $%04X: want AFF_68030 and AFF_68882", attn)
+	}
+}
+
+// testDisk finds a disk image in Workbench/ or, as before, disks/.
+func testDisk(name string) string {
+	for _, dir := range []string{"../Workbench/", "../disks/"} {
+		if _, err := os.Stat(dir + name); err == nil {
+			return dir + name
+		}
+	}
+	return "../Workbench/" + name
+}

@@ -38,8 +38,11 @@ const (
 )
 
 func (m Model) String() string {
-	if m == Model68020 {
+	switch m {
+	case Model68020:
 		return "68020"
+	case Model68030:
+		return "68030"
 	}
 	return "68000"
 }
@@ -153,6 +156,9 @@ func (c *Processor) controlReg(n uint16) (*uint32, uint32, bool) {
 	case 0x001:
 		return &c.DFC, 7, true
 	case 0x002: // CACR: enable and freeze; the clear bits read as 0
+		if c.is030() { // and the 68030's data cache, burst and write allocate
+			return &c.CACR, 0x3313, true
+		}
 		return &c.CACR, 0x03, true
 	case 0x800:
 		return &c.USP, 0xFFFFFFFF, true

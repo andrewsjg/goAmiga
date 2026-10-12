@@ -330,7 +330,7 @@ func (l *launcher) machineTab(x, y int) {
 	l.fileRow(x, y, 260, "rom", &l.s.ROM, romFilter, false)
 	y += 40
 	u.label(x-10, y, "CPU")
-	cycleOf(u, x, y, 200, []string{"68000 (A500, A600)", "68020 (A1200)"}, []string{"68000", "68020"}, &l.s.CPU)
+	cycleOf(u, x, y, 200, []string{"68000 (A500, A600)", "68020 (A1200)", "68030 (A3000)"}, []string{"68000", "68020", "68030"}, &l.s.CPU)
 	y += 34
 	u.label(x-10, y, "CPU speed")
 	cycleOf(u, x, y, 200, []string{"Model's own", "100% (7 MHz)", "150%", "200%", "250% (A1200)", "300%", "400%", "800%"},
@@ -338,8 +338,8 @@ func (l *launcher) machineTab(x, y int) {
 	y += 34
 	u.label(x-10, y, "FPU")
 	cycleOf(u, x, y, 200, []string{"None", "68881", "68882"}, []string{"none", "68881", "68882"}, &l.s.FPU)
-	if l.s.FPU != "none" && l.s.CPU != "68020" {
-		u.text(x+210, y+3, "needs the 68020", uiRed)
+	if l.s.FPU != "none" && l.s.CPU == "68000" {
+		u.text(x+210, y+3, "needs a 68020 or 68030", uiRed)
 	}
 	y += 34
 	u.label(x-10, y, "Chipset")

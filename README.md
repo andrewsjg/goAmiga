@@ -9,7 +9,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 ## What it emulates
 
 **Machines:**
-- 68000 or 68020 CPU, with an optional 68881/68882 FPU.
+- 68000, 68020 or 68030 CPU (the 68030 with its MMU), with an optional
+  68881/68882 FPU.
 - OCS, ECS or AGA chipset, PAL or NTSC.
 - 512 KB to 2 MB of chip RAM, plus trapdoor slow RAM and Zorro II fast
   RAM.
@@ -116,11 +117,16 @@ screen even when other flags are given.
 
 ### Machine
 
-- **CPU.** `--cpu 68020` fits a 68EC020, as in the A1200, with 24-bit
-  addressing and no MMU. It runs 2.5× as fast as the A500's 7 MHz 68000;
-  `--cpu-speed PERCENT` changes that. `--fpu 68881` or `--fpu 68882` adds
-  a floating-point unit to the 68020. Kickstart and Workbench detect all
-  of this themselves.
+- **CPU.** `--cpu` chooses the processor:
+  - `68000`: the A500's 7 MHz 68000.
+  - `68020`: a 68EC020, as in the A1200, with 24-bit addressing and no MMU.
+    It runs 2.5× as fast as the 68000.
+  - `68030`: as in the A3000, with its MMU for software that uses virtual
+    memory, such as Amiga Unix. It runs 3.5× as fast as the 68000.
+
+  `--cpu-speed PERCENT` changes the speed. `--fpu 68881` or `--fpu 68882`
+  adds a floating-point unit to the 68020 or 68030. Kickstart and Workbench
+  detect all of this themselves.
 - **Chipset.** `--chipset` chooses:
   - `ocs`: the original A500.
   - `ecs-agnus`: the Fat Agnus with the original Denise, as in A500s with

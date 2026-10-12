@@ -23,6 +23,12 @@ type Decoder struct {
 	// completed through this Decoder; the CPU uses it to time exceptions.
 	Accesses int
 
+	// Translate, when set (a 68030 with its MMU on), maps each access's
+	// logical address to a physical one. It may panic to abort the
+	// instruction. An access that crosses a 256-byte boundary (the
+	// smallest page) is translated a byte at a time.
+	Translate func(addr, n int, write bool) int
+
 	buf [4]byte
 }
 
@@ -41,16 +47,57 @@ func NewDecoder(m Memory) *Decoder {
 // Write writes to the underlying Memory interface.
 func (m *Decoder) Write(addr int, p []byte) (n int, err error) {
 	m.checkOdd(addr, len(p), true)
-	if m.OnWrite != nil {
-		m.OnWrite(addr, len(p))
-	}
-	return m.M.Write(addr, p)
+	return m.write(addr, p)
 }
 
 // Read reads from the underlying Memory interface.
 func (m *Decoder) Read(addr int, p []byte) (n int, err error) {
 	m.checkOdd(addr, len(p), false)
-	return m.M.Read(addr, p)
+	return m.read(addr, p)
+}
+
+// read and write are the accesses after the odd-address check: through
+// the MMU, if there is one.
+func (m *Decoder) read(addr int, p []byte) (int, error) {
+	if m.Translate == nil {
+		return m.M.Read(addr, p)
+	}
+	if len(p) > 1 && addr&0xFF+len(p) > 0x100 {
+		for i := range p {
+			if _, err := m.M.Read(m.Translate(addr+i, 1, false), p[i:i+1]); err != nil {
+				return i, err
+			}
+		}
+		return len(p), nil
+	}
+	return m.M.Read(m.Translate(addr, len(p), false), p)
+}
+
+func (m *Decoder) write(addr int, p []byte) (int, error) {
+	if m.Translate != nil {
+		if len(p) > 1 && addr&0xFF+len(p) > 0x100 {
+			// Translate every byte before writing any, so a fault on the
+			// second page leaves the first untouched.
+			phys := make([]int, len(p))
+			for i := range p {
+				phys[i] = m.Translate(addr+i, 1, true)
+			}
+			for i := range p {
+				if m.OnWrite != nil {
+					m.OnWrite(phys[i], 1)
+				}
+				if _, err := m.M.Write(phys[i], p[i:i+1]); err != nil {
+					return i, err
+				}
+			}
+			return len(p), nil
+		}
+		addr = m.Translate(addr, len(p), true)
+	}
+	if m.OnWrite != nil {
+		m.OnWrite(addr, len(p))
+	}
+	return m.M.Write(addr, p)
 }
 
 // Reset resets the underlying Memory interface.
@@ -61,7 +108,7 @@ func (m *Decoder) Reset() (err error) {
 // Byte reads a single byte from the underlying Memory interface.
 func (m *Decoder) Byte(addr int) (b byte, err error) {
 	m.Accesses++
-	_, err = m.M.Read(addr, m.buf[:1])
+	_, err = m.read(addr, m.buf[:1])
 	b = m.buf[0]
 	return
 }
@@ -70,7 +117,7 @@ func (m *Decoder) Byte(addr int) (b byte, err error) {
 // interface.
 func (m *Decoder) Word(addr int) (n uint16, err error) {
 	m.checkOdd(addr, 2, false)
-	_, err = m.M.Read(addr, m.buf[:2])
+	_, err = m.read(addr, m.buf[:2])
 	n = uint16(m.buf[0])<<8 | uint16(m.buf[1])
 	return
 }
@@ -78,7 +125,7 @@ func (m *Decoder) Word(addr int) (n uint16, err error) {
 // Sword reads a single 16-bit signed word from the underlying Memory interface.
 func (m *Decoder) Sword(addr int) (n int16, err error) {
 	m.checkOdd(addr, 2, false)
-	_, err = m.M.Read(addr, m.buf[:2])
+	_, err = m.read(addr, m.buf[:2])
 	u := uint16(m.buf[0])<<8 | uint16(m.buf[1])
 	n = *(*int16)(unsafe.Pointer(&u))
 	return
@@ -88,7 +135,7 @@ func (m *Decoder) Sword(addr int) (n int16, err error) {
 // interface.
 func (m *Decoder) Long(addr int) (n uint32, err error) {
 	m.checkOdd(addr, 4, false)
-	_, err = m.M.Read(addr, m.buf[:4])
+	_, err = m.read(addr, m.buf[:4])
 	n = uint32(m.buf[0])<<24 | uint32(m.buf[1])<<16 | uint32(m.buf[2])<<8 | uint32(m.buf[3])
 	return
 }
@@ -96,7 +143,7 @@ func (m *Decoder) Long(addr int) (n uint32, err error) {
 // Slong reads a single 32-bit signed long from the underlying Memory interface.
 func (m *Decoder) Slong(addr int) (n int32, err error) {
 	m.checkOdd(addr, 4, false)
-	_, err = m.M.Read(addr, m.buf[:4])
+	_, err = m.read(addr, m.buf[:4])
 	u := uint32(m.buf[0])<<24 | uint32(m.buf[1])<<16 | uint32(m.buf[2])<<8 | uint32(m.buf[3])
 	n = *(*int32)(unsafe.Pointer(&u))
 	return

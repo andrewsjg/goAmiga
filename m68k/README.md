@@ -1,8 +1,11 @@
 # m68k
 
-The 680x0 CPU of [goAmiga](../README.md): a pure-Go Motorola 68000 and 68020
-(with a 68881/68882 FPU), cycle-timed, with the exception frames, trace
-mode and prefetch behaviour that Amiga software relies on.
+The 680x0 CPU of [goAmiga](../README.md): a pure-Go Motorola 68000, 68020
+and 68030 (with its MMU, and a 68881/68882 FPU), cycle-timed, with the
+exception frames, trace mode and prefetch behaviour that Amiga software
+relies on. The 68030's MMU is in `mmu030.go`: table walks, transparent
+translation, the U and M bits, and bus errors that rerun the faulting
+instruction after the fault is fixed.
 
 It began as Ryan Armstrong's [go-m68k](https://github.com/cavaliercoder/go-m68k)
 (BSD licence, see LICENSE). It was developed on a branch for goAmiga, and

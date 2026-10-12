@@ -37,10 +37,80 @@ verified. Longer investigations get their own write-up in `docs/`.
    but ignored: PAL or NTSC is chosen with `--video`, and there is no
    programmable beam. So the 31 kHz modes (Productivity, Multiscan,
    DblPAL/DblNTSC, Euro72) and AGA scan doubling aren't emulated. A plain hardfile (no RDB) can only use
-   Kickstart's own filesystems. The CPU stops at the 68020: there is no
-   68030 or later, and no MMU.
+   Kickstart's own filesystems. The CPU stops at the 68030: there is no
+   68040 or 68060. The 68030's caches aren't emulated (CACR is stored).
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-12 — The 68030 and its MMU
+
+The first step towards Amiga Unix (AMIX 2.1), which needs a 68030 with
+its MMU. `--cpu 68030` (the configuration screen has it too) is the
+68020 instruction set with the 68030's CACR and on-chip MMU
+(`m68k/mmu030.go`).
+
+**Translation:**
+- TC divides the logical address: initial shift, up to four table
+  indexes, and page size. FCL puts a function-code level first, and SRE
+  gives supervisor accesses their own root (SRP).
+- The walk handles short and long descriptors, limits, supervisor-only
+  and write-protect bits, early termination and indirect descriptors.
+  It sets U on every descriptor it uses, and M on the page descriptor
+  for a write.
+- TT0/TT1 map 16 MB blocks transparently, by function code and read or
+  write.
+- The ATC is a 1024-entry cache of finished walks. PFLUSH and loading
+  TC, CRP or SRP flush it. A write through an entry whose M is clear
+  walks again, to set M.
+- The instructions are PMOVE (TC, CRP, SRP, TT0, TT1, MMUSR), PFLUSH,
+  PFLUSHA, PLOAD and PTEST (which sets MMUSR, and with A the descriptor's
+  address). A bad TC or root pointer takes the MMU configuration
+  exception (vector 56).
+
+**Where it sits.** `m68kmem.Decoder` has a `Translate` hook, installed
+while the MMU is on, so every CPU access passes through it and Go-side
+DMA doesn't.
+- The function code comes from SR, from the Decoder's fetch flag
+  (program or data) and, for MOVES, from SFC/DFC.
+- An access crossing a 256-byte boundary is translated a byte at a time.
+  A write translates every byte before writing any, so a fault on the
+  second page writes nothing.
+
+**Faults and restarting.**
+- While the MMU is on, Step snapshots the registers before each
+  instruction.
+- A refused access panics with a `busFault`. Step catches it, puts the
+  registers back and takes the bus error with a format $B frame. The
+  frame holds the special status word (DF, R/W and size for data; FB/RB
+  for instruction fetches), the data fault address and the stage-B
+  address.
+- The stacked PC is the instruction's own, so RTE runs it again. The
+  real 68030 resumes mid-instruction from the frame's internal state
+  instead, but an OS that fixes the page and returns gets the same
+  result.
+- AMIX's `get_fault` reads exactly these fields: the fault address at
+  frame offset $10 when DF is set, else the stage-B address (format $B)
+  adjusted by FB/FC. The disassembly of the kernel, which isn't
+  stripped, settled the choice.
+
+**Testing** (`m68k/mmu030_test.go`):
+- A translated write and read, with U and M set.
+- A write to an invalid page: the handler sees the right SSW, fault
+  address and the undone `(A3)+`, maps the page and returns. The rerun
+  writes once and increments once.
+- Write protection, with PTEST reporting W, the level count and the
+  descriptor address.
+- TT0.
+- Two-level long-descriptor walks: limit, supervisor-only from user mode,
+  early termination, indirect.
+- FCL giving user and supervisor different memory.
+- An instruction-fetch fault with stage B.
+- A page-crossing write that writes nothing.
+- MOVES through DFC.
+- The 68030 CACR.
+
+`TestBootKS32On68030` boots Kickstart 3.2 to Workbench on a 68030 with a
+68882. Exec's AttnFlags are $8037: 68010, 68020, 68030, 68881, 68882.
 
 ## 2026-10-12 — AGA: super-hires, scrolling and sprites
 
