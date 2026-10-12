@@ -1,0 +1,71 @@
+00000000                                     1  		* tests for move.l
+00001000                                     2  		org $1000
+00001000                                     3  
+00001000                                     4  		*
+00001000                                     5  		* source: data register
+00001000                                     6  		*
+00001000  203C 44304430                      7  		move.l #$44304430,D0
+00001006  2200                               8  		move.l D0,D1							* to data register
+00001008  2240                               9  		movea.l D0,A1							* to address register
+0000100A                                    10  
+0000100A  207C 00002000                     11  		movea.l #$2000,A0
+00001010  2080                              12  		move.l D0,(A0)						* to indirect address
+00001012                                    13  
+00001012  203C 44314431                     14  		move.l #$44314431,D0
+00001018  207C 00002004                     15  		movea.l #$2004,A0
+0000101E  20C0                              16  		move.l D0,(A0)+						* to indirect with post-increment
+00001020                                    17  
+00001020  203C 44324432                     18  		move.l #$44324432,D0
+00001026  20FC FFFFFFFF                     19  		move.l #$FFFFFFFF,(A0)+
+0000102C  2100                              20  		move.l D0,-(A0)						* to indirect with pre-decrement
+0000102E                                    21  
+0000102E  203C 44334433                     22  		move.l #$44334433,D0
+00001034  2140 0004                         23  		move.l D0,4(A0)						* to indirect with displacement
+00001038                                    24  
+00001038  203C 44344434                     25  		move.l #$44344434,D0
+0000103E  21C0 2010                         26  		move.l D0,$2010						* to absolute short
+00001042  23C0 00012000                     27  		move.l D0,$12000					* immediate to absolute long
+00001048                                    28  
+00001048                                    29  		*
+00001048                                    30  		* source: address register
+00001048                                    31  		*
+00001048  207C 41304130                     32  		move.l #$41304130,A0
+0000104E  2448                              33  		move.l A0,A2							* to address register
+00001050  2408                              34  		move.l A0,D2							* to data register
+00001052                                    35  
+00001052  2C7C 00003000                     36  		movea.l #$3000,A6
+00001058  2C88                              37  		move.l A0,(A6)						* to indirect address
+0000105A                                    38  
+0000105A  207C 41314131                     39  		movea.l #$41314131,A0
+00001060  2C7C 00003004                     40  		movea.l #$3004,A6
+00001066  2CC8                              41  		move.l A0,(A6)+						* to indirect with post-increment
+00001068                                    42  
+00001068  207C 41324132                     43  		movea.l #$41324132,A0
+0000106E  2CFC FFFFFFFF                     44  		move.l #$FFFFFFFF,(A6)+
+00001074  2D08                              45  		move.l A0,-(A6)						* to indirect with pre-decrement
+00001076                                    46  
+00001076  207C 41334133                     47  		movea.l #$41334133,A0
+0000107C  21C8 300C                         48  		move.l A0,$300C						* to absolute short
+00001080  23C8 00013000                     49  		move.l A0,$13000					* immediate to absolute long
+00001086                                    50  
+00001086                                    51  
+00001086                                    52  		*
+00001086                                    53  		* source: immediate long
+00001086                                    54  		*
+00001086  267C 49304930                     55  		movea.l #$49304930,A3			* to address register
+0000108C  263C 49304930                     56  		move.l #$49304930,D3			* to data register
+00001092                                    57  
+00001092  207C 0000F000                     58  		movea.l #$F000,A0
+00001098  20BC 49304930                     59  		move.l #$49304930,(A0)		* to indirect address
+0000109E                                    60  
+0000109E  207C 0000F004                     61  		movea.l #$F004,A0
+000010A4  20FC 49314931                     62  		move.l #$49314931,(A0)+		* to indirect with post-increment
+000010AA  20FC FFFFFFFF                     63  		move.l #$FFFFFFFF,(A0)+
+000010B0  213C 49324932                     64  		move.l #$49324932,-(A0)		* to indirect with pre-decrement
+000010B6                                    65  
+000010B6  23FC 49334933 0000F00C            66  		move.l #$49334933,$F00C		* immediate to absolute short
+000010C0  23FC 49334933 0001F000            67  		move.l #$49334933,$1F000	* immediate to absolute long
+000010CA                                    68  
+000010CA  4E72 2700                         69  		stop #$2700
+No errors detected
+No warnings generated

@@ -1,0 +1,9 @@
+.vscode/
+*.prof
+*.test
+cmd/m68k/m68k
+cmd/m68kgen/m68kgen
+debug.test
+
+# SingleStepTests 680x0 data (downloaded, ~190 MB)
+testdata/680x0/
