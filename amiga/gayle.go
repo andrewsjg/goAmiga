@@ -38,10 +38,10 @@ type gayle struct {
 	amiga  *Amiga
 	drives [2]*ideDrive // master, slave
 
-	devCtrl            byte // device control: bit 1 nIEN, bit 2 SRST
+	devCtrl             byte // device control: bit 1 nIEN, bit 2 SRST
 	cs, irq, intEn, cfg byte
-	idCount            int
-	lastLine           bool
+	idCount             int
+	lastLine            bool
 
 	lastIO    uint64 // Amiga.cycles at the last transfer, for the light
 	lastWrite bool

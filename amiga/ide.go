@@ -89,7 +89,7 @@ func newIDEDrive(hf *Hardfile) *ideDrive {
 func (d *ideDrive) reset() {
 	d.cyls, d.heads, d.spt = d.defCyls, d.defHeads, d.defSpt
 	d.nsector, d.sector, d.lcyl, d.hcyl = 1, 1, 0, 0 // ATA device signature
-	d.errReg = 1                                    // diagnostics passed
+	d.errReg = 1                                     // diagnostics passed
 	d.status = ataDRDY | ataDSC
 	d.multiple, d.bufLen, d.bufPos, d.left = 0, 0, 0, 0
 	d.irq, d.busy, d.onDone = false, 0, nil
