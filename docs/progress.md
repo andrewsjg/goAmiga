@@ -33,14 +33,75 @@ verified. Longer investigations get their own write-up in `docs/`.
    slots are not charged against the blitter.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
    Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). AGA lacks scan
-   doubling, sprite resolutions beyond lores, and the A1200's Gayle
-   (IDE/PCMCIA). On ECS, BEAMCON0 is stored
+   doubling and sprite resolutions beyond lores. Gayle's IDE interface is
+   emulated, but not its PCMCIA slot. On ECS, BEAMCON0 is stored
    but ignored (PAL or NTSC is chosen with `--video`; no programmable beam), productivity and
    scan-doubled modes aren't emulated, and super-hires is averaged into
    the hires-wide picture. Hardfiles use Kickstart's filesystem;
    filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-12 — Gayle: the A600/A1200 IDE interface
+
+`--gayle auto|on|off` fits Gayle. `auto`, the default, fits it with the AGA
+chipset, as every A1200 has it. `--ide FILE` attaches up to two hardfiles
+as IDE drives, master and slave. The A600 and A1200 presets fit Gayle, and
+the configuration screen has IDE master/slave rows and a Gayle setting.
+
+**Gayle** (`gayle.go`):
+- The ID register at $DE1000, read a bit at a time ($D0).
+- The IDE interrupt status, latch, enable and configuration registers at
+  $DA8000–$DAB000.
+- The IDE interrupt is level-triggered on INT2: it keeps returning until
+  the driver clears Gayle's latch.
+- The task file at $DA0000 (register n at +4n, mirrored at $DA2000). The
+  device control and alternate status register is at +$1018.
+- The PCMCIA slot is not emulated: no card is ever present.
+
+**The drives** (`ide.go`) are ATA disks in PIO mode:
+- IDENTIFY;
+- READ/WRITE SECTORS and MULTIPLE, and SET MULTIPLE;
+- INITIALIZE DEVICE PARAMETERS, READ VERIFY and diagnostics;
+- the power, recalibrate, seek, flush and feature commands, accepted;
+- CHS and LBA addressing.
+
+A command stays busy for 400 cycles, so the driver is waiting for the
+interrupt when it arrives.
+
+**Debugging the boot** took three fixes:
+1. **Addresses.** The Mapper gives devices offsets from where they're
+   mapped, so the ID register at $DE1000 first looked like IDE register 0,
+   and Kickstart never saw Gayle. `gayleView` adds each range's base back.
+2. **IDENTIFY's byte order.** `scsi.device` then sent INITIALIZE DEVICE
+   PARAMETERS with zero sectors per track: it had decoded IDENTIFY wrongly.
+   The Amiga's IDE bus delivers words byte-swapped relative to ATA, and
+   drivers swap IDENTIFY's words back. IDENTIFY is now built little-endian,
+   as a drive's own words are; sector data is the image's bytes as they
+   are.
+3. **An empty bus.** With no drive at all, boot stalled 35 seconds while
+   `scsi.device` waited for one to become ready. An empty bus floats high,
+   so it now reads $FF (a master still answers 0 for a missing slave).
+   That stall became 2.5 seconds.
+
+**Results:**
+- `TestGayleIDEBootKS32A1200`: Kickstart 3.2 for the A1200 finds an RDB
+  hardfile on IDE through its own `scsi.device`. The test builds the disk
+  with checksummed RDSK and PART blocks around the Install 3.2 disk.
+  Kickstart mounts DH0 and boots Workbench from it in 356 frames.
+- **The Chaos Engine** (see below) now plays on the default A1200
+  configuration: menu, then World 1. With Gayle fitted, `scsi.device`
+  allocates its memory at boot as on a real A1200. The game's stack, set
+  just inside its own allocation, no longer lands on trackdisk's DMA
+  buffer. Without Gayle the same setup hangs.
+- The rest of the game list is unchanged with Gayle fitted.
+
+**Tests:**
+- `TestIDEIdentify`, `TestIDEReadWrite` (LBA and CHS reads, multiple-sector
+  writes, the interrupt latch and INT2), `TestIDEErrors`, `TestGayleID`.
+- The boot test above.
+
+The save state (version 11) records Gayle and the IDE drives.
 
 ## 2026-10-12 — The CPU joins the module; renamed github.com/andrewsjg/goamiga
 

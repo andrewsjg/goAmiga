@@ -23,7 +23,8 @@ import (
 //
 // options are comma-separated key=value: rom (path), cpu (68000/68020),
 // speed (CPU speed percent), swap (the frame to change DF0: to the next
-// disk of a multi-disk zip, and again half as long again later, round
+// gayle (any value: fit the A1200's IDE interface), swap (the frame to
+// change DF0: to the next disk of a multi-disk zip, and again half as long again later, round
 // the disks; "auto" swaps whenever the drive has sat idle for six seconds
 // after use, as at a disk prompt), df1 (any value: put the second disk of a multi-disk zip in
 // DF1:),
@@ -109,6 +110,9 @@ func TestGameBatch(t *testing.T) {
 				return
 			}
 			a.SetChipset(opt("chipset", "aga"))
+			if opt("gayle", "") != "" {
+				a.EnableGayle()
+			}
 			if err := a.SetVideoStandard(opt("video", "pal")); err != nil {
 				notes[i] = err.Error()
 				return

@@ -22,7 +22,12 @@ type Hardfile struct {
 	Cylinders, Heads, Sectors int
 
 	Partitions []Partition
+	rdb        bool
 }
+
+// HasRDB reports whether the image has a Rigid Disk Block (else it is a
+// plain hardfile, one partition with no partition table).
+func (h *Hardfile) HasRDB() bool { return h.rdb }
 
 // Partition is one DOS volume on a hardfile.
 type Partition struct {
@@ -81,6 +86,7 @@ func OpenHardfile(path string, readOnly bool, unit int, dosType uint32) (*Hardfi
 		f.Close()
 		return nil, fmt.Errorf("%s: %v", path, err)
 	}
+	h.rdb = ok
 	if !ok {
 		h.plain(unit, dosType)
 	}

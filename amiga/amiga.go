@@ -77,6 +77,9 @@ type Amiga struct {
 	// Net is the network board with bsdsocket.library (EnableBSDSocket),
 	// or nil.
 	Net *netBoard
+	// Gayle is the A600/A1200 IDE interface (EnableGayle, AttachIDE), or
+	// nil.
+	Gayle *gayle
 
 	// Expansion memory (ConfigureMemory): slow RAM at $C00000 and a Zorro
 	// II fast RAM board. nil when not fitted.
@@ -318,6 +321,10 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		a.Mapper.Map(&busCounter{m: a.SlowRAM, accesses: &a.cpuChipAccesses}, SlowRAMBase, SlowRAMBase+len(a.SlowRAM.b)-1)
 	}
 	a.Mapper.Map(&busCounter{m: a.Custom, accesses: &a.cpuChipAccesses}, CustomBase, CustomEnd)
+	if a.Gayle != nil {
+		a.Mapper.Map(gayleView{a.Gayle, gayleIDEBase}, gayleIDEBase, gayleIDEEnd)
+		a.Mapper.Map(gayleView{a.Gayle, gayleIDBase}, gayleIDBase, gayleIDEnd)
+	}
 
 	a.mapROM(ROMBase)
 
@@ -378,6 +385,9 @@ func (a *Amiga) Reset() error {
 	if a.Paula != nil {
 		a.Paula.Reset()
 	}
+	if a.Gayle != nil {
+		a.Gayle.reset()
+	}
 	if a.Serial != nil {
 		a.Serial.Reset()
 	}
@@ -433,6 +443,11 @@ func (a *Amiga) Step() error {
 		}
 		if a.Paula != nil {
 			if c := a.Paula.CyclesToNextInterrupt(); c > 0 && c < skip {
+				skip = c
+			}
+		}
+		if a.Gayle != nil {
+			if c := a.Gayle.cyclesToNextEvent(); c > 0 && c < skip {
 				skip = c
 			}
 		}
@@ -528,6 +543,9 @@ func (a *Amiga) Step() error {
 	}
 	if a.Net != nil {
 		a.Net.tick()
+	}
+	if a.Gayle != nil {
+		a.Gayle.tick(elapsed)
 	}
 
 	// Use fast per-line beam advance when the CPU is stopped (no instruction
@@ -881,6 +899,9 @@ func LoadROM(path string) ([]byte, error) {
 // Shutdown releases what the machine holds on the host: hardfiles and
 // network sockets. The Amiga can't run afterwards.
 func (a *Amiga) Shutdown() {
+	if a.Gayle != nil {
+		a.Gayle.close()
+	}
 	if a.Net != nil {
 		a.Net.closeAll()
 	}

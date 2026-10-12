@@ -356,6 +356,16 @@ func (d *Display) drawStatus(screen *ebiten.Image, y int) {
 		}
 		led("HD", c)
 	}
+	if g := d.amiga.Gayle; g != nil && (g.drives[0] != nil || g.drives[1] != nil) {
+		c := color.Color(ledOff)
+		if active, write := g.Activity(); active {
+			c = ledDrive
+			if write {
+				c = ledWrite
+			}
+		}
+		led("IDE", c)
+	}
 	var notes []string
 	if d.paused {
 		notes = append(notes, "PAUSED (Cmd+P)")

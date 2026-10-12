@@ -19,6 +19,8 @@ type Settings struct {
 	Drives       [4]List // per drive: the first disk goes in, the rest are for Cmd+F11
 	NumDrives    int
 	Hardfiles    List
+	IDE          List   // IDE drives on Gayle: the master, then the slave
+	Gayle        string // auto (with AGA, as in the A1200), on or off
 	HDFCreate    int
 	WriteProtect bool
 
@@ -47,7 +49,7 @@ type Settings struct {
 // Defaults are the settings with nothing given: an A500 with 1 MB of chip
 // RAM and 2 MB of fast RAM.
 func Defaults() Settings {
-	return Settings{CPU: "68000", FPU: "none", Video: "pal", FastRAM: 2048, Scale: 2, StatusBar: true,
+	return Settings{CPU: "68000", FPU: "none", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true,
 		ScreenshotDir: ".", StateDir: "."}
 }
 
@@ -74,6 +76,8 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.Var(&s.Drives[2], "df2", "ADF for DF2: (connects the drive); repeat for more")
 	fs.Var(&s.Drives[3], "df3", "ADF for DF3: (connects the drive); repeat for more")
 	fs.Var(&s.Hardfiles, "hdf", "Hard disk image (.hdf, plain or RDB) as the next unit of goamiga.device; repeat for more")
+	fs.Var(&s.IDE, "ide", "Hardfile (with a Rigid Disk Block) as an IDE drive on Gayle, booted by Kickstart's own scsi.device: the master, then the slave")
+	fs.StringVar(&s.Gayle, "gayle", s.Gayle, "Gayle, the A600/A1200 IDE interface: auto (fitted with the AGA chipset), on or off; --ide fits it")
 	fs.IntVar(&s.HDFCreate, "hdf-create", s.HDFCreate, "Create any --hdf file that does not exist, blank, this many MB (format it from the Amiga)")
 	fs.IntVar(&s.NumDrives, "drives", s.NumDrives, "Number of drives to connect (1-4), even without disks for them")
 	fs.BoolVar(&s.WriteProtect, "write-protect", s.WriteProtect, "Write-protect every drive and hardfile: the Amiga cannot change the image files")
@@ -143,6 +147,7 @@ func (s *Settings) clone() *Settings {
 		c.Drives[i] = append(List(nil), s.Drives[i]...)
 	}
 	c.Hardfiles = append(List(nil), s.Hardfiles...)
+	c.IDE = append(List(nil), s.IDE...)
 	return &c
 }
 

@@ -253,8 +253,12 @@ func waitWorkbench(t *testing.T, a *Amiga) bool {
 			name := readCStrMem(a, uint32(np), 24)
 			t.Logf("AddTask %q", name)
 			if name == "workbench.task" || name == "Workbench" {
+				ctrl := uint32(0)
+				if a.HardDisk != nil {
+					ctrl = a.HardDisk.Configured()
+				}
 				t.Logf("%s started after %.0f frames; controller at $%06X", name,
-					float64(a.cycles)/CyclesPerFrame, a.HardDisk.Configured())
+					float64(a.cycles)/CyclesPerFrame, ctrl)
 				if a.FastRAM != nil && a.FastRAM.Configured() == 0 {
 					t.Error("fast RAM board not configured")
 				}

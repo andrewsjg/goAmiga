@@ -31,7 +31,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 10
+	stateVersion = 11
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -207,6 +207,22 @@ func (a *Amiga) state(s *stateCodec) {
 			hdfs = append(hdfs, f.Path)
 		}
 	}
+	// The IDE drives count as hardfiles too (empty positions as "").
+	hasGayle := a.Gayle != nil
+	s.bool(&hasGayle)
+	if s.load && hasGayle != (a.Gayle != nil) {
+		s.err = cmpErr(s.err, fmt.Errorf("state was saved with Gayle %v; it is %v now (--gayle)", onOff(hasGayle), onOff(a.Gayle != nil)))
+		return
+	}
+	if a.Gayle != nil {
+		for _, h := range a.Gayle.IDEDrives() {
+			p := ""
+			if h != nil {
+				p = h.Path
+			}
+			hdfs = append(hdfs, "ide:"+p)
+		}
+	}
 	saved := slices.Clone(hdfs)
 	n := len(saved)
 	num(s, &n)
@@ -286,6 +302,9 @@ func (a *Amiga) state(s *stateCodec) {
 	}
 	if a.Net != nil {
 		a.Net.state(s)
+	}
+	if a.Gayle != nil {
+		a.Gayle.state(s)
 	}
 
 	// Chips.

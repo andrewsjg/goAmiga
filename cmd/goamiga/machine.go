@@ -147,6 +147,33 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			return fail(fmt.Errorf("hardfile %v", err))
 		}
 	}
+	gayle := false
+	switch s.Gayle {
+	case "on":
+		gayle = true
+	case "auto", "":
+		gayle = chipset == "aga" // the A1200 has it
+	case "off":
+	default:
+		return fail(fmt.Errorf("--gayle must be auto, on or off, not %q", s.Gayle))
+	}
+	if gayle || len(s.IDE) > 0 {
+		a.EnableGayle()
+		for i, p := range s.IDE {
+			if err := a.AttachIDE(p, s.WriteProtect); err != nil {
+				return fail(fmt.Errorf("IDE drive %s: %v", p, err))
+			}
+			hf := a.Gayle.IDEDrives()[i]
+			kind := "RDB"
+			if !hf.HasRDB() {
+				kind = "no RDB, so scsi.device won't mount it; use --hdf for plain hardfiles"
+			}
+			fmt.Fprintf(out, "IDE %s: %s (%d MB, %s)\n", []string{"master", "slave"}[i], p, hf.Size()>>20, kind)
+		}
+		if len(s.IDE) == 0 {
+			fmt.Fprintln(out, "Gayle: IDE interface fitted, no drives")
+		}
+	}
 	if a.HardDisk != nil {
 		for u, f := range a.HardDisk.Files {
 			var names []string

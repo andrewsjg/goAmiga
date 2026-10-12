@@ -28,7 +28,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 - Four floppy drives, writable and swappable.
 - ADF images, IPF (the Software Preservation Society's format, which keeps
   copy protection) and zipped or gzipped images.
-- Hardfiles, plain or RDB, on an autobooting controller.
+- Hardfiles, plain or RDB, on an autobooting controller, or as IDE drives
+  on the A600/A1200's Gayle, booted by Kickstart's own `scsi.device`.
 
 **Connections:**
 - The serial port over telnet or TCP.
@@ -40,8 +41,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 - Activity lights, and Power, Reset and Config buttons.
 
 What isn't done yet is listed under "Known gaps" in
-[docs/progress.md](docs/progress.md). The A1200's Gayle (IDE/PCMCIA) and an
-MMU are among them.
+[docs/progress.md](docs/progress.md). The PCMCIA slot and an MMU are among
+them.
 
 ## Building
 
@@ -126,6 +127,12 @@ screen even when other flags are given.
   - `aga`: the A1200/A4000 chipset. 256 colours from 16.8 million, 8
     bitplanes, HAM8, wide fetch modes and wide sprites; 2 MB of chip RAM by
     default. Use it with the A1200 Kickstart and the 68020.
+- **Gayle.** `--gayle auto|on|off` fits Gayle, the A600/A1200 chip with
+  the IDE interface. `auto`, the default, fits it with the AGA chipset, as
+  in every A1200. It also matters with no drive attached: Kickstart's
+  `scsi.device` then sets up as on the real machine, and at least one game
+  (The Chaos Engine) depends on the memory layout that leaves. `--ide`
+  fits it too (see Hard disks).
 - **Video.** `--video ntsc` makes an American machine: 60 Hz, 263-line
   frames and 200-line Workbench screens. Some US games only display
   properly on NTSC, Bubble Bobble among them. The default is `pal`.
@@ -192,8 +199,21 @@ goamiga --rom ROMS/Kick32.rom --hdf dh0.hdf --hdf-create 100 --df0 disks/Install
 Format it from the Amiga (e.g. `Format DRIVE DH0: NAME Work FFS QUICK`),
 then install onto it.
 
+**IDE drives.** `--ide file.hdf` connects a hardfile as an IDE drive on
+Gayle: the first is the master, a second the slave. Kickstart 3.x for the
+A600/A1200 finds it with its own `scsi.device` and boots from it, as on the
+real machine.
+- HDToolBox and the Workbench installer see it as they would a real drive.
+- The image needs a Rigid Disk Block, as on a real IDE disk. Plain
+  hardfiles go on `goamiga.device` with `--hdf`.
+- IDE drives are interchangeable with WinUAE's A600/A1200 IDE images.
+
+```bash
+goamiga --rom ROMS/kick32a1200.rom --chipset aga --cpu 68020 --ide a1200hd.hdf
+```
+
 Writes go straight into the image file; `--write-protect` covers hardfiles
-too. Partitions must use a filesystem the Kickstart has: OFS on 1.3, OFS or
+and IDE drives too. Partitions must use a filesystem the Kickstart has: OFS on 1.3, OFS or
 FFS on 2.0 and later.
 
 ### Settings files
@@ -227,7 +247,8 @@ kind, in `~/.config/goamiga/configs/`.
 Under the picture are the activity lights:
 - **POWER:** bright or dimmed, as the A500's LED is with the audio filter.
 - **Each drive:** its motor LED and the head's cylinder.
-- **HD:** green for reads, orange for writes.
+- **HD** (goamiga.device) and **IDE**: green for reads, orange for
+  writes.
 - **The warp speed**, while warp is on.
 
 At the right are three buttons. Click them with the mouse pointer free;

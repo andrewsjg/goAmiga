@@ -293,18 +293,23 @@ var presets = []struct {
 }{
 	{"A500", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ocs", 512, 512, 0
+		s.Gayle = "off"
 	}},
 	{"A500+", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ecs", 1024, 0, 0
+		s.Gayle = "off"
 	}},
 	{"A600", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ecs", 1024, 0, 0
+		s.Gayle = "on"
 	}},
 	{"A1200", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "none", "aga", 2048, 0, 0
+		s.Gayle = "on"
 	}},
 	{"A1200 + fast", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "68882", "aga", 2048, 0, 8192
+		s.Gayle = "on"
 	}},
 }
 
@@ -343,6 +348,10 @@ func (l *launcher) machineTab(x, y int) {
 	y += 34
 	u.label(x-10, y, "Video")
 	cycleOf(u, x, y, 200, []string{"PAL (50 Hz)", "NTSC (60 Hz)"}, []string{"pal", "ntsc"}, &l.s.Video)
+	y += 34
+	u.label(x-10, y, "Gayle (IDE)")
+	cycleOf(u, x, y, 260, []string{"Automatic (with AGA)", "Fitted (A600, A1200)", "Not fitted"},
+		[]string{"auto", "on", "off"}, &l.s.Gayle)
 }
 
 func (l *launcher) memoryTab(x, y int) {
@@ -393,9 +402,28 @@ func (l *launcher) floppyTab(x, y int) {
 
 func (l *launcher) hardDiskTab(x, y int) {
 	u := l.ui
+	// IDE drives on Gayle, booted by Kickstart's own scsi.device.
+	for i, name := range []string{"IDE master", "IDE slave"} {
+		u.label(x-10, y, name)
+		path := ""
+		if i < len(l.s.IDE) {
+			path = l.s.IDE[i]
+		}
+		was := path
+		l.fileRow(x, y, 260, "ide"+strconv.Itoa(i), &path, hdfFilter, false)
+		if path != was { // cleared
+			l.s.IDE = slices.Delete(slices.Clone(l.s.IDE), i, i+1)
+		}
+		y += 30
+		if i == 0 && len(l.s.IDE) == 0 {
+			break // a slave only once there's a master
+		}
+	}
+	u.text(x, y, "IDE drives need a Rigid Disk Block; they fit Gayle.", uiDim)
+	y += 34
 	x -= 130
-	u.text(x, y, "Hardfiles, mounted in order as goamiga.device units 0, 1, ...", uiBlack)
-	y += 28
+	u.text(x, y, "Hardfiles on goamiga.device (any Amiga), units 0, 1, ...", uiBlack)
+	y += 26
 	for i := 0; i < len(l.s.Hardfiles); i++ {
 		u.fill(x, y, 400, 22, uiDarker)
 		u.bevel(x, y, 400, 22, false)
@@ -409,9 +437,9 @@ func (l *launcher) hardDiskTab(x, y int) {
 	if len(l.s.Hardfiles) < 8 && u.button(x, y, 110, 24, "Add hardfile…") {
 		l.choose("hdf", "", hdfFilter, false)
 	}
-	y += 40
-	for _, ln := range u.wrap("Plain hardfiles and RDB images both work. A new, empty hardfile can be "+
-		"made with --hdf-create from the command line and formatted from Workbench.", 520) {
+	y += 34
+	for _, ln := range u.wrap("Plain hardfiles and RDB images both work here. A new, empty hardfile "+
+		"can be made with --hdf-create from the command line and formatted from Workbench.", 520) {
 		u.text(x, y, ln, uiDim)
 		y += 18
 	}
@@ -501,6 +529,7 @@ func (l *launcher) choose(target, current string, filters zenity.FileFilters, di
 	go func() {
 		opts := []zenity.Option{zenity.Filename(start)}
 		title := map[string]string{"rom": "Choose a Kickstart ROM", "hdf": "Choose a hardfile",
+			"ide0": "Hardfile for the IDE master", "ide1": "Hardfile for the IDE slave",
 			"shots": "Folder for screenshots", "states": "Folder for save states"}[target]
 		if strings.HasPrefix(target, "df") {
 			title = "Disk for " + strings.ToUpper(target) + ":"
@@ -542,6 +571,12 @@ func (l *launcher) pollChooser() {
 		l.s.Drives[n] = config.List{c.path}
 	case c.target == "hdf":
 		l.s.Hardfiles = append(l.s.Hardfiles, c.path)
+	case strings.HasPrefix(c.target, "ide"):
+		if i := int(c.target[3] - '0'); i < len(l.s.IDE) {
+			l.s.IDE[i] = c.path
+		} else {
+			l.s.IDE = append(l.s.IDE, c.path)
+		}
 	case c.target == "shots":
 		l.s.ScreenshotDir = c.path
 	case c.target == "states":
