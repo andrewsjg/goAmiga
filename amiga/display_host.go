@@ -30,7 +30,11 @@ import (
 //	Cmd+S  screenshot: a PNG of the picture in ScreenshotDir
 //	Cmd+Shift+1..9  save state to slot 1-9 (in StateDir)
 //	Cmd+1..9        load state from slot 1-9
-//	Cmd+,  back to the configuration screen (when started from it)
+//	Cmd+Shift+R  power off and on (a cold start; the disks stay in)
+//	Cmd+,  back to the configuration screen
+//
+// The status bar has Power, Reset and Config buttons for the same. Power
+// and Config throw the running machine away, so they want a second click.
 
 // hostKey reports whether the host command modifier is held.
 func hostKey() bool { return ebiten.IsKeyPressed(ebiten.KeyMeta) }
@@ -52,12 +56,10 @@ func (d *Display) pollHostKeys() {
 	switch {
 	case inpututil.IsKeyJustPressed(ebiten.KeyW):
 		d.setWarp(!d.warp)
+	case inpututil.IsKeyJustPressed(ebiten.KeyR) && ebiten.IsKeyPressed(ebiten.KeyShift):
+		d.PowerRequested = true
 	case inpututil.IsKeyJustPressed(ebiten.KeyR):
-		if err := d.amiga.Reset(); err != nil {
-			d.message("reset failed: %v", err)
-		} else {
-			d.message("reset")
-		}
+		d.reset()
 	case inpututil.IsKeyJustPressed(ebiten.KeyP):
 		d.paused = !d.paused
 		if out := d.amiga.Paula.Output; out != nil {
@@ -74,6 +76,80 @@ func (d *Display) pollHostKeys() {
 			d.message("saved %s", filepath.Base(path))
 		}
 	}
+}
+
+// reset is the keyboard reset (Ctrl+Amiga+Amiga): Kickstart restarts.
+func (d *Display) reset() {
+	if err := d.amiga.Reset(); err != nil {
+		d.message("reset failed: %v", err)
+	} else {
+		d.message("reset")
+	}
+}
+
+// statusButton is one of the status bar's buttons.
+type statusButton struct {
+	id, label string
+	x, w      int
+	confirm   bool // wants a second click
+	act       func()
+}
+
+// statusButtons lays out the buttons at the right of a status bar w wide.
+func (d *Display) statusButtons(w int) []statusButton {
+	bs := []statusButton{
+		{id: "power", label: "Power", confirm: true, act: func() { d.PowerRequested = true }},
+		{id: "reset", label: "Reset", act: d.reset},
+		{id: "config", label: "Config", confirm: true, act: func() { d.ConfigRequested = true }},
+	}
+	x := w - 4
+	for i := len(bs) - 1; i >= 0; i-- {
+		label := bs[i].label
+		if d.confirming(bs[i].id) {
+			label = "Sure?"
+		}
+		bs[i].w = 6*max(len(label), len(bs[i].label)) + 12
+		x -= bs[i].w
+		bs[i].x = x
+		x -= 4
+	}
+	return bs
+}
+
+func (d *Display) confirming(id string) bool {
+	return d.confirm == id && time.Now().Before(d.confirmUntil)
+}
+
+// statusClick handles a click on the status bar's buttons and reports
+// whether it was on one.
+func (d *Display) statusClick() bool {
+	if !d.StatusBar {
+		return false
+	}
+	w, h := d.amiga.Video.DisplaySize()
+	mx, my := ebiten.CursorPosition()
+	if my < h || my >= h+statusHeight {
+		return false
+	}
+	for _, b := range d.statusButtons(w) {
+		if mx < b.x || mx >= b.x+b.w {
+			continue
+		}
+		switch {
+		case !b.confirm:
+			b.act()
+		case d.confirming(b.id):
+			d.confirm = ""
+			b.act()
+		default:
+			d.confirm, d.confirmUntil = b.id, time.Now().Add(3*time.Second)
+			what := map[string]string{"power": "switch the Amiga off and on", "config": "switch the Amiga off and change its settings"}[b.id]
+			d.message("click again to %s", what)
+		}
+		return true
+	}
+	d.confirm = ""
+	return true // the rest of the bar: not the Amiga's either
 }
 
 // message shows a note in the status bar for a few seconds (and prints it).
@@ -232,6 +308,11 @@ var (
 	ledWrite  = color.RGBA{0xF0, 0x80, 0x10, 0xFF}
 	statusBG  = color.RGBA{0x18, 0x18, 0x18, 0xFF}
 	warpColor = color.RGBA{0xF0, 0xD0, 0x20, 0xFF}
+
+	buttonBG      = color.RGBA{0x38, 0x38, 0x38, 0xFF}
+	buttonHover   = color.RGBA{0x50, 0x60, 0x80, 0xFF}
+	buttonConfirm = color.RGBA{0x90, 0x30, 0x20, 0xFF}
+	buttonEdge    = color.RGBA{0x70, 0x70, 0x70, 0xFF}
 )
 
 // drawStatus draws the activity lights along the bottom: power (bright or
@@ -286,13 +367,29 @@ func (d *Display) drawStatus(screen *ebiten.Image, y int) {
 		s := strings.Join(notes, "  ")
 		ebitenutil.DebugPrintAt(screen, s, x+8, y+1)
 	}
+	// The buttons, at the right.
+	buttons := d.statusButtons(w)
+	mx, my := ebiten.CursorPosition()
+	for _, b := range buttons {
+		bg := buttonBG
+		if !d.mouseGrabbed && my >= y && my < y+statusHeight && mx >= b.x && mx < b.x+b.w {
+			bg = buttonHover
+		}
+		label := b.label
+		if d.confirming(b.id) {
+			label, bg = "Sure?", buttonConfirm
+		}
+		vector.FillRect(screen, float32(b.x), float32(y+1), float32(b.w), statusHeight-2, bg, false)
+		vector.StrokeRect(screen, float32(b.x)+0.5, float32(y+1)+0.5, float32(b.w)-1, statusHeight-3, 1, buttonEdge, false)
+		ebitenutil.DebugPrintAt(screen, label, b.x+(b.w-6*len(label))/2, y+1)
+	}
 	if d.warp {
 		s := fmt.Sprintf("WARP %.0fx", d.warpSpeed)
 		if d.warpSpeed == 0 {
 			s = "WARP"
 		}
 		// DebugPrint is white; mark warp with a coloured block before it.
-		tx := w - 6*len(s) - 8
+		tx := buttons[0].x - 6*len(s) - 12
 		vector.FillRect(screen, float32(tx-12), float32(y+6), 8, 6, warpColor, false)
 		ebitenutil.DebugPrintAt(screen, s, tx, y+1)
 	}

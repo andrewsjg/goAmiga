@@ -173,6 +173,13 @@ func splitZipMember(path string) (file, member string) {
 	return path[:i], path[i+1:]
 }
 
+// DiskFile is the file on the host that a disk path names: the archive for
+// "game.zip#Disk2.adf", otherwise the path itself.
+func DiskFile(path string) string {
+	file, _ := splitZipMember(path)
+	return file
+}
+
 // DiskImagesIn expands a zip archive holding several disks into a path for
 // each ("game.zip#Disk1.adf", ...), the boot disk first; any other path
 // comes back alone. Drives cycle through the list to change disks.

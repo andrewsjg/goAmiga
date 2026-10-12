@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -92,6 +93,10 @@ func (g *app) Update() error {
 		if err := g.disp.Update(); err != nil {
 			return err
 		}
+		if g.disp.PowerRequested {
+			g.powerCycle()
+			return nil
+		}
 		if g.disp.ConfigRequested {
 			s, name := g.s, g.name
 			g.stopMachine()
@@ -118,6 +123,39 @@ func (g *app) Update() error {
 		g.startMachine(m, &s, g.launcher.name)
 	}
 	return nil
+}
+
+// powerCycle switches the machine off and on: a new machine from the same
+// settings, with the disks that are in the drives now.
+func (g *app) powerCycle() {
+	s, name := g.s, g.name
+	for n, list := range g.disp.Disks {
+		if i := g.disp.DiskIndex[n]; i >= 0 && i < len(list) {
+			// The disk in the drive goes in first; the rest stay listed.
+			s.Drives[n] = append(config.List{list[i]}, slices.Delete(slices.Clone(list), i, i+1)...)
+		} else {
+			s.Drives[n] = nil
+		}
+	}
+	// The drives as they are now (DiskIndex is -1 for an empty one).
+	if s.NumDrives < len(g.disp.Disks) {
+		for n := len(g.disp.Disks) - 1; n > 0; n-- {
+			if g.m.a.Disk.DF(n) != nil {
+				s.NumDrives = max(s.NumDrives, n+1)
+				break
+			}
+		}
+	}
+	g.stopMachine()
+	m, err := buildMachine(&s, "", nil, os.Stdout)
+	if err != nil {
+		l := newLauncher(s, name)
+		l.say(true, "Can't switch it on again: %v", err)
+		g.showLauncher(l)
+		return
+	}
+	fmt.Println("Power cycled")
+	g.startMachine(m, &s, name)
 }
 
 func (g *app) Draw(screen *ebiten.Image) {

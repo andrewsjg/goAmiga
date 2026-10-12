@@ -181,7 +181,17 @@ A status bar under the picture shows the activity lights:
 - **HD:** green for reads, orange for writes.
 - **Warp speed**, while warp is on.
 
-`--statusbar=false` hides the status bar.
+At the right are three buttons. Click them with the pointer free, after
+Esc or F12 if it's trapped:
+- **Power** switches the Amiga off and on: a cold start, with memory
+  cleared. The disks in the drives stay in, as on a real machine.
+- **Reset** is Ctrl+Amiga+Amiga.
+- **Config** switches the Amiga off and returns to the configuration
+  screen, to load or change a configuration and start again.
+
+Power and Config ask for a second click, since they lose what's running.
+
+`--statusbar=false` hides the status bar; the keys below still work.
 
 Host commands all use Cmd (the Windows key on a PC). It isn't an Amiga key,
 so a command never types anything on the Amiga:
@@ -190,6 +200,8 @@ so a command never types anything on the Amiga:
 |---|---|
 | Cmd+W | Warp on/off |
 | Cmd+R | Reset, like Ctrl+Amiga+Amiga: Kickstart restarts and disks stay in |
+| Cmd+Shift+R | Power off and on (cold start; disks stay in) |
+| Cmd+, | Switch off and go to the configuration screen |
 | Cmd+P | Pause (sound and Amiga input wait too) |
 | Cmd+F | Fullscreen |
 | Cmd+S | Screenshot as a PNG in the current folder (`--screenshot-dir` to change) |

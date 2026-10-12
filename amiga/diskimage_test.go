@@ -128,3 +128,19 @@ func TestDiskImagesInZip(t *testing.T) {
 		t.Errorf("a plain path expanded to %q", single)
 	}
 }
+
+func TestDiskFile(t *testing.T) {
+	dir := t.TempDir()
+	zip := filepath.Join(dir, "game.zip")
+	os.WriteFile(zip, nil, 0o644)
+	for in, want := range map[string]string{
+		zip + "#Disk2.adf": zip,
+		zip:                zip,
+		"plain.adf":        "plain.adf",
+		"odd#name.adf":     "odd#name.adf", // not a zip member
+	} {
+		if got := DiskFile(in); got != want {
+			t.Errorf("DiskFile(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

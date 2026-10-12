@@ -90,7 +90,7 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 	for n, list := range s.Drives {
 		var all config.List
 		for _, p := range list {
-			if _, err := os.Stat(p); err != nil {
+			if _, err := os.Stat(amiga.DiskFile(p)); err != nil {
 				return fail(fmt.Errorf("DF%d: disk %v", n, err))
 			}
 			disks, err := amiga.DiskImagesIn(p)

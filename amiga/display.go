@@ -86,9 +86,15 @@ type Display struct {
 	Scale       int
 	audioPlayer *audio.Player
 
-	// ConfigRequested is set by Cmd+,: whoever runs the display (Start
-	// rather than Run) may go back to its configuration screen.
+	// ConfigRequested (Config button, Cmd+,) and PowerRequested (Power
+	// button, Cmd+Shift+R) ask whoever runs the display (Start rather than
+	// Run) to go back to its configuration screen, or to switch the machine
+	// off and on again.
 	ConfigRequested bool
+	PowerRequested  bool
+
+	confirm      string    // a status bar button waiting for its second click
+	confirmUntil time.Time //
 }
 
 // NewDisplay creates a new Ebitengine display for the given Amiga.
@@ -254,6 +260,12 @@ func (d *Display) pollMouseGrab() {
 	if d.mouseGrabbed && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		d.applyGrab(false)
 		d.suppressEscape = true
+		return
+	}
+
+	// The status bar's buttons take their clicks (with the pointer free).
+	if !d.mouseGrabbed && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && d.statusClick() {
+		d.ignoreButtonsUntilUp = true
 		return
 	}
 

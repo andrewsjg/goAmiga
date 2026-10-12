@@ -42,6 +42,29 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-12 — Power, Reset and Config buttons
+
+The status bar has three buttons at its right:
+- **Power**: a power cycle. The app builds a new machine from the same
+  settings, so memory and every chip start from cold, with the disks
+  currently in the drives put back in.
+- **Reset**: the keyboard reset, as Cmd+R.
+- **Config**: back to the configuration screen, as Cmd+,.
+
+Power and Config discard the running machine, so the first click turns the
+button into "Sure?" for three seconds.
+
+Clicks on the status bar go to the buttons, not to the Amiga, and don't
+trap the pointer. The buttons work while the pointer is free.
+
+Cmd+Shift+R is Power from the keyboard. `amiga.DiskFile` maps a zip-member
+disk path to its archive, so a power cycle can check those disks exist
+(test: `TestDiskFile`).
+
+Checked in the window: the buttons draw, a power cycle reboots Workbench
+1.3 from the same disk, and Config returns to the screen with the
+machine's configuration selected.
+
 ## 2026-10-11 — Configuration screen
 
 Started with no arguments, goAmiga opens a configuration screen instead of
