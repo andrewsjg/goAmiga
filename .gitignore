@@ -5,6 +5,8 @@
 ADF/
 ROMS/
 HDD/
+Workbench/
+amix/
 
 # Build outputs
 /goamiga
