@@ -358,9 +358,13 @@ format.
 - `diag/`: `adf.py` lists and extracts files from disk images;
   `disasm68k.py` disassembles ROMs and memory dumps.
 
+## Licence
+
+goAmiga is under the BSD 3-Clause licence (see [LICENSE](LICENSE)).
+
 ## Credits
 
 The CPU core began as Ryan Armstrong's
-[go-m68k](https://github.com/cavaliercoder/go-m68k) and keeps its BSD
-licence (see [m68k/LICENSE](m68k/LICENSE)). The CPU tests use Tom Harte's
+[go-m68k](https://github.com/cavaliercoder/go-m68k) and keeps its own
+BSD 3-Clause licence (see [m68k/LICENSE](m68k/LICENSE)). The CPU tests use Tom Harte's
 [SingleStepTests](https://github.com/SingleStepTests/680x0).
