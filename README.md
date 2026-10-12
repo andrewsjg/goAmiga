@@ -1,151 +1,210 @@
 # goAmiga
 
-An Amiga emulator in Go, with its own 68000/68020 CPU core in [`m68k/`](m68k/)
-(grown from Ryan Armstrong's go-m68k).
-
-```bash
-go install github.com/andrewsjg/goamiga/cmd/goamiga@latest
-```
-
-Kickstart 1.3 boots Workbench 1.3 from an ADF image in a window.
-
-## Running
-
-You need a Kickstart ROM and, optionally, ADF disk images. Neither is
-included. Kickstart 1.3 (256KB) runs Workbench 1.3; Kickstart 3.2 for the
-A500/A600/A2000 (512KB) runs too, but wants Workbench 3.2 disks.
-
-Started with no arguments, goAmiga opens its configuration screen:
-
-```bash
-go run ./cmd/goamiga
-```
+An Amiga emulator written in Go, from the 68000 up. It runs Kickstart and
+Workbench, games and demos (copy-protected originals included), from the
+A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 
 ![The configuration screen](docs/images/config-screen.png)
 
-The screen is laid out like this:
+## What it emulates
+
+**Machines:**
+- 68000 or 68020 CPU, with an optional 68881/68882 FPU.
+- OCS, ECS or AGA chipset, PAL or NTSC.
+- 512 KB to 2 MB of chip RAM, plus trapdoor slow RAM and Zorro II fast
+  RAM.
+- Presets for the A500, A500+, A600 and A1200.
+- Kickstart 1.3 to 3.2. Workbench 1.3 and 3.2 run from floppy or hard
+  disk.
+
+**Chipset:**
+- Copper and blitter, with cycle-based DMA contention.
+- Bitplanes up to AGA's 8 planes, HAM6 and HAM8, sprites.
+- Paula's four sound channels with the A500's filters.
+- Disk DMA, with bit-level reads for copy protection.
+- CIAs, keyboard, mouse and joystick.
+
+**Disks:**
+- Four floppy drives, writable and swappable.
+- ADF images, IPF (the Software Preservation Society's format, which keeps
+  copy protection) and zipped or gzipped images.
+- Hardfiles, plain or RDB, on an autobooting controller.
+
+**Connections:**
+- The serial port over telnet or TCP.
+- bsdsocket.library, so Amiga Internet software uses your network.
+
+**Conveniences:**
+- A configuration screen with saved configurations.
+- Save states, warp mode, screenshots.
+- Activity lights, and Power, Reset and Config buttons.
+
+What isn't done yet is listed under "Known gaps" in
+[docs/progress.md](docs/progress.md). The A1200's Gayle (IDE/PCMCIA) and an
+MMU are among them.
+
+## Building
+
+You need:
+- **Go 1.25 or later.**
+- **A C compiler**, for the windowing and sound library
+  ([Ebitengine](https://ebitengine.org)): the Xcode command-line tools on
+  macOS.
+- **On Linux:** the X11, OpenGL and ALSA development packages, plus
+  `zenity` or `kdialog` for file dialogs.
+
+```bash
+git clone https://github.com/andrewsjg/goamiga
+cd goamiga
+go build ./cmd/goamiga
+```
+
+Or install it with `go install github.com/andrewsjg/goamiga/cmd/goamiga@latest`.
+
+You also need a **Kickstart ROM**; none is included. Amiga Forever (Cloanto)
+supplies the classic ROMs, and Hyperion sells Kickstart 3.2.
+- Kickstart 1.3 (256 KB) runs Workbench 1.3.
+- Kickstart 3.2 runs Workbench 3.2: the A500/A600/A2000 version, or the
+  A1200 one with the AGA chipset.
+
+## Quick start
+
+Run it with no arguments:
+
+```bash
+./goamiga
+```
+
+It opens the configuration screen:
 - **Saved configurations** are on the left. Click one to load it,
   double-click to start it, and use Save, New and Delete to manage them.
 - **The settings** are in tabs on the right:
   - Machine: model presets, Kickstart ROM, CPU, FPU, chipset, PAL/NTSC.
   - Memory.
-  - Floppies (DF0:-DF3:).
+  - Floppies (DF0:–DF3:).
   - Hard disks.
   - Ports: serial, bsdsocket.library, the keyboard joystick.
   - Display and sound.
 
-Settings use cycle gadgets: click to step through the choices, or
+The settings use cycle gadgets: click to step through the choices, or
 right-click to step back. Choose… opens a file dialog.
 
-**Start** builds the machine and boots it; problems, such as a missing ROM,
-are shown at the bottom instead.
+**Start** boots the machine. A problem, such as a missing ROM, shows at the
+bottom of the screen instead.
 
-While it runs, **Cmd+,** switches the machine off and returns to the
-configuration screen, to change something and start again.
+goAmiga opens with the configuration you started last. While the Amiga
+runs, the **Config** button (or Cmd+,) switches it off and returns here.
 
-goAmiga opens with the configuration you started last. Saved
-configurations are settings files in `~/.config/goamiga/configs/`, so
-`--config NAME` starts one from the command line without the screen.
-`--launcher` opens the screen even with other flags.
+## Command line
 
-Flags still work as before and skip the configuration screen:
+Flags skip the configuration screen and boot straight away:
 
 ```bash
-go run ./cmd/goamiga --rom ROMS/Kick13.rom --disk "disks/Workbench1.3.adf"
-go run ./cmd/goamiga --rom ROMS/Kick32.rom --df0 disks/Install3.2.adf --df1 disks/Workbench3.2.adf
-go run ./cmd/goamiga --rom ROMS/Kick13.rom --headless --cycles 10000000
+goamiga --rom ROMS/Kick13.rom --df0 "disks/Workbench1.3.adf"
+goamiga --rom ROMS/Kick32.rom --df0 disks/Install3.2.adf --df1 disks/Workbench3.2.adf
+goamiga --rom ROMS/kick32a1200.rom --chipset aga --cpu 68020 --hdf dh0.hdf
+goamiga --config "My A1200"        # a configuration saved from the screen
+goamiga --rom ROMS/Kick13.rom --headless --cycles 10000000
 ```
 
-Disk images can be:
-- plain `.adf`;
-- **`.ipf`**, the Software Preservation Society's format, which keeps copy
-  protection, so original games boot;
-- zipped (`.zip` holding an ADF or IPF, as game collections come);
-- gzipped (`.adz`, `.adf.gz`).
+`goamiga --help` lists every flag. `--launcher` opens the configuration
+screen even when other flags are given.
 
-What the Amiga writes to a compressed disk stays in memory, since it can't
-be saved back into the archive. IPF disks are read-only. See
-[docs/ipf-format.md](docs/ipf-format.md) for the IPF format and how it's
-decoded.
+### Machine
 
-Up to four drives: `--df0` (or `--disk`) to `--df3`. `--drives N` connects
-drives with no disk yet. The window title shows what is in each drive.
+- **CPU.** `--cpu 68020` fits a 68EC020, as in the A1200, with 24-bit
+  addressing and no MMU. It runs 2.5× as fast as the A500's 7 MHz 68000;
+  `--cpu-speed PERCENT` changes that. `--fpu 68881` or `--fpu 68882` adds
+  a floating-point unit to the 68020. Kickstart and Workbench detect all
+  of this themselves.
+- **Chipset.** `--chipset` chooses:
+  - `ocs`: the original A500.
+  - `ecs-agnus`: the Fat Agnus with the original Denise, as in A500s with
+    1 MB of chip RAM. This is the default with 1 MB; otherwise it's `ocs`.
+  - `ecs`: adds the ECS Denise (A500+, A600), with the super-hires
+    modes.
+  - `aga`: the A1200/A4000 chipset. 256 colours from 16.8 million, 8
+    bitplanes, HAM8, wide fetch modes and wide sprites; 2 MB of chip RAM by
+    default. Use it with the A1200 Kickstart and the 68020.
+- **Video.** `--video ntsc` makes an American machine: 60 Hz, 263-line
+  frames and 200-line Workbench screens. Some US games only display
+  properly on NTSC, Bubble Bobble among them. The default is `pal`.
+- **Memory.** The default is 1 MB of chip RAM and 2 MB of fast RAM: an
+  A500 with the 8372A Fat Agnus and a side expansion, enough for the
+  Workbench 3.2 installer.
+  - `--chipram 512|1024|2048` sets the chip RAM.
+  - `--slowram 0|512|1024|1536` adds trapdoor RAM at $C00000.
+  - `--fastram KB` sets the fast RAM: 0, or a power of two up to 8192.
 
-While it runs, **F11 opens a file dialog** to choose an ADF for DF0:. The
-modifiers pick another drive, and Shift ejects instead:
+  For an original 512 KB A500, pass `--chipram 512 --fastram 0`. Old games
+  often want exactly that: some crash under Kickstart 1.3 when fast RAM is
+  fitted.
 
-| Keys | Drive |
-|---|---|
-| F11 | DF0: |
-| Alt+F11 | DF1: |
-| Ctrl+F11 | DF2: |
-| Ctrl+Alt+F11 | DF3: |
+### Floppy disks
 
-If the drive the modifiers name isn't connected, F11 uses DF0:. A new
-disk waits until the Amiga has seen the drive empty, as with a real
-disk change. The emulation keeps running while the dialog is open.
+- **Drives.** `--df0` (or `--disk`) to `--df3` put disks in up to four
+  drives. `--drives N` connects drives that have no disk yet.
+- **Formats.** Disk images can be:
+  - plain `.adf`;
+  - `.ipf`, which keeps the copy protection, so original games boot;
+  - zipped (`.zip` holding ADFs or IPFs, as game collections come);
+  - gzipped (`.adz`, `.adf.gz`).
 
-Each `--dfN` flag can be repeated to give that drive a list of disks. The
-first goes in at start, and Cmd+F11 (the Windows key on a PC) swaps to the
-next. Disks chosen in the dialog join the list. On Linux the dialog needs
-`zenity` or `kdialog` installed.
+  See [docs/ipf-format.md](docs/ipf-format.md) for how IPF is decoded.
+- **Disk lists.** Repeating `--dfN` gives that drive a list of disks: the
+  first goes in, and **Cmd+F11** changes to the next. A zip holding several
+  disks of one game works the same way, with the boot disk first.
+  `"game.zip#Disk2.adf"` names one disk in a zip, e.g.
+  `--df1 "game.zip#Disk2.adf"` to give a game its second disk in DF1:.
+- **Changing disks.** While it runs, **F11** opens a file dialog to change
+  disk. Shift+F11 ejects. The new disk goes in once the Amiga has seen the
+  drive empty, as with a real disk change.
+
+  | Keys | Drive |
+  |---|---|
+  | F11 | DF0: |
+  | Alt+F11 | DF1: |
+  | Ctrl+F11 | DF2: |
+  | Ctrl+Alt+F11 | DF3: |
+
+- **Writing.** Disks are writable: what the Amiga saves goes back into
+  the ADF file. Keep copies of disks you care about, or pass
+  `--write-protect`. Writes to compressed images stay in memory, and IPF
+  images are read-only.
+
+### Hard disks
+
+`--hdf file.hdf` attaches a hard disk image as the next unit of
+`goamiga.device`, the emulator's own autobooting controller. Repeat it for
+more.
+- **Plain hardfiles** (one partition, as WinUAE makes them) mount as
+  `DH0:`, `DH1:` and so on.
+- **Images with a Rigid Disk Block** mount each partition under its own
+  name.
+
+With no bootable floppy in DF0:, the Amiga boots from the hard disk.
 
 ```bash
-go run ./cmd/goamiga --rom ROMS/Kick13.rom --df0 disks/wb13.adf --df1 disks/extras13.adf --df1 disks/blank.adf
+goamiga --rom ROMS/Kick32.rom --hdf dh0.hdf --hdf-create 100 --df0 disks/Install3.2.adf
 ```
 
-`--cpu 68020` fits a 68020 accelerator: a 68EC020 like the A1200's, with
-24-bit addressing and no MMU or FPU. By default it runs 2.5× as fast as the
-A500's 7 MHz 68000; `--cpu-speed PERCENT` changes that. Kickstart and
-Workbench detect it by themselves. With it, `--fpu 68881` or `--fpu 68882`
-adds a floating-point coprocessor.
+`--hdf-create MB` creates any `--hdf` file that doesn't exist yet, blank.
+Format it from the Amiga (e.g. `Format DRIVE DH0: NAME Work FFS QUICK`),
+then install onto it.
 
-`--chipset ocs|ecs-agnus|ecs` picks the custom chips:
-- `ocs` is the original A500.
-- `ecs-agnus` is the Fat Agnus with the original Denise, as fitted to A500s
-  with 1 MB of chip RAM. This is the default with 1 MB, otherwise `ocs`.
-- `ecs` adds the ECS Denise (A500+/A600), which brings the super-hires
-  screen modes.
-- `aga` is the A1200/A4000 chipset: 256 colours from 16.8 million,
-  8 bitplanes, HAM8, wide fetch modes and wide sprites. It defaults to
-  2 MB of chip RAM. Use it with the A1200 Kickstart and a 68020:
+Writes go straight into the image file; `--write-protect` covers hardfiles
+too. Partitions must use a filesystem the Kickstart has: OFS on 1.3, OFS or
+FFS on 2.0 and later.
 
-  ```bash
-  go run ./cmd/goamiga --rom ROMS/kick32a1200.rom --chipset aga --cpu 68020 --hdf dh0.hdf
-  ```
+### Settings files
 
-`--video ntsc` makes it an American machine: 60 Hz, 263-line frames, and
-200-line Workbench screens. Some US games only display properly on NTSC,
-Bubble Bobble among them. The default is `pal`.
+Instead of typing flags each time, put them in a settings file, one
+`key = value` per line:
+- the keys are the flag names, and `df0` or `hdf` may repeat;
+- a bare key turns a switch on;
+- relative paths are taken from the file's folder.
 
-By default the machine has 1 MB chip RAM and 2 MB Zorro II fast RAM, enough
-for Workbench 3.2 and its installer. That's an A500 with the 8372A "Fat
-Agnus" and a side expansion. `--chipram 512|1024`, `--slowram
-0|512|1024|1536` (trapdoor RAM at $C00000) and `--fastram <KB>` (0, or a
-power of two up to 8192) change it. For an original 512 KB A500, pass
-`--chipram 512 --fastram 0`. Some old games want exactly that.
-
-Sound plays through the host's audio output (`--mute` to turn it off).
-
-A zip holding several disks of one game inserts the boot disk; Cmd+F11
-changes to the next. `game.zip#Disk2.adf` names one disk in a zip, e.g.
-`--df1 "game.zip#Disk2.adf"` to give a game its second disk in DF1:.
-
-The floppy is writable: anything the Amiga saves to DF0: is written back
-into the ADF file. Keep a copy of disks you care about, or pass
-`--write-protect`.
-
-### Settings file
-
-Rather than typing flags each time, put them in `goamiga.conf`. Copy
-`goamiga.conf.example` to start. The file is `key = value` per line, where
-the keys are the flag names, and `df0` or `hdf` can repeat. A bare key
-turns a switch on, and relative paths are from the file's folder.
-
-goAmiga reads `./goamiga.conf`, then `~/.config/goamiga/goamiga.conf`, or
-the file given with `--config FILE` (or the name of a configuration saved
-from the configuration screen). Flags on the command line override the
-file.
+Copy `goamiga.conf.example` to start.
 
 ```
 rom     = ROMS/Kick32.rom
@@ -154,93 +213,99 @@ df0     = disks/Install3.2.adf
 fastram = 8192
 ```
 
-### Hard disks
+goAmiga reads `./goamiga.conf`, else `~/.config/goamiga/goamiga.conf`, or
+the file given with `--config FILE`. Flags on the command line override
+the file.
 
-`--hdf file.hdf` attaches a hard disk image as the next unit of
-`goamiga.device`, the emulator's own autobooting controller; repeat it for
-more. Images can be plain hardfiles (a single partition, as WinUAE creates
-them, mounted as `DH0:`, `DH1:` ...) or whole disks with a Rigid Disk Block
-(each partition mounted under its own name). With no bootable floppy in DF0:
-the Amiga boots from the hard disk.
+Configurations saved from the configuration screen are files of the same
+kind, in `~/.config/goamiga/configs/`.
 
-```bash
-go run ./cmd/goamiga --rom ROMS/Kick32.rom --hdf dh0.hdf --hdf-create 100 --df0 disks/Install3.2.adf
-```
+## While it runs
 
-`--hdf-create MB` creates any `--hdf` file that doesn't exist yet, blank.
-Format it from the Amiga (for example `Format DRIVE DH0: NAME Work FFS
-QUICK`), then install onto it. Writes go straight into the image file;
-`--write-protect` covers hardfiles too. Partitions must use a filesystem the
-Kickstart ROM has: OFS on 1.3, OFS or FFS on 2.0 and later. Filesystems
-stored in an RDB are not loaded.
+### The status bar
 
-### Warp and activity lights
-
-**Cmd+W** (the Windows key + W on a PC) toggles warp mode. The emulator runs
-as fast as the host allows, about 20× real time, with sound off. It's handy
-for floppy loading and installs. `--warp` starts in warp mode.
-
-A status bar under the picture shows the activity lights:
+Under the picture are the activity lights:
 - **POWER:** bright or dimmed, as the A500's LED is with the audio filter.
 - **Each drive:** its motor LED and the head's cylinder.
 - **HD:** green for reads, orange for writes.
-- **Warp speed**, while warp is on.
+- **The warp speed**, while warp is on.
 
-At the right are three buttons. Click them with the pointer free, after
-Esc or F12 if it's trapped:
-- **Power** switches the Amiga off and on: a cold start, with memory
-  cleared. The disks in the drives stay in, as on a real machine.
+At the right are three buttons. Click them with the mouse pointer free;
+press Esc or F12 first if the Amiga has it.
+- **Power** switches the Amiga off and on: a cold start. The disks stay
+  in, as on a real machine.
 - **Reset** is Ctrl+Amiga+Amiga.
 - **Config** switches the Amiga off and returns to the configuration
-  screen, to load or change a configuration and start again.
+  screen.
 
 Power and Config ask for a second click, since they lose what's running.
+`--statusbar=false` hides the bar; the keys below still work.
 
-`--statusbar=false` hides the status bar; the keys below still work.
+### Keys
 
-Host commands all use Cmd (the Windows key on a PC). It isn't an Amiga key,
-so a command never types anything on the Amiga:
+Clicking in the window gives the mouse to the Amiga; Esc or F12 releases
+it. Host commands use Cmd (the Windows key on a PC), which isn't an Amiga
+key, so they never type anything on the Amiga.
 
 | Keys | Action |
 |---|---|
-| Cmd+W | Warp on/off |
-| Cmd+R | Reset, like Ctrl+Amiga+Amiga: Kickstart restarts and disks stay in |
-| Cmd+Shift+R | Power off and on (cold start; disks stay in) |
+| Cmd+W | Warp: as fast as the host allows (about 20× real time), without sound; `--warp` starts in it |
+| Cmd+R | Reset (Ctrl+Amiga+Amiga) |
+| Cmd+Shift+R | Power off and on |
 | Cmd+, | Switch off and go to the configuration screen |
-| Cmd+P | Pause (sound and Amiga input wait too) |
+| Cmd+P | Pause |
 | Cmd+F | Fullscreen |
-| Cmd+S | Screenshot as a PNG in the current folder (`--screenshot-dir` to change) |
-| Cmd+Shift+1…9 | Save state to slot 1–9 (`goamiga-N.state` in `--state-dir`) |
+| Cmd+S | Screenshot as a PNG (`--screenshot-dir`) |
+| Cmd+Shift+1…9 | Save state to slot 1–9 (`--state-dir`) |
 | Cmd+1…9 | Load state from slot 1–9 |
+| F11, Cmd+F11 | Change disk (see Floppy disks) |
+| Ctrl+F12 | Arrow keys as the joystick, on or off |
 
-A save state holds the whole machine, including floppy disk contents,
-and resumes exactly. `--load-state FILE` starts from one. It needs the same
-Kickstart ROM and the same hard disk images attached. Hard disk contents
-aren't in the state, so loading an old state after the hard disk has
-changed can confuse its filesystem.
+A save state holds the whole machine, floppy contents included, and resumes
+exactly. `--load-state FILE` starts from one.
+- It needs the same Kickstart ROM, and the same hard disk images attached.
+- Hard disk contents aren't in the state. Loading an old state after the
+  hard disk has changed can confuse its filesystem.
 
-### Networking
+### Joystick
 
-`--bsdsocket` fits a network board carrying bsdsocket.library, the
-AmiTCP socket interface, like UAE's emulation of it. Amiga Internet
-software uses the host's network directly, with no TCP/IP stack to
-install or configure: telnet and FTP clients, IRC, mail, browsers like
-AWeb and IBrowse, and servers.
+A joystick is always plugged into port 2, with the mouse in port 1.
+- **Gamepad:** any connected gamepad drives it. Use the D-pad or left stick
+  to move, A (the bottom button) to fire, and B for the second button.
+- **Keyboard:** Ctrl+F12 (or `--joy-keys`) makes the arrow keys the
+  joystick, with Right Ctrl or Right Alt/Option to fire and Right Shift for
+  the second button. While that's on, those keys don't reach the Amiga.
+
+### Display and sound
+
+- **Window size.** The window opens at twice the emulated screen's size;
+  `--scale N` changes that. It's reduced if it wouldn't fit the monitor,
+  and you can also resize it freely.
+- **Overscan.** It shows the standard PAL area (640×256, doubled
+  vertically). `--overscan` shows the full overscan area (720×284), for
+  software that draws into the border.
+- **Sound** plays through the host's audio output. `--mute` turns it off.
+
+## Networking
+
+`--bsdsocket` fits a network board carrying bsdsocket.library, the AmiTCP
+socket interface, as UAE emulates it. Amiga Internet software then uses the
+host's network directly, with no TCP/IP stack to install: telnet and FTP
+clients, IRC, mail, browsers like AWeb and IBrowse, and servers.
 
 Supported:
 - TCP and UDP over IPv4;
 - blocking and non-blocking sockets, and `WaitSelect`;
-- host name lookups through the host's resolver;
+- name lookups through the host's resolver;
 - the usual socket options;
 - the netdb calls and `SocketBaseTagList`.
 
 Limits:
 - Servers bind on the host, so ports below 1024 need the host's
   permission.
-- Raw sockets are refused unless the host allows them.
 - It works on macOS and Linux.
 
-### Serial port
+## Serial port
 
 `--serial telnet:2323` connects the Amiga's serial port to TCP port 2323,
 listening on this machine only. Connect with `telnet localhost 2323`, then
@@ -248,45 +313,54 @@ start a shell on the serial port from the Amiga:
 - Workbench 1.3: `mount aux:` then `newshell aux:`.
 - Workbench 2.0 and later: `newshell aux:`.
 
-Terminal programs on the Amiga talk to the telnet client the same way.
-`--serial tcp:2323` passes bytes through untouched, for file transfers or
-`nc`. `HOST:PORT` listens on another interface.
+Terminal programs on the Amiga reach the telnet client the same way.
+- `--serial tcp:2323` passes bytes through untouched, for file transfers
+  or `nc`.
+- `HOST:PORT` listens on another interface.
 
-Details:
-- The serial line runs at whatever baud rate the Amiga sets.
-- The Amiga sees carrier (CD) while a client is connected.
-- Telnet mode converts line endings both ways.
-
-### Joystick
-
-A joystick is always plugged into port 2 (the mouse stays in port 1). Any
-gamepad drives it: D-pad or left stick, A (bottom button) to fire, B for
-the second button. Ctrl+F12 (or `--joy-keys`) turns the arrow keys into the
-joystick as well, with Right Ctrl or Right Alt/Option to fire and Right
-Shift for the second button. While that's on, those keys don't reach the
-Amiga keyboard.
-
-### Display
-
-The window opens at twice the size of the emulated screen (`--scale N`
-changes that, and it is reduced if it wouldn't fit the monitor). The
-emulated resolution doesn't change. The window can also be resized
-freely. It shows the standard PAL display area (640×256, doubled
-vertically). Add `--overscan` to see the full overscan area (720×284),
-for software that draws into the border.
+The line runs at whatever baud rate the Amiga sets. The Amiga sees carrier
+while a client is connected.
 
 ## Testing
 
-Put the ROMs in `ROMS/` (`Kick13.rom`, optionally `Kick32.rom`) and the ADFs
-in `disks/` (the Workbench 1.3 disks, optionally `Install3.2.adf`), then:
-
 ```bash
-go test ./amiga/          # ~6 minutes; tests skip if the ROM is missing
+go test -tags noebitengine ./...   # about 8 minutes
 ```
+
+`-tags noebitengine` leaves out the window, so the tests run anywhere,
+including over SSH or with the screen locked.
+
+Many tests boot real software. They skip when the files aren't there:
+- **ROMs** in `ROMS/`: `Kick13.rom`, `Kick32.rom`, `kick32a1200.rom`.
+- **Disks** in `disks/`: the two Workbench 1.3 disks, `Workbench3.2.adf`
+  and `Install3.2.adf`.
+
+The CPU's tests include the SingleStepTests 68000 suite, which needs its
+data (about 190 MB) in `m68k/testdata/680x0/`. See
+`m68k/singlestep_test.go` for where to get it.
+
+`TestGameBatch` boots a list of games and writes contact sheets of
+screenshots, for compatibility testing. Its comment explains the list
+format.
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — how the emulator is put together
-- [docs/progress.md](docs/progress.md) — status, known gaps and change log
+- [docs/architecture.md](docs/architecture.md): how the emulator is put
+  together.
+- [docs/progress.md](docs/progress.md): status, known gaps, and the log of
+  how it was built and debugged.
+- [docs/ipf-format.md](docs/ipf-format.md): the IPF disk image format and
+  how it's decoded.
+- [m68k/README.md](m68k/README.md): the CPU.
 - [docs/debugging-window-drag-crash.md](docs/debugging-window-drag-crash.md),
-  [docs/debugging-prefs-hang.md](docs/debugging-prefs-hang.md) — bug hunts
+  [docs/debugging-prefs-hang.md](docs/debugging-prefs-hang.md): two of
+  the bug hunts, written up.
+- `diag/`: `adf.py` lists and extracts files from disk images;
+  `disasm68k.py` disassembles ROMs and memory dumps.
+
+## Credits
+
+The CPU core began as Ryan Armstrong's
+[go-m68k](https://github.com/cavaliercoder/go-m68k) and keeps its BSD
+licence (see [m68k/LICENSE](m68k/LICENSE)). The CPU tests use Tom Harte's
+[SingleStepTests](https://github.com/SingleStepTests/680x0).
