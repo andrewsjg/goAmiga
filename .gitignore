@@ -4,6 +4,7 @@
 *.pdf
 ADF/
 ROMS/
+HDD/
 
 # Build outputs
 /goamiga
