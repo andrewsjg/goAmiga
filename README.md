@@ -30,6 +30,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
   copy protection) and zipped or gzipped images.
 - Hardfiles, plain or RDB, on an autobooting controller, or as IDE drives
   on the A600/A1200's Gayle, booted by Kickstart's own `scsi.device`.
+  Filesystems stored in the RDB (PFS3, SFS, FFS for Kickstart 1.3) are
+  loaded at boot.
 
 **Connections:**
 - The serial port over telnet or TCP.
@@ -213,8 +215,17 @@ goamiga --rom ROMS/kick32a1200.rom --chipset aga --cpu 68020 --ide a1200hd.hdf
 ```
 
 Writes go straight into the image file; `--write-protect` covers hardfiles
-and IDE drives too. Partitions must use a filesystem the Kickstart has: OFS on 1.3, OFS or
-FFS on 2.0 and later.
+and IDE drives too.
+
+**Filesystems.** Kickstart has OFS (1.3), or OFS and FFS (2.0 and later).
+A partition using anything else, such as PFS3, SFS, or FFS on 1.3, needs
+the filesystem stored in the disk's RDB, as on a real Amiga. HDToolBox
+puts it there ("Add/Update" in its filesystem list), and disks prepared
+for WinUAE or a real machine often have it already. At boot the
+filesystem is loaded from the RDB, unless Kickstart has the same one at
+least as new (most RDBs carry an older FFS than Kickstart 3.x's). goAmiga
+lists the filesystems it finds in an RDB when it starts. A plain hardfile
+has no RDB, so it can only use Kickstart's own filesystems.
 
 ### Settings files
 

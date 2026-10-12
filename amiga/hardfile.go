@@ -23,6 +23,11 @@ type Hardfile struct {
 
 	Partitions []Partition
 	rdb        bool
+
+	// FileSystems are the filesystems stored in the RDB (hdfilesys.go);
+	// FSError says why reading them stopped early, if it did.
+	FileSystems []FileSystem
+	FSError     error
 }
 
 // HasRDB reports whether the image has a Rigid Disk Block (else it is a
@@ -121,8 +126,7 @@ func (h *Hardfile) plain(unit int, dosType uint32) {
 }
 
 // readRDB looks for a Rigid Disk Block in the first 16 blocks and reads
-// the partitions it lists. Filesystems stored in the RDB are not loaded:
-// partitions must use a type the Kickstart ROM filesystem handles.
+// the partitions and filesystems it lists.
 func (h *Hardfile) readRDB() (bool, error) {
 	blk := make([]byte, hdBlockSize)
 	rdb := -1
@@ -142,7 +146,8 @@ func (h *Hardfile) readRDB() (bool, error) {
 	h.Cylinders = int(be.Uint32(blk[64:]))
 	h.Sectors = int(be.Uint32(blk[68:]))
 	h.Heads = int(be.Uint32(blk[72:]))
-	next := be.Uint32(blk[28:]) // rdb_PartitionList
+	fsList := be.Uint32(blk[32:]) // rdb_FileSysHeaderList
+	next := be.Uint32(blk[28:])   // rdb_PartitionList
 	for n := 0; next != 0xFFFFFFFF && n < 64; n++ {
 		if _, err := h.f.ReadAt(blk, int64(next)*hdBlockSize); err != nil {
 			return false, err
@@ -174,6 +179,7 @@ func (h *Hardfile) readRDB() (bool, error) {
 	if len(h.Partitions) == 0 {
 		return false, errors.New("RDB lists no mountable partitions")
 	}
+	h.FSError = h.readFileSystems(fsList)
 	return true, nil
 }
 

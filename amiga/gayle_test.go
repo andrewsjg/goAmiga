@@ -228,83 +228,31 @@ func TestGayleID(t *testing.T) {
 	}
 }
 
-// rdbImage wraps a filesystem image (an ADF) in a disk with a Rigid Disk
-// Block: one cylinder (32 blocks, 1 head) for the RDB, then the partition,
-// named DH0 and bootable.
-func rdbImage(fs []byte) []byte {
-	const spt = 32
-	cyls := 1 + (len(fs)/512+spt-1)/spt
-	img := make([]byte, cyls*spt*512)
-	be := binary.BigEndian
-	put := func(blk, off int, v uint32) { be.PutUint32(img[blk*512+off:], v) }
-	sum := func(blk int) {
-		put(blk, 8, 0)
-		var s uint32
-		for i := 0; i < 64; i++ {
-			s += be.Uint32(img[blk*512+4*i:])
-		}
-		put(blk, 8, -s)
-	}
-	copy(img, "RDSK")
-	put(0, 4, 64) // rdb_SummedLongs
-	put(0, 12, 7) // rdb_HostID
-	put(0, 16, 512)
-	for _, off := range []int{24, 32, 36} { // no bad blocks, filesystems, drive init
-		put(0, off, 0xFFFFFFFF)
-	}
-	put(0, 28, 1) // rdb_PartitionList
-	for off := 40; off < 64; off += 4 {
-		put(0, off, 0xFFFFFFFF)
-	}
-	put(0, 64, uint32(cyls))
-	put(0, 68, spt)
-	put(0, 72, 1) // heads
-	put(0, 76, 1) // interleave
-	put(0, 80, uint32(cyls))
-	put(0, 96, uint32(cyls))
-	put(0, 100, uint32(cyls))
-	put(0, 104, 3)
-	put(0, 128, 0)     // rdb_RDBBlocksLo
-	put(0, 132, spt-1) // rdb_RDBBlocksHi
-	put(0, 136, 1)     // rdb_LoCylinder
-	put(0, 140, uint32(cyls-1))
-	put(0, 144, spt) // rdb_CylBlocks
-	put(0, 152, 1)   // rdb_HighRDSKBlock
-	copy(img[160:], "GOAMIGA ")
-	copy(img[168:], "TEST DISK       ")
-	sum(0)
-
-	const p = 1
-	copy(img[p*512:], "PART")
-	put(p, 4, 64)
-	put(p, 12, 7)
-	put(p, 16, 0xFFFFFFFF) // no next partition
-	put(p, 20, 1)          // PBFF_BOOTABLE
-	img[p*512+36] = 3
-	copy(img[p*512+37:], "DH0")
-	env := []uint32{16, 128, 0, 1, 1, spt, 2, 0, 0, 1, uint32(cyls - 1), 30, 0, 0x1FE00, 0x7FFFFFFE, 0,
-		be.Uint32(fs)} // ..., BootPri 0, DosType from the filesystem
-	for i, v := range env {
-		put(p, 128+4*i, v)
-	}
-	sum(p)
-	copy(img[spt*512:], fs)
-	return img
-}
-
 // Kickstart 3.2 for the A1200 finds an IDE drive through Gayle and its
 // scsi.device boots Workbench from the RDB partition on it.
 func TestGayleIDEBootKS32A1200(t *testing.T) {
+	bootIDE(t, readDisk(t, "../disks/Install3.2.adf"))
+}
+
+// Kickstart's scsi.device loads a filesystem from the RDB itself.
+func TestGayleIDEFileSystemKS32A1200(t *testing.T) {
+	inst := readDisk(t, "../disks/Install3.2.adf")
+	a := bootIDE(t, inst, rdbFS{0x444F5301, 99 << 16, adfRead(inst, "L/FastFileSystem")})
+	if e := a.fileSysEntry(0x444F5301); e == 0 || a.peek32(e+fseVersion) != 99<<16 {
+		t.Error("scsi.device didn't load the filesystem from the RDB")
+	}
+}
+
+// bootIDE boots an A1200 from an RDB disk holding image on the IDE
+// interface, with the filesystems given in the RDB.
+func bootIDE(t *testing.T, image []byte, filesystems ...rdbFS) *Amiga {
+	t.Helper()
 	rom, err := LoadROM("../ROMS/kick32a1200.rom")
 	if err != nil {
 		t.Skip(err)
 	}
-	adf, err := os.ReadFile("../disks/Install3.2.adf")
-	if err != nil {
-		t.Skip(err)
-	}
 	path := filepath.Join(t.TempDir(), "ide-rdb.hdf")
-	if err := os.WriteFile(path, rdbImage(adf), 0o644); err != nil {
+	if err := os.WriteFile(path, rdbImageFS(image, filesystems...), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := New(rom, nil)
@@ -322,4 +270,5 @@ func TestGayleIDEBootKS32A1200(t *testing.T) {
 	if !waitWorkbench(t, a) {
 		t.Fatal("Workbench didn't start from the IDE drive")
 	}
+	return a
 }

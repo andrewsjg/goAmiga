@@ -169,6 +169,7 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 				kind = "no RDB, so scsi.device won't mount it; use --hdf for plain hardfiles"
 			}
 			fmt.Fprintf(out, "IDE %s: %s (%d MB, %s)\n", []string{"master", "slave"}[i], p, hf.Size()>>20, kind)
+			printFileSystems(out, hf)
 		}
 		if len(s.IDE) == 0 {
 			fmt.Fprintln(out, "Gayle: IDE interface fitted, no drives")
@@ -181,6 +182,7 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 				names = append(names, p.Name+":")
 			}
 			fmt.Fprintf(out, "goamiga.device unit %d: %s (%d MB) as %s\n", u, f.Path, f.Size()>>20, strings.Join(names, " "))
+			printFileSystems(out, f)
 		}
 	}
 
@@ -213,4 +215,18 @@ func createHardfile(path string, mb int) error {
 		return err
 	}
 	return f.Close()
+}
+
+// printFileSystems lists the filesystems stored in a hardfile's RDB.
+func printFileSystems(out io.Writer, f *amiga.Hardfile) {
+	var fs []string
+	for _, x := range f.FileSystems {
+		fs = append(fs, amiga.DosTypeString(x.DosType)+" "+amiga.VersionString(x.Version))
+	}
+	if len(fs) > 0 {
+		fmt.Fprintf(out, "  filesystems in the RDB: %s\n", strings.Join(fs, ", "))
+	}
+	if f.FSError != nil {
+		fmt.Fprintf(out, "  warning: %v\n", f.FSError)
+	}
 }

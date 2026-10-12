@@ -37,10 +37,62 @@ verified. Longer investigations get their own write-up in `docs/`.
    emulated, but not its PCMCIA slot. On ECS, BEAMCON0 is stored
    but ignored (PAL or NTSC is chosen with `--video`; no programmable beam), productivity and
    scan-doubled modes aren't emulated, and super-hires is averaged into
-   the hires-wide picture. Hardfiles use Kickstart's filesystem;
-   filesystems stored in an RDB (PFS, SFS, FFS on 1.3) are not loaded.
+   the hires-wide picture. A plain hardfile (no RDB) can only use
+   Kickstart's own filesystems. The CPU stops at the 68020: there is no
+   68030 or later, and no MMU.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-12 — Filesystems from the RDB
+
+A partition using a filesystem Kickstart doesn't have (PFS3, SFS, or FFS
+on Kickstart 1.3, whose ROM has only OFS) now mounts, if the filesystem is
+stored in the disk's RDB, as on a real Amiga.
+
+**Reading the RDB** (`hdfilesys.go`, `hardfile.go`):
+- The FileSysHeaderBlock (FSHD) chain gives each filesystem's DosType,
+  version, PatchFlags and DeviceNode values.
+- Each FSHD's LoadSegBlock (LSEG) chain is joined into the executable.
+- A broken chain is reported (`Hardfile.FSError`, printed at startup) but
+  doesn't stop the disk mounting: its partitions may still use a
+  Kickstart filesystem.
+
+**Mounting** (`goamiga.device`): what a real controller's boot ROM does.
+- The RomTag init now runs two more traps between `MakeDosNode` and
+  `Enqueue` for each partition whose DosType has a filesystem in the RDB.
+- If FileSystem.resource has that DosType at least as new, its entry is
+  used.
+- Otherwise the first trap returns the memory needed, the 68000 code
+  calls `AllocMem`, and the second trap loads the executable there.
+  Go parses the hunks (CODE, DATA, BSS, RELOC32, RELOC32SHORT, symbols
+  and debug skipped) and lays them out as a seglist.
+- The loaded filesystem gets a FileSysEntry at the start of its block,
+  added to FileSystem.resource (when there is one: Kickstart 1.3 has
+  none), so later partitions and the Mount command share it.
+- The DeviceNode is patched from the entry: always dn_SegList, the fields
+  PatchFlags names, and dn_GlobalVec -1 if PatchFlags leaves it out (no
+  RDB filesystem is BCPL).
+
+**IDE drives** needed nothing: Kickstart 3.x's `scsi.device` loads
+filesystems from the RDB itself, and the Gayle emulation is good enough
+for it to.
+
+**Testing.** The tests build RDB disks around the ADFs. One converts
+Workbench 1.3's OFS disk to FFS: each file's data is rewritten into its
+first blocks at 512 bytes a block, and the block tables are shortened.
+- `TestRDBFileSystemKS13`: Kickstart 1.3 boots Workbench 1.3 from an FFS
+  partition, with Workbench 1.3's `L:FastFileSystem` in the RDB. Before
+  this, 1.3 couldn't read the partition at all.
+- `TestRDBFileSystemOlderThanROM`: on Kickstart 3.2 the RDB's FFS 34 is
+  passed over for the ROM's 47.4.
+- `TestRDBFileSystemNewerThanROM`: an FFS marked version 99 is loaded on
+  Kickstart 3.2 and appears in FileSystem.resource.
+- `TestGayleIDEFileSystemKS32A1200`: the same through IDE, loaded by
+  `scsi.device`.
+- `TestParseHunks`: relocations and segment layout.
+
+One bug, in the test's converter: a `copy` into the disk image wasn't
+limited to one block, so each file's data overwrote the blocks after it.
 
 ## 2026-10-12 — Gayle: the A600/A1200 IDE interface
 

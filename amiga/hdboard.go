@@ -57,6 +57,8 @@ const (
 	hdTrapOpen
 	hdTrapClose
 	hdTrapBeginIO
+	hdTrapFSPrepare
+	hdTrapFSLoad
 )
 
 type hdBoard struct {
@@ -72,6 +74,11 @@ type hdBoard struct {
 	configDev uint32 // from DiagPoint
 	parts     []hdPart
 	nextPart  int
+
+	// Filesystems from RDBs (hdfilesys.go): by DosType, those ready for
+	// DeviceNodes this boot, and the one waiting for memory.
+	mounts  map[uint32]fsMount
+	pending *fsPending
 
 	// Trace, if set, logs driver activity.
 	Trace io.Writer
@@ -263,6 +270,7 @@ func (s *asm68k) trap(base uint32, n int) {
 // Library vector offsets.
 const (
 	lvoFindResident = -96
+	lvoAllocMem     = -198
 	lvoEnqueue      = -270
 	lvoReplyMsg     = -378
 	lvoCloseLibrary = -414
@@ -342,6 +350,17 @@ func (h *hdBoard) buildROM(base uint32) {
 	s.jsrLVO(lvoMakeDosNode)
 	s.tstD0()
 	s.branch(beq, "nextPart")
+	s.w(0x2E00)                   // move.l d0,d7
+	s.trap(base, hdTrapFSPrepare) // d0/d1 = memory for its filesystem, or 0
+	s.tstD0()
+	s.branch(beq, "fsReady")
+	s.w(0x2A4E) // movea.l a6,a5
+	s.execBase()
+	s.jsrLVO(lvoAllocMem)
+	s.w(0x2C4D)                // movea.l a5,a6
+	s.trap(base, hdTrapFSLoad) // d0 = the memory
+	s.label("fsReady")
+	s.w(0x2007)                  // move.l d7,d0
 	s.trap(base, hdTrapBootNode) // a1 = BootNode, a0 = &eb_MountList
 	s.w(0x2A4E)                  // movea.l a6,a5
 	s.execBase()
@@ -445,6 +464,7 @@ func (h *hdBoard) trap(n int) {
 
 	case hdTrapInit:
 		h.nextPart = 0
+		h.mounts, h.pending = map[uint32]fsMount{}, nil
 		cpu.A[1] = h.base + hdDevBase
 		h.tracef("init: device at $%06X, %d partitions", cpu.A[1], len(h.parts))
 
@@ -490,6 +510,10 @@ func (h *hdBoard) trap(n int) {
 		cpu.A[0] = cpu.A[6] + 74 // eb_MountList
 		h.tracef("BootNode for %s: DeviceNode $%06X, priority %d", p.p.Name, cpu.D[0], pri)
 
+	case hdTrapFSPrepare:
+		h.fsPrepare()
+	case hdTrapFSLoad:
+		h.fsLoad()
 	case hdTrapOpen:
 		h.open(cpu.A[1], cpu.D[0])
 	case hdTrapClose:
