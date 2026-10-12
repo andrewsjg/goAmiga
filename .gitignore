@@ -2,6 +2,8 @@
 *.rom
 *.adf
 *.pdf
+ADF/
+ROMS/
 
 # Build outputs
 /goamiga
