@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	m68k "github.com/cavaliercoder/go-m68k"
+	m68k "github.com/andrewsjg/goamiga/m68k"
 )
 
 // createTestAmiga creates a minimal Amiga with a valid ROM for testing.

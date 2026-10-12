@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	m68k "github.com/cavaliercoder/go-m68k"
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	m68k "github.com/andrewsjg/goamiga/m68k"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 const (

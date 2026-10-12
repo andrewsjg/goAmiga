@@ -3,7 +3,7 @@ package m68k_test
 import (
 	"testing"
 
-	. "github.com/cavaliercoder/go-m68k/m68ktest"
+	. "github.com/andrewsjg/goamiga/m68k/m68ktest"
 )
 
 func TestLea(t *testing.T) {

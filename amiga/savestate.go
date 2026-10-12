@@ -11,7 +11,7 @@ import (
 	"math"
 	"slices"
 
-	m68k "github.com/cavaliercoder/go-m68k"
+	m68k "github.com/andrewsjg/goamiga/m68k"
 )
 
 // Save states: the whole machine between two instructions, so a loaded

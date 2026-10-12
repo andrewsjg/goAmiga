@@ -5,7 +5,7 @@ package main
 import (
 	"errors"
 
-	"github.com/cavaliercoder/goAmiga/internal/config"
+	"github.com/andrewsjg/goamiga/internal/config"
 )
 
 var errNoDisplay = errors.New("built with -tags noebitengine: no display; use --headless")

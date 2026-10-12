@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 // new020 returns a 68020 in supervisor mode with code at $1000 and the

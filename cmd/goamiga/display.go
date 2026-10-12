@@ -12,8 +12,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
-	"github.com/cavaliercoder/goAmiga/amiga"
-	"github.com/cavaliercoder/goAmiga/internal/config"
+	"github.com/andrewsjg/goamiga/amiga"
+	"github.com/andrewsjg/goamiga/internal/config"
 )
 
 // app is the window's game: the configuration screen or a running

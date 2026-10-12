@@ -1,6 +1,6 @@
 package amiga
 
-import "github.com/cavaliercoder/go-m68k/m68kmem"
+import "github.com/andrewsjg/goamiga/m68k/m68kmem"
 
 // chipRAM is Amiga chip memory. Agnus only drives the address lines needed
 // for the fitted RAM, so any address wraps modulo the RAM size — a DMA

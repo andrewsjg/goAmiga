@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/cavaliercoder/goAmiga/internal/config"
+	"github.com/andrewsjg/goamiga/internal/config"
 )
 
 func main() {

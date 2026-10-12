@@ -4,10 +4,10 @@ import (
 	"io"
 	"os"
 
-	m68k "github.com/cavaliercoder/go-m68k"
-	"github.com/cavaliercoder/go-m68k/dump"
-	"github.com/cavaliercoder/go-m68k/sim"
-	"github.com/cavaliercoder/go-m68k/srec"
+	m68k "github.com/andrewsjg/goamiga/m68k"
+	"github.com/andrewsjg/goamiga/m68k/dump"
+	"github.com/andrewsjg/goamiga/m68k/sim"
+	"github.com/andrewsjg/goamiga/m68k/srec"
 )
 
 func loadSim(path string) *sim.Simulator {

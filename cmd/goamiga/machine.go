@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cavaliercoder/goAmiga/amiga"
-	"github.com/cavaliercoder/goAmiga/internal/config"
+	"github.com/andrewsjg/goamiga/amiga"
+	"github.com/andrewsjg/goamiga/internal/config"
 )
 
 // machine is an Amiga built from settings, with what it holds open.

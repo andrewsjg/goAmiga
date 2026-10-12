@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 // Headless reproduction of the interactive crash: open the Workbench1.3 disk

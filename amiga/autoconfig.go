@@ -1,6 +1,6 @@
 package amiga
 
-import "github.com/cavaliercoder/go-m68k/m68kmem"
+import "github.com/andrewsjg/goamiga/m68k/m68kmem"
 
 // Zorro II Autoconfig. Boards sit in a chain: at boot only the first board
 // not yet configured answers at $E80000. expansion.library reads its ID

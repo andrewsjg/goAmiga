@@ -8,10 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cavaliercoder/go-m68k"
-	"github.com/cavaliercoder/go-m68k/dump"
-	"github.com/cavaliercoder/go-m68k/m68kmem"
-	"github.com/cavaliercoder/go-m68k/srec"
+	"github.com/andrewsjg/goamiga/m68k"
+	"github.com/andrewsjg/goamiga/m68k/dump"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
+	"github.com/andrewsjg/goamiga/m68k/srec"
 )
 
 type testLogWriter struct {

@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cavaliercoder/go-m68k"
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	"github.com/andrewsjg/goamiga/m68k"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 // Processor prints the internal state of a 68000 processor to the given writer

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	m68k "github.com/cavaliercoder/go-m68k"
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	m68k "github.com/andrewsjg/goamiga/m68k"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 // SingleStepTests (github.com/SingleStepTests/680x0, formerly Tom Harte's

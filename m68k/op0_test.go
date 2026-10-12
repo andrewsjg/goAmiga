@@ -3,9 +3,9 @@ package m68k_test
 import (
 	"testing"
 
-	"github.com/cavaliercoder/go-m68k"
+	"github.com/andrewsjg/goamiga/m68k"
 
-	. "github.com/cavaliercoder/go-m68k/m68ktest"
+	. "github.com/andrewsjg/goamiga/m68k/m68ktest"
 )
 
 func TestAddi(t *testing.T) {

@@ -1,9 +1,8 @@
-module github.com/cavaliercoder/goAmiga
+module github.com/andrewsjg/goamiga
 
 go 1.25.0
 
 require (
-	github.com/cavaliercoder/go-m68k v0.0.0
 	github.com/hajimehoshi/ebiten/v2 v2.10.4
 	github.com/ncruces/zenity v0.10.15
 	golang.org/x/image v0.45.0
@@ -25,5 +24,3 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 )
-
-replace github.com/cavaliercoder/go-m68k => ../go-m68k

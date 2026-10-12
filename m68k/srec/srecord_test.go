@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 func TestDecode(t *testing.T) {

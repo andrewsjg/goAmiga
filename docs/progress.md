@@ -42,6 +42,31 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-12 — The CPU joins the module; renamed github.com/andrewsjg/goamiga
+
+The CPU was a separate repository, `../go-m68k`, on a local branch that
+existed nowhere else. goAmiga used it through a `replace` directive.
+- Upstream (Ryan Armstrong's go-m68k) has been dormant since 2018.
+- About 70% of the code was now goAmiga's own: 68020, FPU, trace,
+  prefetch, exception frames, timing.
+- Nearly every CPU change was made for, and tested by, an emulator change.
+- The arrangement meant two commits for one feature, two repos to keep in
+  step, and a build that only worked with the sibling checkout on the
+  right branch.
+
+**The merge.** `git subtree add` brought the branch into `m68k/` with its
+whole history (Ryan's commits included).
+- The nested `go.mod` and the `replace` are gone.
+- The module is now `github.com/andrewsjg/goamiga`, and the CPU imports as
+  `github.com/andrewsjg/goamiga/m68k`.
+- go-m68k's LICENSE (BSD) stays with the code. `m68k/README.md` says
+  where it came from.
+- The SingleStepTests data (~190 MB) remains git-ignored in
+  `m68k/testdata/680x0/` and has to be downloaded (or copied) to run that
+  suite.
+
+Both suites pass in the merged module.
+
 ## 2026-10-12 — diag/ cleanup
 
 Removed 63 one-off diagnostic files: 61 Python scripts from the initial

@@ -1,8 +1,8 @@
 # goAmiga architecture
 
-goAmiga emulates an Amiga 500 (OCS, PAL, 512KB chip RAM, Kickstart 1.3) on
-top of the pure-Go 68000 core in `../go-m68k` (imported through a `replace`
-directive in `go.mod`).
+goAmiga emulates the Amiga 500 to 1200 (OCS, ECS and AGA chipsets; 68000 or
+68020). The CPU is the pure-Go 680x0 core in `m68k/`
+(`github.com/andrewsjg/goamiga/m68k`), part of this module.
 
 ## Layout
 
@@ -10,6 +10,7 @@ directive in `go.mod`).
 |---|---|
 | `cmd/goamiga/` | CLI and window: `main.go` (flags, no arguments opens the configuration screen), `machine.go` (builds an Amiga from `config.Settings`), `display.go` (the `app` game: configuration screen or running machine), `launcher.go` and `ui.go` (the configuration screen) |
 | `internal/config/` | Settings: the `Settings` struct behind the flags, settings files, and saved configurations (`~/.config/goamiga/configs/`) |
+| `m68k/` | The CPU: 68000 and 68020 instruction set, 68881/68882 FPU, exceptions, prefetch, cycle timing (`m68k/README.md`); `m68kmem/` memory interfaces; tests include the SingleStepTests 68000 suite (data in `m68k/testdata/680x0`, downloaded, not in git) |
 | `amiga/` | The machine: chipset, CIAs, floppy, input, display, and all tests |
 | `diag/` | Diagnostic tools: `adf.py` (list and extract files in OFS/FFS disk images) and `disasm68k.py` (68000/68020 disassembler for ROMs and memory dumps; needs capstone) |
 | `docs/` | This file, the progress log, and write-ups of the harder bugs |

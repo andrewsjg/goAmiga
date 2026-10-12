@@ -1,6 +1,11 @@
 # goAmiga
 
-An Amiga 500 emulator in Go, built on the `go-m68k` 68000 core in `../go-m68k`.
+An Amiga emulator in Go, with its own 68000/68020 CPU core in [`m68k/`](m68k/)
+(grown from Ryan Armstrong's go-m68k).
+
+```bash
+go install github.com/andrewsjg/goamiga/cmd/goamiga@latest
+```
 
 Kickstart 1.3 boots Workbench 1.3 from an ADF image in a window.
 

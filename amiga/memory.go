@@ -3,9 +3,9 @@ package amiga
 import (
 	"fmt"
 
-	m68k "github.com/cavaliercoder/go-m68k"
+	m68k "github.com/andrewsjg/goamiga/m68k"
 
-	"github.com/cavaliercoder/go-m68k/m68kmem"
+	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
 
 // Expansion memory: slow RAM and a Zorro II fast RAM board.

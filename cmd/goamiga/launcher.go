@@ -13,7 +13,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ncruces/zenity"
 
-	"github.com/cavaliercoder/goAmiga/internal/config"
+	"github.com/andrewsjg/goamiga/internal/config"
 )
 
 // The configuration screen: the saved configurations on the left, the
