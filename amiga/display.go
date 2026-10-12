@@ -430,6 +430,35 @@ func (d *Display) Draw(screen *ebiten.Image) {
 	}
 }
 
+// DrawFinalScreen puts the drawn frame in the window. The logical screen
+// (Layout) is hires-wide, so a super-hires frame, which is twice as wide,
+// would lose every other column on the way through it. Such a frame is
+// drawn again here straight from the framebuffer at the window's own
+// resolution: one window pixel per super-hires pixel at 2×, and averaged
+// (linear filtering) in a smaller window.
+func (d *Display) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.Image, geoM ebiten.GeoM) {
+	ebiten.DefaultDrawFinalScreen(screen, offscreen, geoM)
+	v := d.amiga.Video
+	if v == nil || d.screen == nil {
+		return
+	}
+	lw, lh := v.DisplaySize()
+	if v.Width <= lw || d.screen.Bounds().Dx() != v.Width {
+		return
+	}
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(float64(lw)/float64(v.Width), float64(lh)/float64(v.Height))
+	op.GeoM.Concat(geoM)
+	sx := op.GeoM.Element(0, 0)
+	switch {
+	case sx < 1:
+		op.Filter = ebiten.FilterLinear
+	case sx != math.Floor(sx):
+		op.Filter = ebiten.FilterPixelated
+	}
+	screen.DrawImage(d.screen, op)
+}
+
 // Layout returns the logical screen size: the framebuffer width and two
 // rows per non-interlaced line (Video.DisplaySize).
 func (d *Display) Layout(outsideWidth, outsideHeight int) (int, int) {

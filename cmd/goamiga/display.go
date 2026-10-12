@@ -179,6 +179,16 @@ func (g *app) Draw(screen *ebiten.Image) {
 	}
 }
 
+// DrawFinalScreen lets the emulator's display draw super-hires frames at
+// the window's resolution (Display.DrawFinalScreen).
+func (g *app) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.Image, geoM ebiten.GeoM) {
+	if g.disp != nil {
+		g.disp.DrawFinalScreen(screen, offscreen, geoM)
+		return
+	}
+	ebiten.DefaultDrawFinalScreen(screen, offscreen, geoM)
+}
+
 func (g *app) Layout(w, h int) (int, int) {
 	if g.disp != nil {
 		return g.disp.Layout(w, h)

@@ -57,6 +57,13 @@ Four gaps in AGA's display (and one in ECS's) are closed.
     edges) scales by it.
   - `DisplaySize` stays hires-wide, so the host window keeps its size and
     a 2× window shows each super-hires pixel as one host pixel.
+  - *Bug, found in use:* super-hires looked worse than the old averaging.
+    Ebitengine's logical screen (`Layout`) is hires-wide, so the 1280-wide
+    frame was scaled down to 640 on the way to the window, nearest pixel,
+    dropping every other column. The display now implements
+    `DrawFinalScreen` and draws a super-hires frame straight from the
+    framebuffer at the window's resolution: 1:1 at 2×, linear filtering in
+    a smaller window. The status bar and mouse keep the logical layout.
   - The first frame of super-hires still averages (`pf.half`), and the
     frame after the last one returns to hires width.
 - AGA shows up to 8 planes in super-hires (ECS 2), with the whole palette,
