@@ -14,7 +14,9 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 - OCS, ECS or AGA chipset, PAL or NTSC.
 - 512 KB to 2 MB of chip RAM, plus trapdoor slow RAM and Zorro II fast
   RAM.
-- Presets for the A500, A500+, A600 and A1200.
+- Presets for the A500, A500+, A600, A1200 and A3000. The A3000 has its
+  processor and chipset, with an A2091 card standing in for its built-in
+  SCSI.
 - Kickstart 1.3 to 3.2. Workbench 1.3 and 3.2 run from floppy or hard
   disk.
 - Amiga Unix (AMIX 2.1) on a 68030 with an A2091 SCSI controller (see
@@ -395,15 +397,21 @@ AMIX: it isn't included.
 ```bash
 go run ./cmd/amixdisk -cpio AMIX/amix_2.1.cpio -o amix.hdf
 goamiga --rom ROMS/Kick32.rom --cpu 68030 --fpu 68882 --chipset ecs \
-        --chipram 1024 --fastram 8192 --hdf amix.hdf --scsi 6:amix.hdf
+        --chipram 1024 --fastram 8192 --scsi 6:amix.hdf
 ```
 
+On the configuration screen, the **A3000** model button sets the
+machine up (68030, 68882, ECS, 1 MB chip and 8 MB fast RAM). Then add
+the disk with **Add SCSI disk…** on the Hard disks tab: the first SCSI
+disk gets ID 6.
+
 How it starts up:
-- **Booting.** Kickstart 2.0 or later boots the boot partition through
-  goamiga.device (`--hdf`), the way it boots a floppy.
+- **Booting.** The A2091's boot ROM isn't emulated, so each SCSI disk is
+  also a unit of goamiga.device. Kickstart 2.0 or later boots the boot
+  partition from there, the way it boots a floppy.
 - **The kernel** then takes over the machine and finds the same disk on
-  the A2091 (`--scsi 6:`). ID 6 is the A3000's internal drive, where the
-  kernel looks for its root.
+  the A2091. ID 6 is the A3000's internal drive, where the kernel looks
+  for its root.
 - **First boot.** The first boot runs AMIX's setup questions: node name,
   timezone, passwords, a user account.
 

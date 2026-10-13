@@ -42,6 +42,32 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-13 — The A3000 preset, SCSI disks on the configuration screen
+
+**The preset.** The configuration screen has an **A3000** model: a 68030
+with a 68882, ECS, 1 MB of chip RAM and 8 MB of fast RAM. That's the real
+machine's processor and chipset, and what Amiga Unix needs. The model
+buttons now wrap onto a second row when they don't fit.
+
+**What it isn't.** The A3000's built-in SCSI (its SDMAC), its 32-bit
+motherboard RAM above 16 MB and its Ricoh clock aren't emulated. An
+A2091, Zorro II fast RAM and the Oki clock stand in, and AMIX accepts
+all three. The built-in SCSI would matter for the A3000's own Kickstart,
+which needs an A3000 ROM image.
+
+**SCSI disks on the configuration screen.** The Hard disks tab lists them
+with hardfiles and folders. **Add SCSI disk…** gives the first one ID 6
+(where AMIX looks for its root), and later ones the lowest free ID.
+
+**One attachment.** `AttachSCSI` also makes each SCSI disk a unit of
+goamiga.device, unless the same file is one already. This stands in for
+the A2091's boot ROM, which isn't emulated, so AmigaOS mounts and boots
+SCSI disks itself. AMIX now needs only `--scsi 6:amix.hdf`; before, it
+also needed `--hdf amix.hdf`.
+- `TestAMIXBoot` boots with only `AttachSCSI`.
+- `TestA2091` configures both boards in the chain: goamiga.device's at
+  $E90000, the A2091 at $EA0000.
+
 ## 2026-10-12 — Amiga Unix boots
 
 AMIX 2.1, Commodore's System V Release 4, boots to its first-boot setup

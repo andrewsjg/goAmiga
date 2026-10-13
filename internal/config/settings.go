@@ -80,7 +80,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.Var(&s.Drives[3], "df3", "ADF for DF3: (connects the drive); repeat for more")
 	fs.Var(&s.Hardfiles, "hdf", "Hard disk image (.hdf, plain or RDB) as the next unit of goamiga.device; repeat for more")
 	fs.Var(&s.Dirs, "dir", "Host folder as an Amiga drive: PATH, or VOLUME=PATH to name its volume (else the folder's name); bootable if it has S/Startup-Sequence; repeat for more")
-	fs.Var(&s.SCSI, "scsi", "Hardfile as a SCSI disk on an A2091 controller, as ID:PATH (ID 0-6); for Amiga Unix, which drives the A2091 itself (AmigaOS has no driver for it here); repeat for more")
+	fs.Var(&s.SCSI, "scsi", "Hardfile as a SCSI disk on an A2091 controller, as ID:PATH (ID 0-6), for Amiga Unix, which drives the A2091 itself (put its disk at ID 6); AmigaOS reaches the same disk through goamiga.device; repeat for more")
 	fs.Var(&s.IDE, "ide", "Hardfile (with a Rigid Disk Block) as an IDE drive on Gayle, booted by Kickstart's own scsi.device: the master, then the slave")
 	fs.StringVar(&s.Gayle, "gayle", s.Gayle, "Gayle, the A600/A1200 IDE interface: auto (fitted with the AGA chipset), on or off; --ide fits it")
 	fs.IntVar(&s.HDFCreate, "hdf-create", s.HDFCreate, "Create any --hdf file that does not exist, blank, this many MB (format it from the Amiga)")

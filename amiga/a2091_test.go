@@ -29,12 +29,16 @@ func newA2091Rig(t *testing.T) *a2091Rig {
 		t.Fatal(err)
 	}
 	a.wireMemoryMap(false)
-	a.pokeBytes(0xE8004A, []byte{0x90})
-	a.pokeBytes(0xE80048, []byte{0xE0})
-	if a.SCSI.Configured() != 0xE90000 {
-		t.Fatalf("A2091 at $%06X", a.SCSI.Configured())
+	// The chain: goamiga.device's board (which serves the disk to
+	// AmigaOS) at $E90000, then the A2091 at $EA0000.
+	for _, base := range []byte{0x90, 0xA0} {
+		a.pokeBytes(0xE8004A, []byte{base}) // A19-A16 in the high nibble
+		a.pokeBytes(0xE80048, []byte{0xE0})
 	}
-	r := &a2091Rig{t: t, a: a, base: 0xE90000, img: img}
+	if a.HardDisk.Configured() != 0xE90000 || a.SCSI.Configured() != 0xEA0000 {
+		t.Fatalf("boards at $%06X and $%06X", a.HardDisk.Configured(), a.SCSI.Configured())
+	}
+	r := &a2091Rig{t: t, a: a, base: 0xEA0000, img: img}
 	// initialize(): own ID 7 with advanced features, reset, wait.
 	r.setreg(wdOwnID, 0x0F)
 	r.setreg(wdCommand, 0x00)

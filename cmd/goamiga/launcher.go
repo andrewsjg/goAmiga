@@ -311,6 +311,13 @@ var presets = []struct {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "68882", "aga", 2048, 0, 8192
 		s.Gayle = "on"
 	}},
+	// The A3000's processor and chipset: what Amiga Unix needs (its disk
+	// goes on the A2091 at SCSI ID 6). The real machine's built-in SCSI
+	// and 32-bit memory aren't emulated.
+	{"A3000", func(s *config.Settings) {
+		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68030", 0, "68882", "ecs", 1024, 0, 8192
+		s.Gayle = "off"
+	}},
 }
 
 func (l *launcher) machineTab(x, y int) {
@@ -319,9 +326,16 @@ func (l *launcher) machineTab(x, y int) {
 	bx := x
 	for _, p := range presets {
 		w := u.textWidth(p.name) + 20
+		if bx+w > launcherW-20 { // wrap onto a second row
+			bx, y = x, y+30
+		}
 		if u.button(bx, y, w, 24, p.name) {
 			p.apply(&l.s)
-			l.say(false, "%s settings (choose a matching Kickstart ROM)", p.name)
+			if p.name == "A3000" {
+				l.say(false, "A3000 settings: for Amiga Unix, add its disk as a SCSI disk (ID 6) on the Hard disks tab")
+			} else {
+				l.say(false, "%s settings (choose a matching Kickstart ROM)", p.name)
+			}
 		}
 		bx += w + 6
 	}
@@ -422,7 +436,7 @@ func (l *launcher) hardDiskTab(x, y int) {
 	u.text(x, y, "IDE drives need a Rigid Disk Block; they fit Gayle.", uiDim)
 	y += 34
 	x -= 130
-	u.text(x, y, "Hardfiles and host folders on goamiga.device (any Amiga)", uiBlack)
+	u.text(x, y, "Hardfiles, host folders and SCSI disks", uiBlack)
 	y += 26
 	row := func(label string, remove func()) {
 		u.fill(x, y, 400, 22, uiDarker)
@@ -449,13 +463,27 @@ func (l *launcher) hardDiskTab(x, y int) {
 			i--
 		})
 	}
-	rows := len(l.s.Hardfiles) + len(l.s.Dirs)
+	for i := 0; i < len(l.s.SCSI); i++ {
+		v := l.s.SCSI[i]
+		label := v
+		if len(v) > 2 && v[1] == ':' {
+			label = fmt.Sprintf("SCSI ID %c: %s", v[0], v[2:])
+		}
+		row(label, func() {
+			l.s.SCSI = slices.Delete(l.s.SCSI, i, i+1)
+			i--
+		})
+	}
+	rows := len(l.s.Hardfiles) + len(l.s.Dirs) + len(l.s.SCSI)
 	if rows < 8 {
 		if u.button(x, y, 120, 24, "Add hardfile…") {
 			l.choose("hdf", "", hdfFilter, false)
 		}
 		if u.button(x+128, y, 120, 24, "Add folder…") {
 			l.choose("dir", "", nil, true)
+		}
+		if u.button(x+256, y, 130, 24, "Add SCSI disk…") {
+			l.choose("scsi", "", hdfFilter, false)
 		}
 	}
 	y += 34
@@ -464,7 +492,9 @@ func (l *launcher) hardDiskTab(x, y int) {
 	}
 	for _, ln := range u.wrap("Plain hardfiles and RDB images both work here. A new, empty hardfile "+
 		"can be made with --hdf-create from the command line and formatted from Workbench. "+
-		"A folder appears as a volume named after it, and boots if it has S/Startup-Sequence.", 520) {
+		"A folder appears as a volume named after it, and boots if it has S/Startup-Sequence. "+
+		"SCSI disks go on an A2091 for Amiga Unix (the first at ID 6, where it looks for its "+
+		"root); AmigaOS sees them too.", 520) {
 		u.text(x, y, ln, uiDim)
 		y += 18
 	}
@@ -555,6 +585,7 @@ func (l *launcher) choose(target, current string, filters zenity.FileFilters, di
 		opts := []zenity.Option{zenity.Filename(start)}
 		title := map[string]string{"rom": "Choose a Kickstart ROM", "hdf": "Choose a hardfile",
 			"dir":  "Choose a folder to use as an Amiga drive",
+			"scsi": "Choose a hardfile for the SCSI disk",
 			"ide0": "Hardfile for the IDE master", "ide1": "Hardfile for the IDE slave",
 			"shots": "Folder for screenshots", "states": "Folder for save states"}[target]
 		if strings.HasPrefix(target, "df") {
@@ -599,6 +630,8 @@ func (l *launcher) pollChooser() {
 		l.s.Hardfiles = append(l.s.Hardfiles, c.path)
 	case c.target == "dir":
 		l.s.Dirs = append(l.s.Dirs, c.path)
+	case c.target == "scsi":
+		l.s.SCSI = append(l.s.SCSI, fmt.Sprintf("%d:%s", freeSCSIID(l.s.SCSI), c.path))
 	case strings.HasPrefix(c.target, "ide"):
 		if i := int(c.target[3] - '0'); i < len(l.s.IDE) {
 			l.s.IDE[i] = c.path
@@ -613,3 +646,24 @@ func (l *launcher) pollChooser() {
 }
 
 func (l *launcher) draw(screen *ebiten.Image) { l.ui.draw(screen) }
+
+// freeSCSIID is the ID for a new SCSI disk: 6 (the A3000's internal
+// drive, where Amiga Unix looks for its root) if free, else the lowest
+// free one.
+func freeSCSIID(disks []string) int {
+	used := map[byte]bool{}
+	for _, d := range disks {
+		if len(d) > 1 {
+			used[d[0]] = true
+		}
+	}
+	if !used['6'] {
+		return 6
+	}
+	for id := byte('0'); id <= '5'; id++ {
+		if !used[id] {
+			return int(id - '0')
+		}
+	}
+	return 6
+}

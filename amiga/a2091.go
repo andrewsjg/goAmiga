@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/andrewsjg/goamiga/m68k/m68kmem"
 )
@@ -12,8 +13,9 @@ import (
 // controller (the DMAC) in front of a Western Digital WD33C93 SCSI bus
 // controller. Amiga Unix drives it directly. Its boot ROM isn't emulated
 // (Commodore's scsi.device isn't here), so Kickstart configures the board
-// but has no driver for it; AmigaOS can boot from the same disk through
-// goamiga.device.
+// but has no driver for it. Instead each SCSI disk is also a unit of
+// goamiga.device: AmigaOS mounts and boots it from there (Amiga Unix's
+// boot partition included), and Unix then finds it on the A2091.
 //
 // The DMAC's registers, at offsets from the board's base:
 //
@@ -74,7 +76,8 @@ func (c *a2091) tracef(format string, args ...any) {
 }
 
 // AttachSCSI connects a hardfile as SCSI target id (0-6) on an A2091,
-// fitting the board if needed. Call it before Reset.
+// fitting the board if needed, and as a unit of goamiga.device for
+// AmigaOS (unless it is one already). Call it before Reset.
 func (a *Amiga) AttachSCSI(id int, path string, readOnly bool) error {
 	if id < 0 || id > 6 {
 		return fmt.Errorf("SCSI ID %d: must be 0-6 (7 is the controller)", id)
@@ -94,8 +97,22 @@ func (a *Amiga) AttachSCSI(id int, path string, readOnly bool) error {
 	d.onIO = func(write bool) { c.lastIO, c.lastWrite = a.cycles|1, write }
 	c.targets[id] = d
 	c.files = append(c.files, hf)
-	a.wireMemoryMap(a.overlay)
-	return nil
+	if a.HardDisk != nil {
+		for _, f := range a.HardDisk.Files {
+			if sameFile(f.Path, path) {
+				a.wireMemoryMap(a.overlay)
+				return nil
+			}
+		}
+	}
+	return a.AttachHardfile(path, readOnly)
+}
+
+// sameFile reports whether two paths name the same file.
+func sameFile(p, q string) bool {
+	a, err1 := os.Stat(p)
+	b, err2 := os.Stat(q)
+	return err1 == nil && err2 == nil && os.SameFile(a, b)
 }
 
 // Activity reports recent transfers, for the status bar.

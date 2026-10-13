@@ -157,7 +157,7 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 		if err := a.AttachSCSI(int(v[0]-'0'), v[2:], s.WriteProtect); err != nil {
 			return fail(fmt.Errorf("SCSI disk %v", err))
 		}
-		fmt.Fprintf(out, "A2091 SCSI ID %c: %s\n", v[0], v[2:])
+		fmt.Fprintf(out, "A2091 SCSI ID %c: %s (and a goamiga.device unit, for AmigaOS)\n", v[0], v[2:])
 	}
 	for _, v := range s.Dirs {
 		vol, p := config.SplitDir(v)

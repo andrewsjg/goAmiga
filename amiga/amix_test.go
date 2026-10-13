@@ -34,9 +34,8 @@ func TestAMIXBoot(t *testing.T) {
 	if err := a.ConfigureMemory(0, 8192); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.AttachHardfile(hdf, false); err != nil {
-		t.Fatal(err)
-	}
+	// One attachment: AmigaOS boots it through goamiga.device, which
+	// AttachSCSI also attaches it to.
 	if err := a.AttachSCSI(6, hdf, false); err != nil {
 		t.Fatal(err)
 	}
