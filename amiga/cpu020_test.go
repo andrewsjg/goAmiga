@@ -38,7 +38,7 @@ func boot020(t *testing.T, rom, disk string) *Amiga {
 // Kickstart finds the 68020 by itself (it probes with MOVEC and CACR) and
 // boots Workbench on it.
 func TestBoot68020KS32(t *testing.T) {
-	a := boot020(t, "../ROMS/Kick32.rom", "../disks/Install3.2.adf")
+	a := boot020(t, "../ROMS/Kick32.rom", "../Workbench/Install3.2.adf")
 	for i := 0; i < 400; i++ {
 		a.RunFrame()
 	}
@@ -54,7 +54,7 @@ func TestBoot68020KS32(t *testing.T) {
 }
 
 func TestBoot68020KS13(t *testing.T) {
-	a := boot020(t, "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	a := boot020(t, "../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if f := execAttnFlags(a); f&2 == 0 {
 		t.Errorf("AttnFlags = $%04X, want the 68020 bit", f)
 	}
@@ -77,7 +77,7 @@ func TestBootFPU(t *testing.T) {
 		}
 		a.SetChipRAM(1024)
 		a.ConfigureMemory(0, 2048)
-		a.AttachHardfile(hardfileFromADF(t, "../disks/Install3.2.adf"), false)
+		a.AttachHardfile(hardfileFromADF(t, "../Workbench/Install3.2.adf"), false)
 		a.Reset()
 		if !waitWorkbench(t, a) {
 			t.Fatalf("%s: Workbench did not start", f.model)
@@ -103,7 +103,7 @@ func TestBootKS32On68030(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.ConfigureMemory(0, 4096)
-	if err := a.AttachHardfile(hardfileFromADF(t, testDisk("Install3.2.adf")), false); err != nil {
+	if err := a.AttachHardfile(hardfileFromADF(t, "../Workbench/Install3.2.adf"), false); err != nil {
 		t.Fatal(err)
 	}
 	a.Reset()
@@ -116,14 +116,4 @@ func TestBootKS32On68030(t *testing.T) {
 	if attn&0x04 == 0 || attn&0x20 == 0 {
 		t.Errorf("AttnFlags $%04X: want AFF_68030 and AFF_68882", attn)
 	}
-}
-
-// testDisk finds a disk image in Workbench/ or, as before, disks/.
-func testDisk(name string) string {
-	for _, dir := range []string{"../Workbench/", "../disks/"} {
-		if _, err := os.Stat(dir + name); err == nil {
-			return dir + name
-		}
-	}
-	return "../Workbench/" + name
 }

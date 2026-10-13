@@ -340,7 +340,7 @@ func readDisk(t *testing.T, path string) []byte {
 // Kickstart 1.3's ROM has only OFS: Workbench 1.3 on an FFS partition
 // boots with the FastFileSystem from the RDB.
 func TestRDBFileSystemKS13(t *testing.T) {
-	wb := readDisk(t, "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	wb := readDisk(t, "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	ffs := adfRead(wb, "l/FastFileSystem")
 	if ffs == nil {
 		t.Fatal("no l/FastFileSystem on the Workbench disk")
@@ -357,8 +357,8 @@ func TestRDBFileSystemKS13(t *testing.T) {
 
 // Kickstart 3.2's FFS is newer than an RDB's 1.3 copy: the ROM's is used.
 func TestRDBFileSystemOlderThanROM(t *testing.T) {
-	inst := readDisk(t, "../disks/Install3.2.adf")
-	wb := readDisk(t, "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	inst := readDisk(t, "../Workbench/Install3.2.adf")
+	wb := readDisk(t, "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	_, trace := bootRDBFS(t, "../ROMS/Kick32.rom", inst, rdbFS{0x444F5301, 34 << 16, adfRead(wb, "l/FastFileSystem")})
 	if !strings.Contains(trace, "from FileSystem.resource") || strings.Contains(trace, "loaded filesystem") {
 		t.Error("expected the ROM's FFS to be used")
@@ -368,7 +368,7 @@ func TestRDBFileSystemOlderThanROM(t *testing.T) {
 // A newer filesystem in the RDB is loaded on Kickstart 3.2 too, and added
 // to FileSystem.resource.
 func TestRDBFileSystemNewerThanROM(t *testing.T) {
-	inst := readDisk(t, "../disks/Install3.2.adf")
+	inst := readDisk(t, "../Workbench/Install3.2.adf")
 	ffs := adfRead(inst, "L/FastFileSystem")
 	a, trace := bootRDBFS(t, "../ROMS/Kick32.rom", inst, rdbFS{0x444F5301, 99 << 16, ffs})
 	if !strings.Contains(trace, "loaded filesystem DOS\\1 99.0") {

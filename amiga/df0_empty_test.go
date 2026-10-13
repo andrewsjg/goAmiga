@@ -39,10 +39,10 @@ func testInsertAfterEmptyBoot(t *testing.T, rom, hdf, floppy, volume string) {
 }
 
 func TestInsertAfterEmptyBootKS13(t *testing.T) {
-	testInsertAfterEmptyBoot(t, "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
-		"../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "Floppy")
+	testInsertAfterEmptyBoot(t, "../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
+		"../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "Floppy")
 }
 
 func TestInsertAfterEmptyBootKS32(t *testing.T) {
-	testInsertAfterEmptyBoot(t, "../ROMS/Kick32.rom", "../disks/Install3.2.adf", "../disks/Extras3.2.adf", "Extras3.2")
+	testInsertAfterEmptyBoot(t, "../ROMS/Kick32.rom", "../Workbench/Install3.2.adf", "../Workbench/Extras3.2.adf", "Extras3.2")
 }

@@ -231,12 +231,12 @@ func TestGayleID(t *testing.T) {
 // Kickstart 3.2 for the A1200 finds an IDE drive through Gayle and its
 // scsi.device boots Workbench from the RDB partition on it.
 func TestGayleIDEBootKS32A1200(t *testing.T) {
-	bootIDE(t, readDisk(t, "../disks/Install3.2.adf"))
+	bootIDE(t, readDisk(t, "../Workbench/Install3.2.adf"))
 }
 
 // Kickstart's scsi.device loads a filesystem from the RDB itself.
 func TestGayleIDEFileSystemKS32A1200(t *testing.T) {
-	inst := readDisk(t, "../disks/Install3.2.adf")
+	inst := readDisk(t, "../Workbench/Install3.2.adf")
 	a := bootIDE(t, inst, rdbFS{0x444F5301, 99 << 16, adfRead(inst, "L/FastFileSystem")})
 	if e := a.fileSysEntry(0x444F5301); e == 0 || a.peek32(e+fseVersion) != 99<<16 {
 		t.Error("scsi.device didn't load the filesystem from the RDB")

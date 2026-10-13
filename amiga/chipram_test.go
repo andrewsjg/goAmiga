@@ -19,7 +19,7 @@ func chipFree(a *Amiga) (free, upper uint32) {
 // display (bitplane, Copper and blitter DMA above 512KB) still works well
 // enough for Workbench to start.
 func TestChipRAM1MBKS13(t *testing.T) {
-	a := bootHardfileMem(t, "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", 1024, 0, 0)
+	a := bootHardfileMem(t, "../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", 1024, 0, 0)
 	free, upper := chipFree(a)
 	t.Logf("chip RAM: upper $%06X, %d KB free", upper, free/1024)
 	// 1.3's exec keeps its supervisor stack at the top of chip RAM.
@@ -29,7 +29,7 @@ func TestChipRAM1MBKS13(t *testing.T) {
 }
 
 func TestChipRAM1MBKS32(t *testing.T) {
-	a := bootHardfileMem(t, "../ROMS/Kick32.rom", "../disks/Install3.2.adf", 1024, 0, 0)
+	a := bootHardfileMem(t, "../ROMS/Kick32.rom", "../Workbench/Install3.2.adf", 1024, 0, 0)
 	free, upper := chipFree(a)
 	t.Logf("chip RAM: upper $%06X, %d KB free", upper, free/1024)
 	if upper != 0x100000 || free < 500*1024 {

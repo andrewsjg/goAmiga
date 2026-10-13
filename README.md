@@ -108,8 +108,8 @@ runs, the **Config** button (or Cmd+,) switches it off and returns here.
 Flags skip the configuration screen and boot straight away:
 
 ```bash
-goamiga --rom ROMS/Kick13.rom --df0 "disks/Workbench1.3.adf"
-goamiga --rom ROMS/Kick32.rom --df0 disks/Install3.2.adf --df1 disks/Workbench3.2.adf
+goamiga --rom ROMS/Kick13.rom --df0 "Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"
+goamiga --rom ROMS/Kick32.rom --df0 Workbench/Install3.2.adf --df1 Workbench/Workbench3.2.adf
 goamiga --rom ROMS/kick32a1200.rom --chipset aga --cpu 68020 --hdf dh0.hdf
 goamiga --config "My A1200"        # a configuration saved from the screen
 goamiga --rom ROMS/Kick13.rom --headless --cycles 10000000
@@ -212,7 +212,7 @@ more.
 With no bootable floppy in DF0:, the Amiga boots from the hard disk.
 
 ```bash
-goamiga --rom ROMS/Kick32.rom --hdf dh0.hdf --hdf-create 100 --df0 disks/Install3.2.adf
+goamiga --rom ROMS/Kick32.rom --hdf dh0.hdf --hdf-create 100 --df0 Workbench/Install3.2.adf
 ```
 
 `--hdf-create MB` creates any `--hdf` file that doesn't exist yet, blank.
@@ -296,7 +296,7 @@ Copy `goamiga.conf.example` to start.
 ```
 rom     = ROMS/Kick32.rom
 hdf     = dh0.hdf
-df0     = disks/Install3.2.adf
+df0     = Workbench/Install3.2.adf
 fastram = 8192
 ```
 
@@ -461,8 +461,8 @@ including over SSH or with the screen locked.
 
 Many tests boot real software. They skip when the files aren't there:
 - **ROMs** in `ROMS/`: `Kick13.rom`, `Kick32.rom`, `kick32a1200.rom`.
-- **Disks** in `disks/`: the two Workbench 1.3 disks, `Workbench3.2.adf`
-  and `Install3.2.adf`.
+- **Disks** in `Workbench/`: the two Workbench 1.3 disks,
+  `Workbench3.2.adf` and `Install3.2.adf`.
 
 The CPU's tests include the SingleStepTests 68000 suite, which needs its
 data (about 190 MB) in `m68k/testdata/680x0/`. See

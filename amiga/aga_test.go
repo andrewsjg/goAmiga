@@ -189,7 +189,7 @@ func TestBootAGA(t *testing.T) {
 	a.SetChipset("aga")
 	a.SetChipRAM(2048)
 	a.ConfigureMemory(0, 2048)
-	if err := a.AttachHardfile(hardfileFromADF(t, "../disks/Install3.2.adf"), false); err != nil {
+	if err := a.AttachHardfile(hardfileFromADF(t, "../Workbench/Install3.2.adf"), false); err != nil {
 		t.Fatal(err)
 	}
 	a.Reset()

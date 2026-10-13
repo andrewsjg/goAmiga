@@ -105,7 +105,7 @@ func TestKS13MountsDF1(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	wb, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	wb, err := os.ReadFile("../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

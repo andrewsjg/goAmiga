@@ -20,7 +20,7 @@ func TestWhiteScreenDiag(t *testing.T) {
 
 	// Try loading disk (optional)
 	for _, p := range []string{
-		"../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
+		"../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf",
 		"../wb13.adf",
 	} {
 		if data, err2 := os.ReadFile(p); err2 == nil {

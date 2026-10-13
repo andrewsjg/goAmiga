@@ -18,8 +18,8 @@ import (
 //
 //	rom     = ROMS/Kick32.rom
 //	hdf     = dh0.hdf
-//	df0     = disks/Install3.2.adf
-//	df0     = disks/Extras3.2.adf
+//	df0     = Workbench/Install3.2.adf
+//	df0     = Workbench/Extras3.2.adf
 //	fastram = 8192
 //	mute
 

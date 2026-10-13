@@ -78,7 +78,7 @@ func TestKS32InstallDiskWorkbench(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.ConfigureMemory(512, 0)
-	if err := a.LoadDisk("../disks/Install3.2.adf"); err != nil {
+	if err := a.LoadDisk("../Workbench/Install3.2.adf"); err != nil {
 		t.Skip(err)
 	}
 	a.Disk.WriteProtected = true
@@ -146,10 +146,10 @@ func TestKS32TwoDrivesClock(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	install, err1 := os.ReadFile("../disks/Install3.2.adf")
-	wb, err2 := os.ReadFile("../disks/Workbench3.2.adf")
+	install, err1 := os.ReadFile("../Workbench/Install3.2.adf")
+	wb, err2 := os.ReadFile("../Workbench/Workbench3.2.adf")
 	if err1 != nil || err2 != nil {
-		t.Skip("needs disks/Install3.2.adf and disks/Workbench3.2.adf")
+		t.Skip("needs Workbench/Install3.2.adf and Workbench/Workbench3.2.adf")
 	}
 	patchLine(t, install, "Copy ENVARC: RAM:ENV QUIET ALL NOREQ", "Assign LIBS: DF1:Libs DF1:Classes")
 	patchLine(t, install, "Assign >NIL: T:   RAM:T", "Run DF1:Utilities/Clock")

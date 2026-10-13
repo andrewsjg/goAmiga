@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """List and extract files from an Amiga ADF (OFS or FFS).
 
-    python3 diag/adf.py list disks/Workbench3.2.adf
-    python3 diag/adf.py find disks/Workbench3.2.adf Clock
-    python3 diag/adf.py cat  disks/Workbench3.2.adf S/Startup-Sequence
-    python3 diag/adf.py get  disks/Workbench3.2.adf Utilities/Clock /tmp/Clock
-    python3 diag/adf.py where disks/Workbench3.2.adf S/Startup-Sequence
+    python3 diag/adf.py list Workbench/Workbench3.2.adf
+    python3 diag/adf.py find Workbench/Workbench3.2.adf Clock
+    python3 diag/adf.py cat  Workbench/Workbench3.2.adf S/Startup-Sequence
+    python3 diag/adf.py get  Workbench/Workbench3.2.adf Utilities/Clock /tmp/Clock
+    python3 diag/adf.py where Workbench/Workbench3.2.adf S/Startup-Sequence
         (prints the byte offsets in the image of each data block)
 """
 import struct

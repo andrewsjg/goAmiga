@@ -11,7 +11,7 @@ func decodePair(odd, even uint32) uint32 {
 }
 
 func TestMFMTrackdiskDecode(t *testing.T) {
-	data, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	data, err := os.ReadFile("../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skip(err)
 	}

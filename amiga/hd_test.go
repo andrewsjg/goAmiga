@@ -35,12 +35,12 @@ func hardfileFromADF(t *testing.T, adf string) string {
 
 // Kickstart 1.3 boots Workbench from a hardfile with no floppy inserted.
 func TestHardfileBootKS13(t *testing.T) {
-	bootHardfile(t, "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	bootHardfile(t, "../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 }
 
 // Kickstart 3.2 does too, through the same 1.3-style BootPoint.
 func TestHardfileBootKS32(t *testing.T) {
-	bootHardfile(t, "../ROMS/Kick32.rom", "../disks/Install3.2.adf")
+	bootHardfile(t, "../ROMS/Kick32.rom", "../Workbench/Install3.2.adf")
 }
 
 // bootHardfile boots from adf as a hardfile until Workbench starts.
@@ -276,8 +276,8 @@ func waitWorkbench(t *testing.T, a *Amiga) bool {
 // expansion boards return to their reset state and Kickstart starts over.
 func TestResetRunningMachine(t *testing.T) {
 	for _, rom := range []struct{ rom, disk string }{
-		{"../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"},
-		{"../ROMS/Kick32.rom", "../disks/Install3.2.adf"},
+		{"../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"},
+		{"../ROMS/Kick32.rom", "../Workbench/Install3.2.adf"},
 	} {
 		a := bootHardfileMem(t, rom.rom, rom.disk, 1024, 0, 2048)
 		a.HardDisk.Trace = nil

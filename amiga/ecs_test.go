@@ -42,7 +42,7 @@ func TestChipsetDetectedKS32(t *testing.T) {
 		chipset string
 		want    byte
 	}{{"ocs", 0}, {"ecs-agnus", 1}, {"ecs", 3}} {
-		a := bootChipset(t, "../ROMS/Kick32.rom", "../disks/Install3.2.adf", c.chipset)
+		a := bootChipset(t, "../ROMS/Kick32.rom", "../Workbench/Install3.2.adf", c.chipset)
 		for i := 0; i < 400; i++ {
 			a.RunFrame()
 		}
@@ -60,7 +60,7 @@ func TestChipsetDetectedKS32(t *testing.T) {
 
 // Kickstart 1.3 predates ECS and must still boot with it fitted.
 func TestChipsetECSKS13(t *testing.T) {
-	bootChipset(t, "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "ecs")
+	bootChipset(t, "../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "ecs")
 }
 
 // ECS big blits: BLTSIZV then BLTSIZH starts a blit taller than BLTSIZE

@@ -29,7 +29,7 @@ func TestCopperDiag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating Amiga: %v", err)
 	}
-	diskData, err := os.ReadFile("../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	diskData, err := os.ReadFile("../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 	if err != nil {
 		t.Skipf("Cannot load disk: %v", err)
 	}

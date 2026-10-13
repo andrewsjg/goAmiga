@@ -67,11 +67,11 @@ func bootFolder(t *testing.T, romPath, adf string) (*Amiga, string) {
 }
 
 func TestFolderBootKS13(t *testing.T) {
-	bootFolder(t, "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
+	bootFolder(t, "../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf")
 }
 
 func TestFolderBootKS32(t *testing.T) {
-	bootFolder(t, "../ROMS/Kick32.rom", "../disks/Install3.2.adf")
+	bootFolder(t, "../ROMS/Kick32.rom", "../Workbench/Install3.2.adf")
 }
 
 // hostfsRig drives a folder's packet handling directly, with its
@@ -284,8 +284,8 @@ func TestHostfsReadOnly(t *testing.T) {
 // hardfile and the folder's volume is mounted.
 func TestFolderBesideHardfile(t *testing.T) {
 	for _, c := range []struct{ rom, adf string }{
-		{"../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"},
-		{"../ROMS/Kick32.rom", "../disks/Install3.2.adf"},
+		{"../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf"},
+		{"../ROMS/Kick32.rom", "../Workbench/Install3.2.adf"},
 	} {
 		rom, err := LoadROM(c.rom)
 		if err != nil {
@@ -356,8 +356,8 @@ func workbenchInMode(t *testing.T, displayID uint32, w, h, depth uint16) *Amiga 
 	}
 	dir := filepath.Join(t.TempDir(), "Install3.2")
 	os.Mkdir(dir, 0o755)
-	adfExtract(t, readDisk(t, "../disks/Install3.2.adf"), dir)
-	wb := readDisk(t, "../disks/Workbench3.2.adf")
+	adfExtract(t, readDisk(t, "../Workbench/Install3.2.adf"), dir)
+	wb := readDisk(t, "../Workbench/Workbench3.2.adf")
 	os.WriteFile(filepath.Join(dir, "C", "IPrefs"), adfRead(wb, "C/IPrefs"), 0o644)
 	ss := filepath.Join(dir, "S", "Startup-Sequence")
 	b, _ := os.ReadFile(ss)

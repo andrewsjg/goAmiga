@@ -61,13 +61,13 @@ func TestSaveStateResumesExactly(t *testing.T) {
 		folder                 string // an ADF whose files are a host folder
 	}{
 		// Mid-boot from floppy: disk DMA, drive motor, trackdisk.
-		{"KS1.3 floppy", "../ROMS/Kick13.rom", "../disks/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "", 150, false, ""},
+		{"KS1.3 floppy", "../ROMS/Kick13.rom", "../Workbench/Workbench v1.3.3 rev 34.34-Disk 1 of 2.adf", "", 150, false, ""},
 		// Workbench 3.2 from a hardfile, with fast RAM and the controller.
-		{"KS3.2 hardfile", "../ROMS/Kick32.rom", "", "../disks/Install3.2.adf", 350, false, ""},
+		{"KS3.2 hardfile", "../ROMS/Kick32.rom", "", "../Workbench/Install3.2.adf", 350, false, ""},
 		// AGA: the 256-colour palette, FMODE, the 68020.
-		{"KS3.2 A1200 AGA", "../ROMS/kick32a1200.rom", "", "../disks/Install3.2.adf", 300, true, ""},
+		{"KS3.2 A1200 AGA", "../ROMS/kick32a1200.rom", "", "../Workbench/Install3.2.adf", 300, true, ""},
 		// Mid-boot from a host folder: locks and open files.
-		{"KS3.2 folder", "../ROMS/Kick32.rom", "", "", 250, false, "../disks/Install3.2.adf"},
+		{"KS3.2 folder", "../ROMS/Kick32.rom", "", "", 250, false, "../Workbench/Install3.2.adf"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
