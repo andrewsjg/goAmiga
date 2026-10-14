@@ -147,6 +147,15 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			return fail(fmt.Errorf("hardfile %v", err))
 		}
 	}
+	if v := s.Tape; v != "" {
+		if len(v) < 3 || v[1] != ':' || v[0] < '0' || v[0] > '6' {
+			return fail(fmt.Errorf("--tape %q: give it as ID:DIR, ID 0-6", v))
+		}
+		if err := a.AttachTape(int(v[0]-'0'), v[2:]); err != nil {
+			return fail(fmt.Errorf("tape %v", err))
+		}
+		fmt.Fprintf(out, "A2091 SCSI ID %c: tape drive with %s\n", v[0], v[2:])
+	}
 	if s.Clock {
 		a.EnableClock()
 		a.RTC.Y2K = s.ClockY2K

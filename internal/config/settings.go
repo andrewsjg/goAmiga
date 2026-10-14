@@ -22,6 +22,7 @@ type Settings struct {
 	Dirs         List   // host folders as drives: PATH or VOLUME=PATH
 	IDE          List   // IDE drives on Gayle: the master, then the slave
 	SCSI         List   // SCSI disks on an A2091: ID:PATH
+	Tape         string // a SCSI tape drive on the A2091: ID:DIR
 	Gayle        string // auto (with AGA, as in the A1200), on or off
 	HDFCreate    int
 	WriteProtect bool
@@ -82,6 +83,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.Var(&s.Hardfiles, "hdf", "Hard disk image (.hdf, plain or RDB) as the next unit of goamiga.device; repeat for more")
 	fs.Var(&s.Dirs, "dir", "Host folder as an Amiga drive: PATH, or VOLUME=PATH to name its volume (else the folder's name); bootable if it has S/Startup-Sequence; repeat for more")
 	fs.Var(&s.SCSI, "scsi", "Hardfile as a SCSI disk on an A2091 controller, as ID:PATH (ID 0-6), for Amiga Unix, which drives the A2091 itself (put its disk at ID 6); AmigaOS reaches the same disk through goamiga.device; repeat for more")
+	fs.StringVar(&s.Tape, "tape", s.Tape, "A read-only SCSI tape drive on the A2091, as ID:DIR, playing the tape kept in DIR (its files in index.tape order, with filemarks between): Amiga Unix's distribution tape at ID 4")
 	fs.Var(&s.IDE, "ide", "Hardfile (with a Rigid Disk Block) as an IDE drive on Gayle, booted by Kickstart's own scsi.device: the master, then the slave")
 	fs.StringVar(&s.Gayle, "gayle", s.Gayle, "Gayle, the A600/A1200 IDE interface: auto (fitted with the AGA chipset), on or off; --ide fits it")
 	fs.IntVar(&s.HDFCreate, "hdf-create", s.HDFCreate, "Create any --hdf file that does not exist, blank, this many MB (format it from the Amiga)")
@@ -180,7 +182,7 @@ func mapPath(key, v string, fn func(string) string) string {
 	switch key {
 	case "dir":
 		vol, p = SplitDir(v)
-	case "scsi":
+	case "scsi", "tape":
 		if len(v) > 2 && v[1] == ':' && v[0] >= '0' && v[0] <= '9' {
 			if filepath.IsAbs(v[2:]) {
 				return v

@@ -215,6 +215,9 @@ func (a *Amiga) state(s *stateCodec) {
 		for _, f := range a.SCSI.files {
 			hdfs = append(hdfs, "scsi:"+f.Path)
 		}
+		for _, t := range a.SCSI.tapes {
+			hdfs = append(hdfs, "tape:"+t.dir)
+		}
 	}
 	// The IDE drives count as hardfiles too (empty positions as "").
 	hasGayle := a.Gayle != nil

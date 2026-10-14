@@ -49,6 +49,7 @@ type a2091 struct {
 	amiga   *Amiga
 	targets [8]scsiDevice
 	files   []*Hardfile
+	tapes   []*scsiTape
 
 	// DMAC
 	cntr    uint16
@@ -150,6 +151,9 @@ func (c *a2091) reset() {
 func (c *a2091) close() {
 	for _, f := range c.files {
 		f.Close()
+	}
+	for _, t := range c.tapes {
+		t.close()
 	}
 }
 
@@ -390,4 +394,10 @@ func (c *a2091) state(s *stateCodec) {
 	num(s, &c.sasr)
 	s.fixed(c.regs[:])
 	s.bool(&c.intrq)
+	for _, t := range c.tapes {
+		num(s, &t.file)
+		num(s, &t.pos)
+		s.fixed(t.sense[:])
+		s.bool(&t.reset)
+	}
 }

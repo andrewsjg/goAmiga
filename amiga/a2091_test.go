@@ -160,3 +160,59 @@ func TestA2091(t *testing.T) {
 		t.Errorf("select of an empty ID: status $%02X, want $42 (timeout)", st)
 	}
 }
+
+// A tape kept as a directory: reads stop at filemarks with CHECK
+// CONDITION, FILEMARK and the residue; SPACE and REWIND move it.
+func TestSCSITape(t *testing.T) {
+	r := newA2091Rig(t)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.tape"), []byte("00\r\n01\r\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "00"), bytes.Repeat([]byte{0xAA}, 1024), 0o644)
+	os.WriteFile(filepath.Join(dir, "01"), bytes.Repeat([]byte{0xBB}, 3*512), 0o644)
+	if err := r.a.AttachTape(4, dir); err != nil {
+		t.Fatal(err)
+	}
+	a := r.a
+	r.sat(4, []byte{0x12, 0, 0, 0, 36, 0}, 0x10000, 36, true)
+	if a.peek8(0x10000) != 1 {
+		t.Errorf("INQUIRY peripheral type %d, want 1 (sequential)", a.peek8(0x10000))
+	}
+	// READ 4 fixed blocks from file 00 (2 blocks long): 2 come back, then
+	// the filemark.
+	st, ts, _ := r.sat(4, []byte{0x08, 1, 0, 0, 4, 0}, 0x20000, 2048, true)
+	if st != 0x16 || ts != scsiCheckCondition {
+		t.Fatalf("read over the filemark: $%02X/$%02X, want CHECK CONDITION", st, ts)
+	}
+	if a.peek8(0x20000) != 0xAA || a.peek8(0x20000+1023) != 0xAA {
+		t.Error("the file's two blocks weren't transferred")
+	}
+	r.sat(4, []byte{0x03, 0, 0, 0, 18, 0}, 0x10000, 18, true)
+	if s := a.peek8(0x10002); s&0x80 == 0 || a.peek32(0x10003) != 2 {
+		t.Errorf("sense byte 2 $%02X, information %d: want FILEMARK and residue 2", s, a.peek32(0x10003))
+	}
+	// Now at file 01.
+	r.sat(4, []byte{0x08, 1, 0, 0, 1, 0}, 0x20000, 512, true)
+	if a.peek8(0x20000) != 0xBB {
+		t.Error("after the filemark, the next read should be file 01")
+	}
+	// REWIND, SPACE one filemark, read file 01 again.
+	r.sat(4, []byte{0x01, 0, 0, 0, 0, 0}, 0, 0, true)
+	r.sat(4, []byte{0x11, 1, 0, 0, 1, 0}, 0, 0, true)
+	r.sat(4, []byte{0x08, 1, 0, 0, 1, 0}, 0x20000, 512, true)
+	if a.peek8(0x20000) != 0xBB {
+		t.Error("SPACE 1 filemark should reach file 01")
+	}
+	// Past the end: BLANK CHECK.
+	r.sat(4, []byte{0x11, 1, 0, 0, 1, 0}, 0, 0, true)
+	if _, ts, _ := r.sat(4, []byte{0x08, 1, 0, 0, 1, 0}, 0x20000, 512, true); ts != scsiCheckCondition {
+		t.Error("reading past the last file should fail")
+	}
+	r.sat(4, []byte{0x03, 0, 0, 0, 18, 0}, 0x10000, 18, true)
+	if k := a.peek8(0x10002) & 0xF; k != senseBlankCheck {
+		t.Errorf("sense key %d past the end, want BLANK CHECK", k)
+	}
+	// Writing is refused.
+	if _, ts, _ := r.sat(4, []byte{0x10, 0, 0, 0, 1, 0}, 0, 0, false); ts != scsiCheckCondition {
+		t.Error("WRITE FILEMARKS should be refused on a read-only tape")
+	}
+}

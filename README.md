@@ -417,6 +417,13 @@ How it starts up:
 
 ![Amiga Unix running X](docs/images/amix-x11.png)
 
+**The distribution tape.** `--tape 4:AMIX/amix_21_tape`, or the Tape row
+on the Hard disks tab, puts the tape in a drive at SCSI ID 4, where AMIX
+expects its A3070. Its files play in `index.tape` order with filemarks
+between, and the drive is read-only. AMIX's own `amixpkg`
+(`/usr/amiga/bin/amixpkg`) then lists the packages on it and installs
+them from it.
+
 **X Windows** works on the Amiga's own display. Log in as root and run
 `/usr/X/bin/startx`, with `/usr/X/bin` on the PATH (root's isn't set up for
 it).

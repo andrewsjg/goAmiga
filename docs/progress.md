@@ -42,6 +42,46 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-14 — AMIX: the tape drive
+
+`--tape ID:DIR` (`scsitape.go`) puts a read-only SCSI tape drive on the
+A2091. It plays a tape kept as a directory: the files in `index.tape`
+order (or sorted), with a filemark after each. AMIX's distribution tape is
+kept exactly that way.
+
+**What AMIX expects** (from `ct.c`'s disassembly and `amixpkg`'s
+strings):
+- `amixpkg` uses `/dev/rmt/4hn`: SCSI ID 4, the A3070's ID, without
+  rewind on close. It reads the index archive, spaces forward a filemark
+  at a time to a package's file, and runs `dd bs=256k | [zcat |] cpio`.
+- The driver uses fixed 512-byte blocks: READ(6) with the FIXED bit, the
+  count in blocks. It also uses SPACE over filemarks, REWIND, WRITE
+  FILEMARKS, MODE SELECT for the QIC-120/150 density, and a 14-byte
+  REQUEST SENSE.
+- `ctopen` reads the Archive drive's QIC-02 status bytes at sense bytes
+  8-9. Byte 8 bit 6, no cartridge, fails the open. Unless byte 9 bit 3,
+  beginning of medium, is set (or the driver already knows the position),
+  the open fails too.
+
+The first attempt failed for that reason: the sense data had zeros
+there, and `cpio` got EIO. The drive now reports write protected, end of
+medium, filemark, beginning of medium and power-on reset in those bytes.
+
+**Reads at a filemark:** the drive returns the blocks before it with
+CHECK CONDITION, FILEMARK and the residue (the VALID information field),
+and moves past the filemark. Past the last file it reports BLANK CHECK
+at end of medium.
+
+**Testing:**
+- `TestSCSITape`: reading over a filemark, the sense data, SPACE,
+  REWIND, the end of the tape, and refused writes.
+- In `TestAMIXBoot` (`AMIX_TAPE`), `amixpkg` lists the tape's 28
+  packages. It then installs `games`: it spaces to file 21 and reads its
+  2.3 MB through to the filemark ("Done reading tape"). `games` shows as
+  installed.
+
+The configuration screen's Hard disks tab has a Tape row (ID 4).
+
 ## 2026-10-14 — AMIX: X Windows
 
 X11R4 runs on the native chipset with no emulator changes. `TestAMIXBoot`

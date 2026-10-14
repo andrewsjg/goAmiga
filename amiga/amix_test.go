@@ -12,7 +12,8 @@ import (
 // AMIX_HDF names one: Kickstart 3.2 boots AMIX's boot partition through
 // goamiga.device, and the kernel takes over with the disk on the A2091 at
 // SCSI ID 6. AMIX_FRAMES sets how long to run, AMIX_PNG where to save
-// screenshots, AMIX_TRACE=1 traces the boot.
+// screenshots, AMIX_TRACE=1 traces the boot, AMIX_TAPE puts a tape
+// (kept as a directory) in a drive at SCSI ID 4.
 func TestAMIXBoot(t *testing.T) {
 	hdf := os.Getenv("AMIX_HDF")
 	if hdf == "" {
@@ -38,6 +39,11 @@ func TestAMIXBoot(t *testing.T) {
 	// AttachSCSI also attaches it to.
 	if err := a.AttachSCSI(6, hdf, false); err != nil {
 		t.Fatal(err)
+	}
+	if tape := os.Getenv("AMIX_TAPE"); tape != "" {
+		if err := a.AttachTape(4, tape); err != nil {
+			t.Fatal(err)
+		}
 	}
 	a.EnableClock()
 	a.RTC.Y2K = true

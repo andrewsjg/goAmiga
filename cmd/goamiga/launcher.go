@@ -266,7 +266,7 @@ func (l *launcher) fileRow(x, y, w int, target string, path *string, filters zen
 	u.bevel(x, y, w, 22, false)
 	shown := *path
 	switch {
-	case shown == "" && dir, shown == ".":
+	case shown == "" && dir && target != "tape", shown == ".":
 		shown = "(the folder goAmiga starts in)"
 	case shown == "":
 		shown = "(none)"
@@ -435,6 +435,18 @@ func (l *launcher) hardDiskTab(x, y int) {
 		}
 	}
 	u.text(x, y, "IDE drives need a Rigid Disk Block; they fit Gayle.", uiDim)
+	y += 26
+	// A tape drive on the A2091 at SCSI ID 4, where Amiga Unix looks.
+	u.label(x-10, y, "Tape (SCSI 4)")
+	tape := ""
+	if len(l.s.Tape) > 2 && l.s.Tape[1] == ':' {
+		tape = l.s.Tape[2:]
+	}
+	was := tape
+	l.fileRow(x, y, 260, "tape", &tape, nil, true)
+	if tape != was { // cleared
+		l.s.Tape = ""
+	}
 	y += 34
 	x -= 130
 	u.text(x, y, "Hardfiles, host folders and SCSI disks", uiBlack)
@@ -476,7 +488,7 @@ func (l *launcher) hardDiskTab(x, y int) {
 		})
 	}
 	rows := len(l.s.Hardfiles) + len(l.s.Dirs) + len(l.s.SCSI)
-	if rows < 8 {
+	if rows < 7 {
 		if u.button(x, y, 120, 24, "Add hardfile…") {
 			l.choose("hdf", "", hdfFilter, false)
 		}
@@ -587,6 +599,7 @@ func (l *launcher) choose(target, current string, filters zenity.FileFilters, di
 		title := map[string]string{"rom": "Choose a Kickstart ROM", "hdf": "Choose a hardfile",
 			"dir":  "Choose a folder to use as an Amiga drive",
 			"scsi": "Choose a hardfile for the SCSI disk",
+			"tape": "Choose the folder holding the tape's files",
 			"ide0": "Hardfile for the IDE master", "ide1": "Hardfile for the IDE slave",
 			"shots": "Folder for screenshots", "states": "Folder for save states"}[target]
 		if strings.HasPrefix(target, "df") {
@@ -631,6 +644,8 @@ func (l *launcher) pollChooser() {
 		l.s.Hardfiles = append(l.s.Hardfiles, c.path)
 	case c.target == "dir":
 		l.s.Dirs = append(l.s.Dirs, c.path)
+	case c.target == "tape":
+		l.s.Tape = "4:" + c.path
 	case c.target == "scsi":
 		l.s.SCSI = append(l.s.SCSI, fmt.Sprintf("%d:%s", freeSCSIID(l.s.SCSI), c.path))
 	case strings.HasPrefix(c.target, "ide"):
