@@ -42,6 +42,18 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-14 — The clock's Y2K option
+
+`--rtc-y2k`, which the A3000 preset sets, makes the battery clock show a
+year 28 years earlier. The Gregorian calendar repeats every 28 years
+between 1901 and 2099, so 2026 shows as 1998 with the same weekdays and
+leap years. Setting the clock to a year from 1972-1999 adds the 28 back.
+
+AMIX's 1992 `date` refused 2026, as a two-digit year below 70. With the
+option it boots with "Wed Oct 14 06:21:01 EDT 1998": today's day, month,
+weekday and time. `TestClockY2K` checks the year, the weekday and the
+round trip. The other presets turn the option off again.
+
 ## 2026-10-13 — The A3000 preset, SCSI disks on the configuration screen
 
 **The preset.** The configuration screen has an **A3000** model: a 68030

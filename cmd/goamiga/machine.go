@@ -149,6 +149,7 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 	}
 	if s.Clock {
 		a.EnableClock()
+		a.RTC.Y2K = s.ClockY2K
 	}
 	for _, v := range s.SCSI {
 		if len(v) < 3 || v[1] != ':' || v[0] < '0' || v[0] > '6' {

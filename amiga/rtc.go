@@ -13,6 +13,11 @@ import "time"
 //
 // Register F reads 4 (24-hour mode, running), which is how both
 // battclock.resource and AMIX recognise an Oki chip.
+//
+// Software from before 2000 can't take a later year: Amiga Unix's date
+// refuses two-digit years below 70. With Y2K set, the clock shows a year
+// 28 years earlier (2026 as 1998), which has the same weekdays and leap
+// years, so the day, month and time stay right.
 
 const (
 	rtcBase = 0xDC0000
@@ -21,6 +26,7 @@ const (
 
 type rtc struct {
 	offset time.Duration // set time minus host time
+	Y2K    bool          // show the year 28 years earlier
 	ctrl   [3]byte       // D, E, F
 	held   [13]byte      // the time registers while being set
 	hold   bool
@@ -34,7 +40,17 @@ func (a *Amiga) EnableClock() {
 	}
 }
 
-func (r *rtc) now() time.Time { return time.Now().Add(r.offset) }
+// y2kYears is the shift Y2K makes: the Gregorian calendar repeats
+// every 28 years between 1901 and 2099.
+const y2kYears = 28
+
+func (r *rtc) now() time.Time {
+	t := time.Now().Add(r.offset)
+	if r.Y2K && t.Year() >= 2000 {
+		t = t.AddDate(-y2kYears, 0, 0)
+	}
+	return t
+}
 
 // regs is the time as the 13 time registers.
 func (r *rtc) regs() [13]byte {
@@ -119,6 +135,9 @@ func (r *rtc) commit() {
 		y += 2000
 	} else {
 		y += 1900
+	}
+	if r.Y2K && y < 2000 && y >= 2000-y2kYears {
+		y += y2kYears
 	}
 	t := time.Date(y, time.Month(int(h[9])*10+int(h[8])), int(h[7])*10+int(h[6]),
 		int(h[5]&3)*10+int(h[4]), int(h[3])*10+int(h[2]), int(h[1])*10+int(h[0]), 0, time.Local)

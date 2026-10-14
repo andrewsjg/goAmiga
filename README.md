@@ -419,9 +419,10 @@ Its limits:
 - **Long names.** s5 file names are limited to 14 characters. The 144
   longer names in the archive, nearly all in the source trees, are cut
   to fit; `amixdisk` lists them.
-- **The date.** AMIX's `date` doesn't accept years after 1999, so the
-  clock's 2026 is refused at boot and the system keeps the filesystem's
-  time.
+- **The date.** AMIX's `date` doesn't accept years after 1999. With
+  `--rtc-y2k` (which the A3000 preset sets), the clock shows a year 28
+  years earlier: 2026 as 1998, which has the same weekdays and leap years.
+  So AMIX gets the right day, month and time.
 
 ## Networking
 

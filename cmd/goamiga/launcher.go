@@ -293,23 +293,23 @@ var presets = []struct {
 }{
 	{"A500", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ocs", 512, 512, 0
-		s.Gayle = "off"
+		s.Gayle, s.ClockY2K = "off", false
 	}},
 	{"A500+", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ecs", 1024, 0, 0
-		s.Gayle = "off"
+		s.Gayle, s.ClockY2K = "off", false
 	}},
 	{"A600", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ecs", 1024, 0, 0
-		s.Gayle = "on"
+		s.Gayle, s.ClockY2K = "on", false
 	}},
 	{"A1200", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "none", "aga", 2048, 0, 0
-		s.Gayle = "on"
+		s.Gayle, s.ClockY2K = "on", false
 	}},
 	{"A1200 + fast", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "68882", "aga", 2048, 0, 8192
-		s.Gayle = "on"
+		s.Gayle, s.ClockY2K = "on", false
 	}},
 	// The A3000's processor and chipset: what Amiga Unix needs (its disk
 	// goes on the A2091 at SCSI ID 6). The real machine's built-in SCSI
@@ -317,6 +317,7 @@ var presets = []struct {
 	{"A3000", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68030", 0, "68882", "ecs", 1024, 0, 8192
 		s.Gayle = "off"
+		s.Clock, s.ClockY2K = true, true // AMIX's date wants a year before 2000
 	}},
 }
 

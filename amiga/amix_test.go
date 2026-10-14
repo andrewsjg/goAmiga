@@ -40,6 +40,7 @@ func TestAMIXBoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.EnableClock()
+	a.RTC.Y2K = true
 	if os.Getenv("AMIX_TRACE") != "" {
 		a.HardDisk.Trace = logWriter{t}
 		a.SCSI.Trace = logWriter{t}

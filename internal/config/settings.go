@@ -38,6 +38,7 @@ type Settings struct {
 	Serial    string
 	BSDSocket bool
 	Clock     bool
+	ClockY2K  bool
 	JoyKeys   bool
 
 	Mute          bool
@@ -93,6 +94,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.StringVar(&s.FPU, "fpu", s.FPU, "Floating-point coprocessor with --cpu 68020 or 68030: none, 68881 or 68882")
 	fs.StringVar(&s.Chipset, "chipset", s.Chipset, "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise), ecs (A500+/A600) or aga (A1200/A4000); default ecs-agnus with 1 MB chip RAM, else ocs")
 	fs.BoolVar(&s.Clock, "rtc", s.Clock, "Fit the battery-backed clock (an Oki MSM6242 at $DC0000) running on the host's time; AmigaOS sets its time from it")
+	fs.BoolVar(&s.ClockY2K, "rtc-y2k", s.ClockY2K, "Make the clock show a year 28 years earlier (2026 as 1998: the same weekdays and leap years), for software from before 2000 such as Amiga Unix")
 	fs.BoolVar(&s.BSDSocket, "bsdsocket", s.BSDSocket, "Fit a network board with bsdsocket.library: Amiga TCP/IP programs use the host's network")
 	fs.StringVar(&s.Serial, "serial", s.Serial, "Connect the serial port to a TCP port: telnet:PORT (a terminal; try NewShell AUX: on the Amiga) or tcp:PORT (raw bytes); HOST:PORT to listen beyond this machine")
 	fs.StringVar(&s.Video, "video", s.Video, "Video standard: pal (50 Hz) or ntsc (60 Hz, for American games that need it)")

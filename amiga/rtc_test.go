@@ -32,3 +32,26 @@ func TestClock(t *testing.T) {
 		t.Errorf("hour %d after setting 23", h)
 	}
 }
+
+// With Y2K the clock shows a year 28 years back, with the same weekday.
+func TestClockY2K(t *testing.T) {
+	a := createTestAmiga(t)
+	a.EnableClock()
+	a.RTC.Y2K = true
+	a.wireMemoryMap(false)
+	now := time.Now()
+	if y := rtcReg(a, 11)*10 + rtcReg(a, 10); y != (now.Year()-28)%100 {
+		t.Errorf("year %02d, want %02d", y, (now.Year()-28)%100)
+	}
+	if wd := rtcReg(a, 12); wd != int(now.Weekday()) {
+		t.Errorf("weekday %d, want %d (the same)", wd, now.Weekday())
+	}
+	// Setting 1998 sets 2026.
+	a.poke8(rtcBase+4*13+3, 1)
+	a.poke8(rtcBase+4*10+3, 8)
+	a.poke8(rtcBase+4*11+3, 9)
+	a.poke8(rtcBase+4*13+3, 0)
+	if y := a.RTC.now().AddDate(28, 0, 0).Year(); y != 2026 {
+		t.Errorf("setting 98 under Y2K gave %d, want 2026", y)
+	}
+}
