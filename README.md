@@ -389,7 +389,10 @@ cpio of an installed system), doing what the installer would have done:
 - the RDB;
 - the root filesystem, as s5;
 - swap;
-- the boot partition with AMIX's own bootstrap and kernel.
+- the boot partition with AMIX's own bootstrap and kernel;
+- a UFS filesystem, mounted at `/usr/ufs`, for the trees whose names are
+  longer than s5's 14 characters. These are `/usr/src`, `/usr/X`,
+  `/usr/x11r5` and `/usr/public`, each a link to its place there.
 
 The tape and installation floppy aren't needed. Bring your own copy of
 AMIX: it isn't included.
@@ -429,9 +432,11 @@ them from it.
 it).
 
 Its limits:
-- **Long names.** s5 file names are limited to 14 characters. The 144
-  longer names in the archive, nearly all in the source trees, are cut
-  to fit; `amixdisk` lists them.
+- **Long names** keep their full length on the UFS filesystem. With
+  `-usr 0` there is no UFS, and the 144 long names are cut to s5's 14
+  characters.
+- **First-boot news setup.** The Netnews question isn't asked, because
+  `/usr/public` isn't mounted yet when the setup runs.
 - **The date.** AMIX's `date` doesn't accept years after 1999. With
   `--rtc-y2k` (which the A3000 preset sets), the clock shows a year 28
   years earlier: 2026 as 1998, which has the same weekdays and leap years.

@@ -37,7 +37,7 @@ func TestBuildDisk(t *testing.T) {
 	cp := filepath.Join(dir, "a.cpio")
 	os.WriteFile(cp, b.Bytes(), 0o644)
 	out := filepath.Join(dir, "amix.hdf")
-	if err := build(cp, out, 2, 1, 100, "c6d0s1"); err != nil {
+	if err := build(cp, out, 2, 1, 0, 100, "c6d0s1"); err != nil {
 		t.Fatal(err)
 	}
 	img, _ := os.ReadFile(out)
@@ -103,5 +103,79 @@ func TestBuildDisk(t *testing.T) {
 	if img[bootBase] != '1' || string(img[bootBase+1024:bootBase+1028]) != "IBLK" ||
 		be.Uint32(img[bootBase+1024+8:]) != 8192 {
 		t.Error("boot partition layout")
+	}
+}
+
+// With a UFS partition, the long-named trees go there and keep their
+// names, and the root has links to them.
+func TestBuildDiskUFS(t *testing.T) {
+	var b bytes.Buffer
+	odc(&b, ".", 1, modeDir|0o755, 2, 0, "")
+	odc(&b, "stand/boot1.boot", 3, modeReg|0o644, 1, 0, strings.Repeat("1", 1024))
+	odc(&b, "stand/boot2.boot", 4, modeReg|0o644, 1, 0, strings.Repeat("2", 8192))
+	odc(&b, "stand/unix", 5, modeReg|0o644, 1, 0, "kernel")
+	odc(&b, "etc/vfstab", 6, modeReg|0o644, 1, 0, "/dev/dsk/c0d0s1\t/dev/rdsk/c0d0s1\t/\ts5\n")
+	long := strings.Repeat("long file contents ", 1000) // 19 KB: 2 blocks and a fragment
+	odc(&b, "usr/src/X/contrib/games/dragon/ic/rdragon_28x32.icon", 7, modeReg|0o644, 1, 0, long)
+	odc(&b, "usr/src/short", 8, modeReg|0o644, 1, 0, "hi")
+	odc(&b, "TRAILER!!!", 0, 0, 1, 0, "")
+	dir := t.TempDir()
+	cp := filepath.Join(dir, "a.cpio")
+	os.WriteFile(cp, b.Bytes(), 0o644)
+	out := filepath.Join(dir, "amix.hdf")
+	if err := build(cp, out, 2, 1, 8, 100, "c6d0s1"); err != nil {
+		t.Fatal(err)
+	}
+	img, _ := os.ReadFile(out)
+	be := binary.BigEndian
+	base := int(be.Uint32(img[4*512+128+36:])) * cylBlocks * blockSize // slice 4
+	sb := img[base+8192:]
+	if be.Uint32(sb[1372:]) != ufsMagic || be.Uint32(sb[132:])+be.Uint32(sb[32:]) != ufsFSOkay {
+		t.Fatal("no clean UFS superblock")
+	}
+	frag := func(f uint32) []byte { return img[base+int(f)*ufsFSize:] }
+	inode := func(ino int) []byte {
+		cg := ino / ufsIPG
+		return frag(uint32(cg*ufsFPG + ufsIBlkno))[(ino%ufsIPG)*128:]
+	}
+	read := func(ino int) []byte {
+		in := inode(ino)
+		size := int(be.Uint32(in[12:]))
+		var data []byte
+		for i := 0; len(data) < size; i++ {
+			data = append(data, frag(be.Uint32(in[40+4*i:]))[:ufsBSize]...)
+		}
+		return data[:size]
+	}
+	lookup := func(dir int, name string) int {
+		d := read(dir)
+		for off := 0; off < len(d); {
+			ino, rl, nl := be.Uint32(d[off:]), int(be.Uint16(d[off+4:])), int(be.Uint16(d[off+6:]))
+			if ino != 0 && string(d[off+8:off+8+nl]) == name {
+				return int(ino)
+			}
+			off += rl
+		}
+		t.Fatalf("%s not found", name)
+		return 0
+	}
+	ic := lookup(lookup(lookup(lookup(lookup(lookup(2, "src"), "X"), "contrib"), "games"), "dragon"), "ic")
+	f := lookup(ic, "rdragon_28x32.icon")
+	if string(read(f)) != long {
+		t.Error("the long-named file reads back wrong")
+	}
+	if blocks := be.Uint32(inode(f)[104:]); blocks != (2*8+3)*2 {
+		t.Errorf("di_blocks %d, want %d (two blocks and three fragments)", blocks, (2*8+3)*2)
+	}
+	lookup(2, "lost+found")
+	// The root's links and vfstab.
+	rbase := int(be.Uint32(img[512+128+36:])) * cylBlocks * blockSize
+	_ = rbase
+	vfstab := string(img) // crude: the text is somewhere in the image
+	if !strings.Contains(vfstab, "/dev/dsk/c6d0s4\t/dev/rdsk/c6d0s4\t/usr/ufs\tufs") {
+		t.Error("vfstab has no /usr/ufs entry")
+	}
+	if !strings.Contains(vfstab, "ufs/src") {
+		t.Error("no usr/src -> ufs/src link")
 	}
 }

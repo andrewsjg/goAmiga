@@ -2,12 +2,19 @@
 // installed, from the distribution's cpio archive, as the installer would
 // have left it:
 //
-//   - A Rigid Disk Block (1 head, 64 sectors: 32 KB cylinders) with three
+//   - A Rigid Disk Block (1 head, 64 sectors: 32 KB cylinders) with four
 //     partitions, in the order AMIX numbers its slices: 1, the root
-//     filesystem (/dev/dsk/c6d0s1); 2, swap; 3, the boot partition.
-//   - The root: an s5 filesystem holding every file in the archive, with
-//     /etc/vfstab naming c6d0s1, the root the kernel is built for (SCSI ID
-//     6, the A3000's internal drive).
+//     filesystem (/dev/dsk/c6d0s1); 2, swap; 3, the boot partition; 4, a
+//     UFS filesystem.
+//   - The root: an s5 filesystem holding the system, with /etc/vfstab
+//     naming c6d0s1, the root the kernel is built for (SCSI ID 6, the
+//     A3000's internal drive).
+//   - UFS, mounted at /usr/ufs, holds the trees with names longer than
+//     s5's 14 characters: /usr/src, /usr/X, /usr/x11r5 and /usr/public,
+//     each left as a link to its place there (usr/src -> ufs/src). Nothing
+//     in them is needed before rc2 mounts it: /etc/sysinit runs programs
+//     from /usr, so the rest of /usr stays on the root. With -usr 0 there
+//     is no UFS and every name is cut to 14 characters.
 //   - The boot partition: AMIX's two-stage bootstrap and its kernel, made
 //     as stand/Makefile's "bootpart" does (boot1, an IBLK info block for
 //     boot2, boot2, an IBLK for the kernel, the kernel). Its DosEnvec sets
@@ -40,18 +47,19 @@ const (
 func main() {
 	cpioPath := flag.String("cpio", "AMIX/amix_2.1.cpio", "AMIX 2.1 distribution archive (odc cpio)")
 	out := flag.String("o", "amix.hdf", "hard disk image to write")
-	rootMB := flag.Int("root", 400, "size of the root filesystem in MB")
+	rootMB := flag.Int("root", 150, "size of the root filesystem (s5) in MB")
 	swapMB := flag.Int("swap", 32, "size of the swap partition in MB")
+	usrMB := flag.Int("usr", 400, "size of the UFS filesystem for the trees with long names, in MB (whole 8 MB groups; 0 for none)")
 	extraInodes := flag.Int("inodes", 8000, "free inodes to leave in the root filesystem")
 	rootSlice := flag.String("rootdev", "c6d0s1", "root device for /etc/vfstab")
 	flag.Parse()
-	if err := build(*cpioPath, *out, *rootMB, *swapMB, *extraInodes, *rootSlice); err != nil {
+	if err := build(*cpioPath, *out, *rootMB, *swapMB, *usrMB, *extraInodes, *rootSlice); err != nil {
 		fmt.Fprintln(os.Stderr, "amixdisk:", err)
 		os.Exit(1)
 	}
 }
 
-func build(cpioPath, out string, rootMB, swapMB, extraInodes int, rootDev string) error {
+func build(cpioPath, out string, rootMB, swapMB, usrMB, extraInodes int, rootDev string) error {
 	// First pass: count the inodes and pick out the boot files.
 	f, err := os.Open(cpioPath)
 	if err != nil {
@@ -90,12 +98,17 @@ func build(cpioPath, out string, rootMB, swapMB, extraInodes int, rootDev string
 	rootCyls := cyls(int64(rootMB) << 20)
 	swapCyls := cyls(int64(swapMB) << 20)
 	bootCyls := cyls(int64(len(bootImage))) + 2
+	usrCyls := cyls(int64(usrMB) << 20 / (ufsFPG * ufsFSize) * (ufsFPG * ufsFSize))
 	parts := []partition{
 		{name: "root", low: 1, high: rootCyls, dosType: 0x554E4901, noMount: true},
 		{name: "swap", low: 1 + rootCyls, high: rootCyls + swapCyls, dosType: 0x554E4902, noMount: true},
 		{name: "boot", low: 1 + rootCyls + swapCyls, high: rootCyls + swapCyls + bootCyls, dosType: 0x444F5300, bootable: true, bootBlocks: 2},
 	}
-	totalCyls := parts[2].high + 1
+	if usrCyls > 0 {
+		lo := parts[2].high + 1
+		parts = append(parts, partition{name: "usr", low: lo, high: lo + usrCyls - 1, dosType: 0x554E4903, noMount: true})
+	}
+	totalCyls := parts[len(parts)-1].high + 1
 
 	img, err := os.Create(out)
 	if err != nil {
@@ -117,21 +130,42 @@ func build(cpioPath, out string, rootMB, swapMB, extraInodes int, rootDev string
 		return err
 	}
 	rootBlocks := (parts[0].high - parts[0].low + 1) * cylBlocks * blockSize / s5BSize
-	fs, err := newS5(img, int64(parts[0].low)*cylBlocks*blockSize, rootBlocks, min(entries+extraInodes, 65535))
+	ninodes := entries + extraInodes
+	if usrCyls > 0 {
+		ninodes = 12000 + extraInodes // the system without the big trees
+	}
+	fs, err := newS5(img, int64(parts[0].low)*cylBlocks*blockSize, rootBlocks, min(ninodes, 65535))
 	if err != nil {
 		return err
 	}
-	if err := fillFS(fs, newCPIOReader(f), rootDev); err != nil {
+	var u *ufs
+	usrSlice := ""
+	if usrCyls > 0 {
+		p := parts[3]
+		if u, err = newUFS(img, int64(p.low)*cylBlocks*blockSize, int64(usrCyls)*cylBlocks*blockSize); err != nil {
+			return err
+		}
+		usrSlice = rootDev[:len(rootDev)-1] + "4"
+	}
+	if err := fillFS(fs, u, newCPIOReader(f), rootDev, usrSlice); err != nil {
 		return err
 	}
 	if err := fs.finish("root", "amix"); err != nil {
 		return err
 	}
+	if u != nil {
+		if err := u.finish("/usr/ufs"); err != nil {
+			return err
+		}
+	}
 	fmt.Printf("%s: %d MB, %d cylinders of %d blocks\n", out, int64(totalCyls)*cylBlocks*blockSize>>20, totalCyls, cylBlocks)
 	for i, p := range parts {
 		fmt.Printf("  slice %d: %-4s cylinders %d-%d\n", i+1, p.name, p.low, p.high)
 	}
-	fmt.Printf("  root: %d inodes used of %d, %d of %d blocks used\n", len(fs.inodes)-1, fs.maxIno, fs.next, fs.fsize)
+	fmt.Printf("  root (s5): %d inodes used of %d, %d of %d blocks used\n", len(fs.inodes)-1, fs.maxIno, fs.next, fs.fsize)
+	if u != nil {
+		fmt.Printf("  /usr/ufs (UFS): %d inodes used of %d, %d cylinder groups\n", len(u.inodes)-1, u.ncg*ufsIPG, u.ncg)
+	}
 	if len(fs.renamed) > 0 {
 		fmt.Printf("  %d names cut to s5's 14 characters:\n", len(fs.renamed))
 		for _, r := range fs.renamed {
@@ -150,23 +184,62 @@ func cleanName(n string) string {
 	return path.Clean(n)
 }
 
-// fillFS adds every archive member to the filesystem.
-func fillFS(fs *s5fs, cr *cpioReader, rootDev string) error {
-	links := map[[2]uint32]int{} // (dev, ino) -> inode, for hard links
-	paths := map[string]int{".": s5RootIno}
-	var dirOf func(p string) (int, error)
-	dirOf = func(p string) (int, error) {
-		if ino, ok := paths[p]; ok {
-			return ino, nil
+// fsWriter is what fillFS needs of a filesystem (s5 or UFS).
+type fsWriter interface {
+	newInode(mode, uid, gid uint16, mtime uint32) int
+	linkName(dir int, name string, ino int)
+	writeData(ino int, r io.Reader, size int64) error
+	setAttrs(ino int, mode, uid, gid uint16, mtime uint32)
+	setDevice(ino int, rdev uint32)
+	inodeFull() bool
+}
+
+// tree tracks a filesystem's paths and hard links while it fills.
+type tree struct {
+	fs    fsWriter
+	now   uint32
+	paths map[string]int
+	links map[[2]uint32]int
+}
+
+func newTree(fs fsWriter, now uint32) *tree {
+	return &tree{fs: fs, now: now, paths: map[string]int{".": 2}, links: map[[2]uint32]int{}}
+}
+
+// dir returns directory p's inode, making it (and its parents) if need be.
+func (t *tree) dir(p string) int {
+	if ino, ok := t.paths[p]; ok {
+		return ino
+	}
+	parent := t.dir(path.Dir(p))
+	ino := t.fs.newInode(0o040755, 0, 0, t.now)
+	t.fs.linkName(parent, path.Base(p), ino)
+	t.paths[p] = ino
+	return ino
+}
+
+// ufsTrees are the archive's trees with names over 14 characters, which
+// go on UFS when there is one.
+var ufsTrees = []string{"usr/src", "usr/X", "usr/x11r5", "usr/public"}
+
+// fillFS adds every archive member to the s5 root, or to u (if not nil)
+// under ufsTrees.
+func fillFS(s5 *s5fs, u *ufs, cr *cpioReader, rootDev, usrDev string) error {
+	root := newTree(s5, s5.now)
+	var ut *tree
+	if u != nil {
+		ut = newTree(u, u.now)
+		root.dir("usr/ufs") // the mount point
+		for _, p := range ufsTrees {
+			ut.dir(strings.TrimPrefix(p, "usr/"))
+			link := "ufs/" + strings.TrimPrefix(p, "usr/")
+			ino := s5.newInode(0o120777, 0, 0, s5.now)
+			s5.linkName(root.dir("usr"), path.Base(p), ino)
+			if err := s5.writeData(ino, strings.NewReader(link), int64(len(link))); err != nil {
+				return err
+			}
+			root.paths[p] = ino
 		}
-		parent, err := dirOf(path.Dir(p))
-		if err != nil {
-			return 0, err
-		}
-		ino := fs.newInode(0o040755, 0, 0, fs.now)
-		fs.link(parent, path.Base(p), ino)
-		paths[p] = ino
-		return ino, nil
 	}
 	for {
 		e, err := cr.Next()
@@ -177,64 +250,69 @@ func fillFS(fs *s5fs, cr *cpioReader, rootDev string) error {
 			return err
 		}
 		name := cleanName(e.Name)
-		mode := uint16(e.Mode)
+		mode, uid, gid, mtime := uint16(e.Mode), uint16(e.UID), uint16(e.GID), uint32(e.Mtime)
 		typ := e.Mode & modeType
+		t := root
+		if ut != nil {
+			for _, p := range ufsTrees {
+				if name == p || strings.HasPrefix(name, p+"/") {
+					t, name = ut, strings.TrimPrefix(name, "usr/")
+					break
+				}
+			}
+		}
 		if name == "." {
-			r := fs.inodes[s5RootIno]
-			r.mode, r.uid, r.gid, r.mtime, r.atime = mode, uint16(e.UID), uint16(e.GID), uint32(e.Mtime), uint32(e.Mtime)
+			t.fs.setAttrs(2, mode, uid, gid, mtime)
 			continue
-		}
-		if _, dup := paths[name]; dup && typ != modeDir {
-			continue
-		}
-		parent, err := dirOf(path.Dir(name))
-		if err != nil {
-			return err
 		}
 		if typ == modeDir {
-			ino, ok := paths[name]
+			ino, ok := t.paths[name]
 			if !ok {
-				ino = fs.newInode(mode, uint16(e.UID), uint16(e.GID), uint32(e.Mtime))
-				fs.link(parent, path.Base(name), ino)
-				paths[name] = ino
+				ino = t.fs.newInode(mode, uid, gid, mtime)
+				t.fs.linkName(t.dir(path.Dir(name)), path.Base(name), ino)
+				t.paths[name] = ino
 			}
-			in := fs.inodes[ino]
-			in.mode, in.uid, in.gid, in.mtime, in.atime = mode, uint16(e.UID), uint16(e.GID), uint32(e.Mtime), uint32(e.Mtime)
+			t.fs.setAttrs(ino, mode, uid, gid, mtime)
 			continue
 		}
+		if _, dup := t.paths[name]; dup {
+			continue
+		}
+		parent := t.dir(path.Dir(name))
 		key := [2]uint32{e.Dev, e.Ino}
-		if ino, ok := links[key]; ok && e.Nlink > 1 {
-			fs.link(parent, path.Base(name), ino)
-			paths[name] = ino
+		if ino, ok := t.links[key]; ok && e.Nlink > 1 {
+			t.fs.linkName(parent, path.Base(name), ino)
+			t.paths[name] = ino
 			continue
 		}
-		if fs.inodesFull() {
+		if t.fs.inodeFull() {
 			return errors.New("out of inodes")
 		}
-		ino := fs.newInode(mode, uint16(e.UID), uint16(e.GID), uint32(e.Mtime))
-		fs.link(parent, path.Base(name), ino)
-		paths[name] = ino
+		ino := t.fs.newInode(mode, uid, gid, mtime)
+		t.fs.linkName(parent, path.Base(name), ino)
+		t.paths[name] = ino
 		if e.Nlink > 1 {
-			links[key] = ino
+			t.links[key] = ino
 		}
-		in := fs.inodes[ino]
 		switch typ {
 		case modeReg, modeLnk:
-			data := e.data
-			size := e.Size
-			if name == "etc/vfstab" {
+			data, size := e.data, e.Size
+			if t == root && name == "etc/vfstab" {
 				b, err := io.ReadAll(e.data)
 				if err != nil {
 					return err
 				}
-				s := strings.ReplaceAll(string(b), "c0d0s1", rootDev)
-				data, size = strings.NewReader(s), int64(len(s))
+				v := strings.ReplaceAll(string(b), "c0d0s1", rootDev)
+				if usrDev != "" {
+					v += fmt.Sprintf("/dev/dsk/%s\t/dev/rdsk/%s\t/usr/ufs\tufs\t2\tyes\t-\n", usrDev, usrDev)
+				}
+				data, size = strings.NewReader(v), int64(len(v))
 			}
-			if err := fs.writeData(ino, data, size); err != nil {
+			if err := t.fs.writeData(ino, data, size); err != nil {
 				return fmt.Errorf("%s: %v", name, err)
 			}
 		case modeChr, modeBlk:
-			in.addr[1], in.addr[2], in.addr[3] = 1, e.Rdev>>8, e.Rdev&0xFF
+			t.fs.setDevice(ino, e.Rdev)
 		}
 	}
 }

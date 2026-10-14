@@ -326,3 +326,16 @@ func (r *byteReader) Read(p []byte) (int, error) {
 	r.b = r.b[n:]
 	return n, nil
 }
+
+// fsWriter adaptors.
+
+func (fs *s5fs) inodeFull() bool                        { return fs.inodesFull() }
+func (fs *s5fs) linkName(dir int, name string, ino int) { fs.link(dir, name, ino) }
+func (fs *s5fs) setAttrs(ino int, mode, uid, gid uint16, mtime uint32) {
+	in := fs.inodes[ino]
+	in.mode, in.uid, in.gid, in.mtime, in.atime = mode, uid, gid, mtime, mtime
+}
+func (fs *s5fs) setDevice(ino int, rdev uint32) {
+	in := fs.inodes[ino]
+	in.addr[1], in.addr[2], in.addr[3] = 1, rdev>>8, rdev&0xFF
+}

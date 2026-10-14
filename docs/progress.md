@@ -42,6 +42,60 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-14 — AMIX: a UFS filesystem for the long names
+
+`amixdisk` now adds a fourth slice: a UFS filesystem (`ufs.go`), mounted
+at `/usr/ufs` from `/etc/vfstab`. It holds `/usr/src`, `/usr/X`,
+`/usr/x11r5` and `/usr/public`, the only trees with names longer than
+s5's 14 characters, and the root has links to them (`usr/src -> ufs/src`).
+`-usr 0` leaves it out and cuts the names, as before.
+
+**Why only those trees.** All of `/usr` can't move: `/etc/sysinit` runs
+from `/usr` before `rc2` mounts anything else. It needs `setclk`, the
+first-boot setup, `date`, `uname`, and `sioc` for the keymap. The four
+trees aren't needed that early.
+
+**The format** is 4.3BSD-Tahoe FFS as AMIX's `sys/fs/ufs_*.h` define
+it:
+- 8 KB blocks of 1 KB fragments. A cylinder group is 16 cylinders of
+  1024 sectors (8 MB), with 2048 inodes per group.
+- 128-byte inodes with both old and EFT ($90909090) fields. The size is
+  the quad's second long on 68k.
+- 4.3BSD directory records in 512-byte chunks.
+- Fragment tails for small files, and a `lost+found` with room for
+  `fsck`.
+- A superblock copy in every group.
+
+The kernel's `mountfs` confirmed the magic at $55C and clean as
+`fs_state + fs_time == FSOKAY`.
+
+**Checked with AMIX's own fsck.** The first image passed phases 1-4 but
+not phase 5: "SUMMARY INFORMATION BAD". Disassembling the ufs `fsck`'s
+`pass5` showed it rebuilds each cylinder group header and compares the
+first 724 bytes, and two fields differed:
+- **The group's time.** `fsck` sets it to the earlier of the group's
+  time and the clock's. Under the Y2K clock shift AMIX's clock says
+  1998, earlier than the 2026 the image was built in. Groups are now
+  stamped 0.
+- **The last group's `cg_ncyl`.** It's `fs_ncyl % fs_cpg`, as mkfs
+  computes it, which is 0 when the groups are all whole.
+
+The free-block table by rotational position is computed unconditionally
+by `fsck`, as the formula in the header does, even with rotational
+layout off.
+
+Now `fsck -F ufs -n` passes all five phases on the 18,452 files. The
+only remaining message is that the state isn't OKAY, which it never is
+while mounted. `ls` shows the long names, and `diag/s5.py check` finds
+the s5 root intact.
+
+**A side effect:** `system.setup` no longer offers the Netnews setup,
+because it looks for `/usr/public` before it is mounted.
+
+`TestBuildDiskUFS` builds a small UFS and checks a long-named file
+(blocks and a fragment tail, and di_blocks), lost+found, the vfstab
+entry and the link.
+
 ## 2026-10-14 — AMIX: the tape drive
 
 `--tape ID:DIR` (`scsitape.go`) puts a read-only SCSI tape drive on the
