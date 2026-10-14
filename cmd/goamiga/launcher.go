@@ -552,6 +552,10 @@ func (l *launcher) portsTab(x, y int) {
 	u.checkbox(x, y, "bsdsocket.library", &l.s.BSDSocket)
 	y += 22
 	u.text(x, y, "Amiga TCP/IP software uses this computer's network.", uiDim)
+	y += 26
+	u.checkbox(x, y, "A2065 Ethernet (Amiga Unix)", &l.s.A2065)
+	y += 22
+	u.text(x, y, "10.0.2.15, through this computer; telnet to localhost 2323 reaches it.", uiDim)
 	y += 36
 	u.label(x-10, y, "Joystick")
 	u.checkbox(x, y, "Arrow keys and Right Ctrl/Alt (Ctrl+F12 toggles)", &l.s.JoyKeys)

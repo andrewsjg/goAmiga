@@ -9,6 +9,11 @@
 //   - The root: an s5 filesystem holding the system, with /etc/vfstab
 //     naming c6d0s1, the root the kernel is built for (SCSI ID 6, the
 //     A3000's internal drive).
+//   - With -net (the default), the network set up for goAmiga's A2065 and
+//     its user-mode network: aen0 as 10.0.2.15 with a default route to
+//     10.0.2.2 (/etc/inet/network-config, which only acts if the card is
+//     there), and DNS through 10.0.2.3 (/etc/resolv.conf, resolv.so in
+//     /etc/netconfig).
 //   - UFS, mounted at /usr/ufs, holds the trees with names longer than
 //     s5's 14 characters: /usr/src, /usr/X, /usr/x11r5 and /usr/public,
 //     each left as a link to its place there (usr/src -> ufs/src). Nothing
@@ -52,6 +57,7 @@ func main() {
 	usrMB := flag.Int("usr", 400, "size of the UFS filesystem for the trees with long names, in MB (whole 8 MB groups; 0 for none)")
 	extraInodes := flag.Int("inodes", 8000, "free inodes to leave in the root filesystem")
 	rootSlice := flag.String("rootdev", "c6d0s1", "root device for /etc/vfstab")
+	flag.BoolVar(&netSetup, "net", true, "set the network up for goAmiga's A2065 (10.0.2.15, gateway 10.0.2.2, DNS 10.0.2.3)")
 	flag.Parse()
 	if err := build(*cpioPath, *out, *rootMB, *swapMB, *usrMB, *extraInodes, *rootSlice); err != nil {
 		fmt.Fprintln(os.Stderr, "amixdisk:", err)
@@ -225,6 +231,7 @@ var ufsTrees = []string{"usr/src", "usr/X", "usr/x11r5", "usr/public"}
 // fillFS adds every archive member to the s5 root, or to u (if not nil)
 // under ufsTrees.
 func fillFS(s5 *s5fs, u *ufs, cr *cpioReader, rootDev, usrDev string) error {
+	edits := fileEdits(rootDev, usrDev)
 	root := newTree(s5, s5.now)
 	var ut *tree
 	if u != nil {
@@ -244,7 +251,7 @@ func fillFS(s5 *s5fs, u *ufs, cr *cpioReader, rootDev, usrDev string) error {
 	for {
 		e, err := cr.Next()
 		if err == io.EOF {
-			return nil
+			return addFiles(root)
 		}
 		if err != nil {
 			return err
@@ -297,15 +304,12 @@ func fillFS(s5 *s5fs, u *ufs, cr *cpioReader, rootDev, usrDev string) error {
 		switch typ {
 		case modeReg, modeLnk:
 			data, size := e.data, e.Size
-			if t == root && name == "etc/vfstab" {
+			if edit := edits[name]; t == root && edit != nil {
 				b, err := io.ReadAll(e.data)
 				if err != nil {
 					return err
 				}
-				v := strings.ReplaceAll(string(b), "c0d0s1", rootDev)
-				if usrDev != "" {
-					v += fmt.Sprintf("/dev/dsk/%s\t/dev/rdsk/%s\t/usr/ufs\tufs\t2\tyes\t-\n", usrDev, usrDev)
-				}
+				v := edit(string(b))
 				data, size = strings.NewReader(v), int64(len(v))
 			}
 			if err := t.fs.writeData(ino, data, size); err != nil {
@@ -315,6 +319,53 @@ func fillFS(s5 *s5fs, u *ufs, cr *cpioReader, rootDev, usrDev string) error {
 			t.fs.setDevice(ino, e.Rdev)
 		}
 	}
+}
+
+// netSetup is -net.
+var netSetup = true
+
+// fileEdits are the changes to the archive's files, by path.
+func fileEdits(rootDev, usrDev string) map[string]func(string) string {
+	e := map[string]func(string) string{
+		"etc/vfstab": func(v string) string {
+			v = strings.ReplaceAll(v, "c0d0s1", rootDev)
+			if usrDev != "" {
+				v += fmt.Sprintf("/dev/dsk/%s\t/dev/rdsk/%s\t/usr/ufs\tufs\t2\tyes\t-\n", usrDev, usrDev)
+			}
+			return v
+		},
+	}
+	if netSetup {
+		e["etc/inet/network-config"] = func(v string) string {
+			return strings.Replace(v, "/usr/sbin/ifconfig aen0 `uname -n` up -trailers",
+				"/usr/sbin/ifconfig aen0 10.0.2.15 netmask 255.255.255.0 up -trailers &&\n"+
+					"\t    /usr/sbin/route add default 10.0.2.2 1", 1)
+		}
+		e["etc/netconfig"] = func(v string) string {
+			return strings.ReplaceAll(v, "/usr/lib/tcpip.so\n", "/usr/lib/tcpip.so,/usr/lib/resolv.so\n")
+		}
+	}
+	return e
+}
+
+// addFiles adds files the archive doesn't have.
+func addFiles(root *tree) error {
+	if !netSetup {
+		return nil
+	}
+	files := map[string]string{"etc/resolv.conf": "nameserver 10.0.2.3\n"}
+	for name, v := range files {
+		if _, ok := root.paths[name]; ok {
+			continue
+		}
+		ino := root.fs.newInode(0o100644, 0, 3, root.now) // root:sys
+		root.fs.linkName(root.dir(path.Dir(name)), path.Base(name), ino)
+		root.paths[name] = ino
+		if err := root.fs.writeData(ino, strings.NewReader(v), int64(len(v))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---- The boot partition ----

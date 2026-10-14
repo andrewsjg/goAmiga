@@ -92,7 +92,12 @@ type Amiga struct {
 	SCSI *a2091
 
 	// RTC is the battery-backed clock (EnableClock), or nil.
-	RTC   *rtc
+	RTC *rtc
+
+	// Ethernet is an A2065 on the user-mode network (EnableEthernet), or
+	// nil.
+	Ethernet *a2065
+
 	Mouse *Mouse
 	// Joystick is the joystick in game port 2.
 	Joystick *Joystick
@@ -402,6 +407,9 @@ func (a *Amiga) Reset() error {
 	if a.SCSI != nil {
 		a.SCSI.reset()
 	}
+	if a.Ethernet != nil {
+		a.Ethernet.reset()
+	}
 	if a.Serial != nil {
 		a.Serial.Reset()
 	}
@@ -563,6 +571,9 @@ func (a *Amiga) Step() error {
 	}
 	if a.SCSI != nil {
 		a.SCSI.tick()
+	}
+	if a.Ethernet != nil {
+		a.Ethernet.tick(elapsed)
 	}
 
 	// Use fast per-line beam advance when the CPU is stopped (no instruction
@@ -921,6 +932,9 @@ func (a *Amiga) Shutdown() {
 	}
 	if a.SCSI != nil {
 		a.SCSI.close()
+	}
+	if a.Ethernet != nil {
+		a.Ethernet.close()
 	}
 	if a.Net != nil {
 		a.Net.closeAll()

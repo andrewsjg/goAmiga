@@ -40,6 +40,8 @@ type Settings struct {
 	BSDSocket bool
 	Clock     bool
 	ClockY2K  bool
+	A2065     bool
+	A2065Fwd  string
 	JoyKeys   bool
 
 	Mute          bool
@@ -54,7 +56,7 @@ type Settings struct {
 // Defaults are the settings with nothing given: an A500 with 1 MB of chip
 // RAM and 2 MB of fast RAM.
 func Defaults() Settings {
-	return Settings{CPU: "68000", FPU: "none", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true,
+	return Settings{CPU: "68000", FPU: "none", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true, A2065Fwd: "2323:23",
 		ScreenshotDir: ".", StateDir: "."}
 }
 
@@ -97,6 +99,8 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.StringVar(&s.Chipset, "chipset", s.Chipset, "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise), ecs (A500+/A600) or aga (A1200/A4000); default ecs-agnus with 1 MB chip RAM, else ocs")
 	fs.BoolVar(&s.Clock, "rtc", s.Clock, "Fit the battery-backed clock (an Oki MSM6242 at $DC0000) running on the host's time; AmigaOS sets its time from it")
 	fs.BoolVar(&s.ClockY2K, "rtc-y2k", s.ClockY2K, "Make the clock show a year 28 years earlier (2026 as 1998: the same weekdays and leap years), for software from before 2000 such as Amiga Unix")
+	fs.BoolVar(&s.A2065, "a2065", s.A2065, "Fit an A2065 Ethernet card on a private network (10.0.2.0/24) carried by this computer's network, for Amiga Unix (aen0); the Amiga is 10.0.2.15, the gateway 10.0.2.2, DNS 10.0.2.3")
+	fs.StringVar(&s.A2065Fwd, "a2065-forward", s.A2065Fwd, "Host ports forwarded to the Amiga with --a2065, as HOSTPORT:AMIGAPORT,...: 127.0.0.1:2323 reaches its telnet by default")
 	fs.BoolVar(&s.BSDSocket, "bsdsocket", s.BSDSocket, "Fit a network board with bsdsocket.library: Amiga TCP/IP programs use the host's network")
 	fs.StringVar(&s.Serial, "serial", s.Serial, "Connect the serial port to a TCP port: telnet:PORT (a terminal; try NewShell AUX: on the Amiga) or tcp:PORT (raw bytes); HOST:PORT to listen beyond this machine")
 	fs.StringVar(&s.Video, "video", s.Video, "Video standard: pal (50 Hz) or ntsc (60 Hz, for American games that need it)")

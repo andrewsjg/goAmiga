@@ -32,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 14
+	stateVersion = 15
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -196,6 +196,12 @@ func (a *Amiga) state(s *stateCodec) {
 	num(s, &fastKB)
 	s.str(&chipset)
 	s.str(&video)
+	hasEth := a.Ethernet != nil
+	s.bool(&hasEth)
+	if s.load && hasEth != (a.Ethernet != nil) {
+		s.err = cmpErr(s.err, fmt.Errorf("state was saved with the A2065 %v; it is %v now (--a2065)", onOff(hasEth), onOff(a.Ethernet != nil)))
+		return
+	}
 	hasNet := a.Net != nil
 	s.bool(&hasNet)
 	if s.load && hasNet != (a.Net != nil) {
@@ -314,6 +320,9 @@ func (a *Amiga) state(s *stateCodec) {
 	}
 	if a.SCSI != nil {
 		a.SCSI.state(s)
+	}
+	if a.Ethernet != nil {
+		a.Ethernet.state(s) // its connections aren't kept
 	}
 	if a.Net != nil {
 		a.Net.state(s)

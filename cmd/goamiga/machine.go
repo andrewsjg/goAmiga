@@ -111,6 +111,20 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 		}
 		fmt.Fprintf(out, "DF%d: %s\n", n, all[0])
 	}
+	if s.A2065 {
+		fw, err := parseForwards(s.A2065Fwd)
+		if err != nil {
+			return fail(err)
+		}
+		if err := a.EnableEthernet(fw); err != nil {
+			return fail(fmt.Errorf("A2065: %v", err))
+		}
+		fmt.Fprintf(out, "A2065 Ethernet: 10.0.2.15 on a private network through this computer")
+		for hp, gp := range fw {
+			fmt.Fprintf(out, "; 127.0.0.1:%d -> port %d", hp, gp)
+		}
+		fmt.Fprintln(out)
+	}
 	if s.BSDSocket {
 		a.EnableBSDSocket()
 		fmt.Fprintln(out, "bsdsocket.library: on (host network)")
@@ -264,4 +278,21 @@ func printFileSystems(out io.Writer, f *amiga.Hardfile) {
 	if f.FSError != nil {
 		fmt.Fprintf(out, "  warning: %v\n", f.FSError)
 	}
+}
+
+// parseForwards reads --a2065-forward: HOSTPORT:AMIGAPORT,...
+func parseForwards(v string) (map[int]int, error) {
+	fw := map[int]int{}
+	for _, f := range strings.Split(v, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		var hp, gp int
+		if n, err := fmt.Sscanf(f, "%d:%d", &hp, &gp); n != 2 || err != nil || hp <= 0 || hp > 65535 || gp <= 0 || gp > 65535 {
+			return nil, fmt.Errorf("--a2065-forward %q: give HOSTPORT:AMIGAPORT", f)
+		}
+		fw[hp] = gp
+	}
+	return fw, nil
 }

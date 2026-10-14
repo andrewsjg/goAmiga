@@ -376,6 +376,13 @@ func (d *Display) drawStatus(screen *ebiten.Image, y int) {
 		}
 		led("SCSI", c)
 	}
+	if e := d.amiga.Ethernet; e != nil {
+		c := color.Color(ledOff)
+		if e.Activity() {
+			c = ledDrive
+		}
+		led("NET", c)
+	}
 	var notes []string
 	if d.paused {
 		notes = append(notes, "PAUSED (Cmd+P)")

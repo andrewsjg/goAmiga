@@ -427,6 +427,17 @@ between, and the drive is read-only. AMIX's own `amixpkg`
 (`/usr/amiga/bin/amixpkg`) then lists the packages on it and installs
 them from it.
 
+**Networking.** `--a2065`, or the A2065 box on the Ports tab, fits an
+A2065 Ethernet card, which AMIX knows as `aen0`. It's on a private
+network carried by your computer's own connections, so no setup or
+administrator rights are needed:
+- **The address.** The AMIX disk `amixdisk` makes is already set up:
+  10.0.2.15, with the gateway at 10.0.2.2 and DNS at 10.0.2.3.
+- **Going out.** `ping`, `telnet`, `ftp` and name lookups work from
+  AMIX. The address 10.0.2.2 is your computer itself.
+- **Coming in.** `telnet localhost 2323` on your computer reaches AMIX's
+  login. `--a2065-forward HOSTPORT:AMIGAPORT,...` forwards other ports.
+
 **X Windows** works on the Amiga's own display. Log in as root and run
 `/usr/X/bin/startx`, with `/usr/X/bin` on the PATH (root's isn't set up for
 it).

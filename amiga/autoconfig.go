@@ -46,6 +46,9 @@ func (a *Amiga) zorroBoards() []zorroBoard {
 	if a.SCSI != nil {
 		bs = append(bs, a.SCSI)
 	}
+	if a.Ethernet != nil {
+		bs = append(bs, a.Ethernet)
+	}
 	if a.Net != nil {
 		bs = append(bs, a.Net)
 	}

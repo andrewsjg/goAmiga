@@ -42,6 +42,81 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-14 — AMIX: networking (the A2065 and a user-mode network)
+
+`--a2065` fits Commodore's A2065 Ethernet card (`a2065.go`), connected to
+a user-mode network (`usernet.go`) that uses the host's sockets, as
+QEMU's "user" networking does. No privileges or host setup are needed.
+
+**The A2065, as AMIX's aen.c drives it** (from its disassembly):
+- `autocon($02020070)` finds it.
+- `get_auto_serial_number` builds the MAC from the board: 00:80:10 and
+  the serial number's inverted Autoconfig nibbles at $1C-$26. So the
+  board keeps answering with its Autoconfig data at $0000 after it is
+  configured.
+- The LANCE's data and address ports are at $4000/$4002. `setup_lance`
+  sets CSR3 to byte swap (BSWP), puts the init block at $8000 in the
+  32 KB of RAM (which the LANCE addresses by board offset), and sets up
+  128 receive descriptors of 150 bytes and 8 transmit descriptors of
+  1518.
+- `aenintr` reads CSR0, writes it back to acknowledge, and handles RINT
+  and TINT. `receive_interrupt` follows chained buffers from STP to ENP
+  and takes the length from the last descriptor's message count.
+
+**The emulated LANCE:**
+- CSR0-3, through RAP/RDP. INIT reads the init block and sets IDON;
+  STRT, STOP and INEA work, and the interrupt bits clear when written
+  as 1.
+- Transmit: on TDMD and on a periodic poll, it sends each STP..ENP chain
+  it owns and sets TINT.
+- Receive: a frame is spread over as many owned buffers as it needs.
+  The last carries ENP and the message count, which includes a zero
+  FCS. Then RINT, or MISS if the buffers run out.
+- It interrupts on INT2, level-triggered.
+
+**The user-mode network.** The gateway is 10.0.2.2 (the host's
+loopback, for connections in), DNS is 10.0.2.3 (the host's name server
+from `/etc/resolv.conf`), and the Amiga is 10.0.2.15.
+- The gateway answers ARP for the network and replies to pings.
+- UDP goes out through a host socket per Amiga port and destination.
+- For TCP, the gateway dials the destination from the host when the
+  Amiga's SYN arrives, and completes the handshake once that succeeds
+  (or resets it). It then acknowledges the Amiga's data and writes it
+  to the host. The host's data goes out within the Amiga's window and
+  MSS, and is resent after 0.5 s without an acknowledgement. FINs are
+  handled each way.
+- Forwarded host ports open connections into the Amiga the same way,
+  starting with our SYN. `--a2065-forward` defaults to 2323:23.
+
+**The AMIX disk** (`amixdisk -net`, the default) brings `aen0` up as
+10.0.2.15 with a default route to 10.0.2.2, in `network-config`, which
+only acts when `aen -S` finds the card. It also turns DNS on, with
+`resolv.so` in `/etc/netconfig` and `resolv.conf` naming 10.0.2.3.
+
+**Bugs on the way:**
+- *TCP checksums.* AMIX kept resending its SYN: it was rejecting our
+  SYN|ACK. The pseudo-header sum wrote `a<<8 | b + c<<8 | d`, and Go
+  gives `|` and `+` the same precedence. The tests now verify every
+  checksum the gateway sends.
+- *The FIN.* Once the Amiga had acknowledged our FIN, the in-flight
+  count subtracted it twice, went to -1 and panicked.
+
+**Testing:**
+- `TestA2065ARPAndPing` sets the LANCE up as `setup_lance` does,
+  including reading the MAC the way the driver does, then does ARP and
+  ping through the rings.
+- `TestUserNetTCPOut`, `TestUserNetForward` and `TestUserNetUDP` use
+  real host sockets.
+- In AMIX (`TestAMIXBoot`, `AMIX_NET`):
+  - the boot prints "add net default: gateway 10.0.2.2";
+  - `ifconfig aen0` shows 10.0.2.15 UP, and the routing table is
+    right;
+  - `ping 10.0.2.2` reports "10.0.2.2 is alive";
+  - AMIX's `telnet 10.0.2.2 PORT` reaches a server on the host and
+    exchanges text, until "Connection closed by foreign host";
+  - a host connection to the forwarded port gets AMIX's telnetd:
+    "UNIX(r) System V Release 4.0 (amiga) login:".
+
 ## 2026-10-14 — AMIX: a UFS filesystem for the long names
 
 `amixdisk` now adds a fourth slice: a UFS filesystem (`ufs.go`), mounted
