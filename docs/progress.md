@@ -42,6 +42,25 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
+## 2026-10-14 — AMIX: X Windows
+
+X11R4 runs on the native chipset with no emulator changes. `TestAMIXBoot`
+types the session:
+1. It answers `system.setup`'s 13 questions, waiting after each one.
+   Typing ahead fails because the timezone script swallows a keystroke.
+2. It waits for getty, which discards anything typed before `login:`
+   appears, and logs in as root.
+3. It sets PATH to include `/usr/X/bin` and runs `startx`.
+
+The key script now has `~` to pause 100 frames, and Shift for capitals
+and symbols.
+
+`X` is a link to `X2410`, which also drives the native display. The
+setup script would offer to relink it, but its `case "1|5"` never
+matches, so the shipped link stays. The server comes up with the window
+manager, an xterm and xclock (`docs/images/amix-x11.png`), after about
+4,000 more page faults.
+
 ## 2026-10-14 — The clock's Y2K option
 
 `--rtc-y2k`, which the A3000 preset sets, makes the battery clock show a

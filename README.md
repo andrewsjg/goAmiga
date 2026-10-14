@@ -415,6 +415,12 @@ How it starts up:
 - **First boot.** The first boot runs AMIX's setup questions: node name,
   timezone, passwords, a user account.
 
+![Amiga Unix running X](docs/images/amix-x11.png)
+
+**X Windows** works on the Amiga's own display. Log in as root and run
+`/usr/X/bin/startx`, with `/usr/X/bin` on the PATH (root's isn't set up for
+it).
+
 Its limits:
 - **Long names.** s5 file names are limited to 14 characters. The 144
   longer names in the archive, nearly all in the source trees, are cut

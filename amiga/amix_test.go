@@ -68,9 +68,19 @@ func TestAMIXBoot(t *testing.T) {
 	}
 	for f := 1; f <= frames; f++ {
 		if f >= keysAt && (f-keysAt)%25 == 0 && len(keys) > 0 {
-			if code, ok := amigaKey(keys[0]); ok {
+			if keys[0] == '~' { // a pause: wait 100 frames
+				keysAt, keys = f+100, keys[1:]
+				continue
+			}
+			if code, shift, ok := amigaKey(keys[0]); ok {
+				if shift {
+					a.Keyboard.EnqueueKey(0x60, true) // left Shift
+				}
 				a.Keyboard.EnqueueKey(code, true)
 				a.Keyboard.EnqueueKey(code, false)
+				if shift {
+					a.Keyboard.EnqueueKey(0x60, false)
+				}
 			}
 			keys = keys[1:]
 		}
@@ -85,23 +95,39 @@ func TestAMIXBoot(t *testing.T) {
 	}
 }
 
-// amigaKey is the raw key code typing c (lower case, digits, space,
-// Return and a little punctuation).
-func amigaKey(c byte) (byte, bool) {
+// amigaKey is the raw key code typing c, and whether it needs Shift
+// (US layout).
+func amigaKey(c byte) (code byte, shift bool, ok bool) {
 	rows := []struct {
-		chars string
-		first byte
-	}{{"1234567890-=", 0x01}, {"qwertyuiop[]", 0x10}, {"asdfghjkl;'", 0x20}, {"zxcvbnm,./", 0x31}}
+		plain, shifted string
+		first          byte
+	}{
+		{"1234567890-=", "!@#$%^&*()_+", 0x01},
+		{"qwertyuiop[]", "QWERTYUIOP{}", 0x10},
+		{"asdfghjkl;'", "ASDFGHJKL:\"", 0x20},
+		{"zxcvbnm,./", "ZXCVBNM<>?", 0x31},
+	}
 	for _, r := range rows {
-		if i := strings.IndexByte(r.chars, c); i >= 0 {
-			return r.first + byte(i), true
+		if i := strings.IndexByte(r.plain, c); i >= 0 {
+			return r.first + byte(i), false, true
+		}
+		if i := strings.IndexByte(r.shifted, c); i >= 0 {
+			return r.first + byte(i), true, true
 		}
 	}
 	switch c {
 	case ' ':
-		return 0x40, true
+		return 0x40, false, true
 	case '\n':
-		return 0x44, true
+		return 0x44, false, true
+	case '`':
+		return 0x00, false, true
+	case '~':
+		return 0x00, true, true
+	case '|':
+		return 0x0D, true, true
+	case '\\':
+		return 0x0D, false, true
 	}
-	return 0, false
+	return 0, false, false
 }
