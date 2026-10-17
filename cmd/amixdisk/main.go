@@ -16,7 +16,7 @@
 //     /etc/netconfig).
 //   - UFS, mounted at /usr/ufs, holds the trees with names longer than
 //     s5's 14 characters: /usr/src, /usr/X, /usr/x11r5 and /usr/public,
-//     each left as a link to its place there (usr/src -> ufs/src). Nothing
+//     each left as a link to its place there (/usr/src -> /usr/ufs/src). Nothing
 //     in them is needed before rc2 mounts it: /etc/sysinit runs programs
 //     from /usr, so the rest of /usr stays on the root. With -usr 0 there
 //     is no UFS and every name is cut to 14 characters.
@@ -239,7 +239,9 @@ func fillFS(s5 *s5fs, u *ufs, cr *cpioReader, rootDev, usrDev string) error {
 		root.dir("usr/ufs") // the mount point
 		for _, p := range ufsTrees {
 			ut.dir(strings.TrimPrefix(p, "usr/"))
-			link := "ufs/" + strings.TrimPrefix(p, "usr/")
+			// Absolute: AMIX hands a script run through a relative link
+			// its target as is (ufs/X/bin/startx: cannot open).
+			link := "/usr/ufs/" + strings.TrimPrefix(p, "usr/")
 			ino := s5.newInode(0o120777, 0, 0, s5.now)
 			s5.linkName(root.dir("usr"), path.Base(p), ino)
 			if err := s5.writeData(ino, strings.NewReader(link), int64(len(link))); err != nil {

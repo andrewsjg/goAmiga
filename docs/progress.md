@@ -122,7 +122,11 @@ only acts when `aen -S` finds the card. It also turns DNS on, with
 `amixdisk` now adds a fourth slice: a UFS filesystem (`ufs.go`), mounted
 at `/usr/ufs` from `/etc/vfstab`. It holds `/usr/src`, `/usr/X`,
 `/usr/x11r5` and `/usr/public`, the only trees with names longer than
-s5's 14 characters, and the root has links to them (`usr/src -> ufs/src`).
+s5's 14 characters, and the root has links to them (`/usr/src ->
+/usr/ufs/src`). The links were relative (`ufs/src`) at first, until
+`startx` failed with "ufs/X/bin/startx: cannot open". AMIX hands a script
+run through a relative link its target as is, so the links are absolute
+now.
 `-usr 0` leaves it out and cuts the names, as before.
 
 **Why only those trees.** All of `/usr` can't move: `/etc/sysinit` runs

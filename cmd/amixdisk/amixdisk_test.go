@@ -175,7 +175,7 @@ func TestBuildDiskUFS(t *testing.T) {
 	if !strings.Contains(vfstab, "/dev/dsk/c6d0s4\t/dev/rdsk/c6d0s4\t/usr/ufs\tufs") {
 		t.Error("vfstab has no /usr/ufs entry")
 	}
-	if !strings.Contains(vfstab, "ufs/src") {
+	if !strings.Contains(vfstab, "/usr/ufs/src") {
 		t.Error("no usr/src -> ufs/src link")
 	}
 }
