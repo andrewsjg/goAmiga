@@ -24,6 +24,7 @@ const (
 	FPUNone  = 0
 	FPU68881 = 68881
 	FPU68882 = 68882
+	FPU68040 = 68040 // the 68040's own (with Model68040)
 )
 
 // FPSR condition codes (bits 27-24) and exception bits.
@@ -608,6 +609,11 @@ func (c *Processor) fpOperate(opmode uint16, src float64, dst uint16, cosReg uin
 	default:
 		name = "f?"
 	}
+	// The 040's FSxxx forms round to single precision (and the FDxxx
+	// forms to double, which float64 already is).
+	if opmode&0x44 == 0x40 {
+		result = float64(float32(result))
+	}
 	c.FP[dst] = result
 	if set {
 		c.setFPCC(result)
@@ -835,6 +841,7 @@ func (c *Processor) fpFrameSize() int {
 // fpSave implements FSAVE <ea>: a null frame (one zero longword) if the
 // FPU has not been used since reset, else an idle frame: version $1F,
 // size, then that many bytes (the internal state, which here is empty).
+// The 040's idle frame is the single longword $41000000.
 func (c *Processor) fpSave(t stepTrace) stepTrace {
 	t.op = "fsave"
 	if ok, err := c.checkPrivilege(t.addr); !ok {
@@ -843,7 +850,9 @@ func (c *Processor) fpSave(t stepTrace) stepTrace {
 	}
 	c.PC += 2
 	frame := []byte{0, 0, 0, 0}
-	if c.fpuUsed {
+	if c.fpuUsed && c.is040() {
+		frame[0] = 0x41 // the 040's idle frame: version $41, no state
+	} else if c.fpuUsed {
 		size := c.fpFrameSize()
 		frame = make([]byte, 4+size)
 		frame[0], frame[1] = 0x1F, byte(size)

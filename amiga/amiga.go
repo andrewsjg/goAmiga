@@ -128,7 +128,10 @@ type Amiga struct {
 	NTSC bool
 	// CPUSpeed is the CPU's speed in percent of a 7 MHz 68000 (see SetCPU).
 	CPUSpeed int
-	chipSize int // chip RAM fitted, in bytes
+	// cpuCycleFrac is the 68040's part-cycle left over, in hundredths of
+	// a cycle times CPUSpeed.
+	cpuCycleFrac int
+	chipSize     int // chip RAM fitted, in bytes
 
 	// ROM overlay: when true, ROM is mapped to $000000-$03FFFF (256KB mirror)
 	overlay bool
@@ -312,6 +315,9 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	a.Mapper = m68kmem.NewMapper()
 	// Unmapped addresses float rather than fault, as on real hardware.
 	a.Mapper.OpenBus = true
+	// The 68030 and 68040 drive all 32 address lines (the A3000, A4000);
+	// the 68000 and the 68EC020 have 24, and addresses wrap at 16 MB.
+	a.Mapper.Wide = a.CPU != nil && a.CPU.Model >= m68k.Model68030
 
 	// Anything not mapped floats (open bus): Kickstart probes for memory
 	// by reading and writing, and finds nothing there.
@@ -493,7 +499,12 @@ func (a *Amiga) Step() error {
 		// A faster CPU takes less real time for the same instruction
 		// (CPUSpeed, percent of a 7 MHz 68000). Waits for the chip bus are
 		// added afterwards and stay as they are.
-		if a.CPUSpeed > 100 {
+		// The 68040 is fast enough that most instructions take less than
+		// a 7 MHz clock: the remainder carries over to the next one.
+		if a.CPU.Model >= m68k.Model68040 {
+			n := a.CPU.LastCycles*100 + a.cpuCycleFrac
+			a.CPU.LastCycles, a.cpuCycleFrac = n/a.CPUSpeed, n%a.CPUSpeed
+		} else if a.CPUSpeed > 100 {
 			a.CPU.LastCycles = max(2, a.CPU.LastCycles*100/a.CPUSpeed)
 		}
 		// Access violations should not occur: the Mapper runs in OpenBus
@@ -518,7 +529,9 @@ func (a *Amiga) Step() error {
 	// Advance beam by the number of CPU cycles consumed by this instruction
 	elapsed := a.CPU.LastCycles
 	minCycles := 4 // minimum 68000 instruction time
-	if a.CPUSpeed > 100 {
+	if a.CPU.Model >= m68k.Model68040 {
+		minCycles = 0
+	} else if a.CPUSpeed > 100 {
 		minCycles = 2
 	}
 	if elapsed < minCycles {

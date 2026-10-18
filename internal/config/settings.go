@@ -56,7 +56,7 @@ type Settings struct {
 // Defaults are the settings with nothing given: an A500 with 1 MB of chip
 // RAM and 2 MB of fast RAM.
 func Defaults() Settings {
-	return Settings{CPU: "68000", FPU: "none", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true, A2065Fwd: "2323:23",
+	return Settings{CPU: "68000", FPU: "auto", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true, A2065Fwd: "2323:23",
 		ScreenshotDir: ".", StateDir: "."}
 }
 
@@ -93,9 +93,9 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.BoolVar(&s.WriteProtect, "write-protect", s.WriteProtect, "Write-protect every drive and hardfile: the Amiga cannot change the image files")
 	fs.BoolVar(&s.Mute, "mute", s.Mute, "No sound")
 	fs.IntVar(&s.ChipRAM, "chipram", s.ChipRAM, "Chip RAM in KB: 512 (original Agnus), 1024 (8372A Fat Agnus) or 2048 (AGA); default 1024, or 2048 with --chipset aga")
-	fs.StringVar(&s.CPU, "cpu", s.CPU, "Processor: 68000 (A500), 68020 (a 68EC020, as in the A1200) or 68030 (with its MMU, as in the A3000)")
-	fs.IntVar(&s.CPUSpeed, "cpu-speed", s.CPUSpeed, "CPU speed in percent of a 7 MHz 68000 (default 100 for the 68000, 250 for the 68020, 350 for the 68030)")
-	fs.StringVar(&s.FPU, "fpu", s.FPU, "Floating-point coprocessor with --cpu 68020 or 68030: none, 68881 or 68882")
+	fs.StringVar(&s.CPU, "cpu", s.CPU, "Processor: 68000 (A500), 68020 (a 68EC020, as in the A1200), 68030 (with its MMU, as in the A3000) or 68040 (MMU and FPU, as in the A4000)")
+	fs.IntVar(&s.CPUSpeed, "cpu-speed", s.CPUSpeed, "CPU speed in percent of a 7 MHz 68000 (default 100 for the 68000, 250 for the 68020, 350 for the 68030, 1000 for the 68040)")
+	fs.StringVar(&s.FPU, "fpu", s.FPU, "Floating-point coprocessor with --cpu 68020 or 68030: none, 68881 or 68882. The 68040 has its own: auto keeps it, none makes it a 68LC040")
 	fs.StringVar(&s.Chipset, "chipset", s.Chipset, "Custom chips: ocs, ecs-agnus (Fat Agnus, original Denise), ecs (A500+/A600) or aga (A1200/A4000); default ecs-agnus with 1 MB chip RAM, else ocs")
 	fs.BoolVar(&s.Clock, "rtc", s.Clock, "Fit the battery-backed clock (an Oki MSM6242 at $DC0000) running on the host's time; AmigaOS sets its time from it")
 	fs.BoolVar(&s.ClockY2K, "rtc-y2k", s.ClockY2K, "Make the clock show a year 28 years earlier (2026 as 1998: the same weekdays and leap years), for software from before 2000 such as Amiga Unix")

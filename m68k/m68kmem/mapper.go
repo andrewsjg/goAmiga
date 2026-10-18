@@ -15,6 +15,27 @@ type Mapper struct {
 	// such as the Amiga need this — software routinely probes or strays
 	// into unmapped space and the hardware never faults.
 	OpenBus bool
+
+	// Wide gives the Mapper a 32-bit address bus (a 68020 or later with
+	// all its address lines, as in the A3000 and A4000) instead of the
+	// 68000's 24 bits. Without it addresses wrap at 16 MB.
+	Wide bool
+}
+
+// mask is the bus's address mask.
+func (mm *Mapper) mask() uint32 {
+	if mm.Wide {
+		return 0xFFFFFFFF
+	}
+	return MaxAddress
+}
+
+// maskAddr reduces addr to the bus's width.
+func (mm *Mapper) maskAddr(addr int) (int, error) {
+	if addr < 0 {
+		return 0, AccessViolationError(uint32(addr))
+	}
+	return int(uint32(addr) & mm.mask()), nil
 }
 
 type mapping struct {
@@ -30,10 +51,10 @@ func NewMapper() *Mapper {
 
 // Map maps the given Memory addressable device into the given address range.
 func (mm *Mapper) Map(m Memory, start, end int) (err error) {
-	if uint32(start) < MinAddress || uint32(start) > MaxAddress {
+	if start < 0 || uint32(start) < MinAddress || uint64(start) > uint64(mm.mask()) {
 		return errors.New("start address out of range")
 	}
-	if end < start || uint32(end) < MinAddress || uint32(end) > MaxAddress {
+	if end < start || uint32(end) < MinAddress || uint64(end) > uint64(mm.mask()) {
 		return errors.New("end address out of range")
 	}
 	n := &mapping{
@@ -61,14 +82,14 @@ func insertMapping(root, m *mapping) *mapping {
 }
 
 func (mm *Mapper) Read(addr int, p []byte) (n int, err error) {
-	addr, err = maskAddr(addr)
+	addr, err = mm.maskAddr(addr)
 	if err != nil {
 		return
 	}
 	// A read may span several devices (and, in OpenBus mode, gaps between
 	// them), so walk the range, handing each device the part it covers.
 	for n < len(p) {
-		i := (addr + n) & int(MaxAddress) // 24-bit bus wraps
+		i := (addr + n) & int(mm.mask()) // the bus wraps
 		m := mm.find(i)
 		if m == nil {
 			if !mm.OpenBus {
@@ -94,12 +115,12 @@ func (mm *Mapper) Read(addr int, p []byte) (n int, err error) {
 }
 
 func (mm *Mapper) Write(addr int, p []byte) (n int, err error) {
-	addr, err = maskAddr(addr)
+	addr, err = mm.maskAddr(addr)
 	if err != nil {
 		return
 	}
 	for n < len(p) {
-		i := (addr + n) & int(MaxAddress) // 24-bit bus wraps
+		i := (addr + n) & int(mm.mask()) // the bus wraps
 		m := mm.find(i)
 		if m == nil {
 			if !mm.OpenBus {
@@ -141,7 +162,7 @@ func (mm *Mapper) gap(addr int) int {
 			return m.start - addr
 		}
 	}
-	return int(MaxAddress) + 1 - addr
+	return int(mm.mask()) + 1 - addr
 }
 
 // float fills up to max bytes of p with the open-bus value and returns the

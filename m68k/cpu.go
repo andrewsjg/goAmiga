@@ -159,8 +159,9 @@ type Processor struct {
 	FPCR, FPSR, FPIAR uint32
 	fpuUsed           bool // an FPU instruction ran since reset (FSAVE gives an idle frame)
 
-	// mmu is the 68030's MMU (mmu030.go).
-	mmu mmu030
+	// mmu is the 68030's MMU (mmu030.go), mmu4 the 68040's (m68040.go).
+	mmu  mmu030
+	mmu4 mmu040
 
 	buf      [64]byte         // general purpose buffer
 	op       uint16           // current opcode
@@ -338,9 +339,9 @@ func (c *Processor) Step() (err error) {
 
 	c.M.Accesses = 0
 
-	// With the 68030's MMU on, a refused access undoes the instruction's
-	// register changes and takes a bus error (mmu030.go).
-	if c.mmu.enabled {
+	// With the MMU on, a refused access undoes the instruction's register
+	// changes and takes a bus error (mmu030.go, m68040.go).
+	if c.M.Translate != nil {
 		snap := c.snapshot()
 		defer func() {
 			if r := recover(); r != nil {
@@ -351,7 +352,11 @@ func (c *Processor) Step() (err error) {
 				c.mmu.fcOverride = 0
 				c.M.Fetch = false
 				c.restore(&snap)
-				err = c.raiseBusError030(bf)
+				if c.is040() {
+					err = c.raiseAccessError040(bf)
+				} else {
+					err = c.raiseBusError030(bf)
+				}
 			}
 		}()
 	}
@@ -374,6 +379,8 @@ func (c *Processor) Step() (err error) {
 			fn = opFPU
 		} else if c.op&0xFFC0 == 0xF000 && c.is030() { // the MMU
 			fn = opMMU030
+		} else if c.op>>12 == 0xF && c.is040() {
+			fn = dispatch040(c.op)
 		} else {
 			fn = dispatch020(c.op)
 		}
@@ -1536,6 +1543,8 @@ type ProcessorState struct {
 	TC, TT0, TT1 uint32
 	CRP, SRP     uint64
 	MMUSR        uint16
+	// 68040 MMU
+	MMU040 MMU040State
 }
 
 // State returns the processor's state between instructions.
@@ -1544,7 +1553,8 @@ func (c *Processor) State() ProcessorState {
 		PendingIPL: c.pendingIPL, RunState: c.runState, Model: c.Model,
 		VBR: c.VBR, CACR: c.CACR, CAAR: c.CAAR, SFC: c.SFC, DFC: c.DFC, MSP: c.MSP,
 		FPU: c.FPU, FP: c.FP, FPCR: c.FPCR, FPSR: c.FPSR, FPIAR: c.FPIAR, FPUUsed: c.fpuUsed,
-		TC: c.mmu.tc, TT0: c.mmu.tt[0], TT1: c.mmu.tt[1], CRP: c.mmu.crp, SRP: c.mmu.srp, MMUSR: c.mmu.mmusr}
+		TC: c.mmu.tc, TT0: c.mmu.tt[0], TT1: c.mmu.tt[1], CRP: c.mmu.crp, SRP: c.mmu.srp, MMUSR: c.mmu.mmusr,
+		MMU040: c.MMU040State()}
 }
 
 // SetState restores a state returned by State.
@@ -1555,4 +1565,5 @@ func (c *Processor) SetState(s ProcessorState) {
 	c.VBR, c.CACR, c.CAAR, c.SFC, c.DFC, c.MSP = s.VBR, s.CACR, s.CAAR, s.SFC, s.DFC, s.MSP
 	c.FPU, c.FP, c.FPCR, c.FPSR, c.FPIAR, c.fpuUsed = s.FPU, s.FP, s.FPCR, s.FPSR, s.FPIAR, s.FPUUsed
 	c.SetMMUState(s.TC, s.CRP, s.SRP, s.TT0, s.TT1, s.MMUSR)
+	c.SetMMU040State(s.MMU040)
 }

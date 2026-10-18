@@ -117,3 +117,66 @@ func TestBootKS32On68030(t *testing.T) {
 		t.Errorf("AttnFlags $%04X: want AFF_68030 and AFF_68882", attn)
 	}
 }
+
+// Kickstart 3.2 on a 68040, as an A1200 with a 68040 accelerator and as
+// an A500 with one: exec finds the 040 (by its MOVEC registers) and its
+// FPU (by the FSAVE frame), and Workbench starts.
+func TestBootKS32On68040(t *testing.T) {
+	for _, m := range []struct{ rom, chipset string }{
+		{"../ROMS/kick32a1200.rom", "aga"},
+		{"../ROMS/Kick32.rom", "ecs"},
+	} {
+		rom, err := LoadROM(m.rom)
+		if err != nil {
+			t.Skip(err)
+		}
+		a, _ := New(rom, nil)
+		if err := a.SetCPU("68040", 0); err != nil {
+			t.Fatal(err)
+		}
+		a.SetFPU("auto")
+		a.SetChipset(m.chipset)
+		if m.chipset == "aga" {
+			a.SetChipRAM(2048)
+		}
+		a.ConfigureMemory(0, 8192)
+		if err := a.AttachHardfile(hardfileFromADF(t, "../Workbench/Install3.2.adf"), false); err != nil {
+			t.Fatal(err)
+		}
+		exc := map[int]int{}
+		a.CPU.OnException = func(v int, pc, instr uint32) {
+			if v < 24 || v >= 32 {
+				exc[v]++
+			}
+		}
+		a.Reset()
+		if !waitWorkbench(t, a) {
+			t.Fatalf("%s: Workbench did not start on the 68040", m.rom)
+		}
+		for i := 0; i < 300; i++ {
+			a.RunFrame()
+		}
+		// Exec's Supervisor() takes privilege violations (vector 8) on
+		// purpose; nothing should take a bus or address error or F-line.
+		t.Logf("%s: exceptions other than interrupts: %v", m.rom, exc)
+		for _, v := range []int{2, 3, 11} {
+			if exc[v] != 0 {
+				t.Errorf("%s: %d exceptions with vector %d", m.rom, exc[v], v)
+			}
+		}
+		if p := os.Getenv("GOAMIGA_DIAG_PNG"); p != "" {
+			a.Video.DisplayActive = true
+			a.RunFrame()
+			a.RunFrame()
+			savePNG(t, a, p+"-"+m.chipset+".png")
+		}
+		eb := a.peek32(4)
+		attn := a.peek16(eb + 0x128)
+		t.Logf("%s: AttnFlags $%04X", m.rom, attn)
+		// AFF_68010-68040, and the FPU: AFF_FPU40 (with the 68881/2 bits,
+		// which exec sets for any FPU).
+		if attn&0x0F != 0x0F || attn&0x40 == 0 {
+			t.Errorf("%s: AttnFlags $%04X: want AFF_68010-68040 and AFF_FPU40", m.rom, attn)
+		}
+	}
+}

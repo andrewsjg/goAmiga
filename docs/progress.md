@@ -15,8 +15,8 @@ verified. Longer investigations get their own write-up in `docs/`.
 - Up to four floppy drives, writable and swappable. Hardfiles on an
   autobooting controller or IDE, and host folders as drives.
 - The CPU passes the SingleStepTests 68000 suite with 68000 cycle timing,
-  and can be a 68020 or a 68030 with its MMU (`--cpu 68020|68030`), with
-  an optional 68881/68882 FPU.
+  and can be a 68020, a 68030 with its MMU, or a 68040 with its MMU and
+  FPU (`--cpu 68020|68030|68040`), with an optional 68881/68882 FPU.
 - The A3000 preset: the A2091 SCSI controller (disks and a tape drive),
   the battery-backed clock, and the A2065 Ethernet card on a user-mode
   network.
@@ -43,14 +43,107 @@ verified. Longer investigations get their own write-up in `docs/`.
    programmable beam. So the 31 kHz modes (Productivity, Multiscan,
    DblPAL/DblNTSC, Euro72) and AGA scan doubling aren't emulated. A
    plain hardfile (no RDB) can only use Kickstart's own filesystems.
-   There is no Zorro III, no A4000 (Fat Gayle IDE, Ramsey/Buster), and
-   the CPU stops at the 68030: there is no 68040 or 68060 (see
-   `docs/a4000-68040-plan.md`). The 68030's caches aren't emulated
-   (CACR is stored).
+   There is no Zorro III and no A4000 (its IDE, Ramsey), and no
+   68060 (see `docs/a4000-68040-plan.md`). The caches aren't emulated
+   (CACR is stored). The 68LC040 takes FPU instructions as plain F-line
+   exceptions, not with its format $4 frame.
 6. **AMIX.** The arrow keys don't work under X Windows (the X server's
    keymap); they work everywhere else.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-18 — The 68040, and a 32-bit address bus
+
+Phases 1 and 2 of `docs/a4000-68040-plan.md`: `--cpu 68040`. Built from
+Motorola's M68040 User's Manual (fetched into `Reference/`).
+
+**The 32-bit bus.** The bus was 24 bits everywhere
+(`m68kmem.MaxAddress`), even for the 68030 machines. The Mapper now has
+a `Wide` option (all 32 bits, no wrap at 16 MB) which the Amiga sets for
+the 68030 and 68040. The 68000 and 68EC020 keep 24 bits. The Decoder now
+reduces the CPU's addresses to 32 bits before anything else sees them:
+the CPU does its address arithmetic in `int`, so an absolute word such as
+`$8000.W` arrived as -32768 and was refused as an access violation. It
+now reaches $FFFF8000 (the 24-bit bus sees $FF8000, as a 68000 would).
+AMIX boots the same on both buses: two runs of 4000 frames from fresh
+copies of its disk gave the same PC, MMU and bus-error count every 100
+frames.
+
+**The 68040** (`m68k/m68040.go`):
+- MOVEC: CACR (bits 31 and 15 only), TC, ITT0/1, DTT0/1, MMUSR, URP
+  and SRP. CAAR is illegal on the 040. Exec tells an 040 from the
+  others by these registers.
+- The 030's MMU instructions (`$F000`) take the F-line exception, which
+  is how software tells the MMUs apart. The 040 has its own PFLUSH (An),
+  PFLUSHN, PFLUSHA, PFLUSHAN, PTESTR and PTESTW instead.
+- The MMU: a fixed three-level walk from URP or SRP (7/7/6 bits of index
+  for 4 KB pages, 7/7/5 for 8 KB), four-byte descriptors, indirect page
+  descriptors, U and M updates, W at any level, S. There are separate
+  instruction and data ATCs. Unlike the 030, loading TC, URP or SRP
+  doesn't flush them. The transparent translation registers are checked
+  first, ITT for instruction fetches and DTT for data. A write-protected
+  TT block faults even with the MMU off.
+- PTEST fills MMUSR (the physical page, G, U1, U0, S, CM, M, W, R; T|R
+  for a TT hit) and loads the data ATC.
+- Access errors take a 30-word format $7 frame (SSW with ATC, RW,
+  SIZE, TM, and the fault address). As for the 030, the instruction is
+  undone and RTE runs it again, so the frame never has pending
+  write-backs. An address error (a jump to an odd address) takes a
+  format $2 frame. RTE knows the 040's formats ($0-$4, $7) and refuses
+  the 020/030's $9-$B.
+- MOVE16 (all five forms), and CINV and CPUSH, which do nothing because
+  the caches aren't emulated.
+- The FPU (`FPU68040`): FSAVE writes the 040's idle frame ($41000000),
+  which is how exec finds an 040 FPU. The FSxxx forms (FSADD, FSMUL ...)
+  round to single precision. Every other instruction works, including
+  those a real 040 traps to `68040.library` (FSIN, FETOX, FMOVECR,
+  packed decimal ...). Hyperion's 3.2 disks don't include that library,
+  so programs run without it.
+
+**The machine.** `--cpu 68040` defaults to 1000% speed (a 25 MHz 040:
+about 1.5 clocks an instruction). At that speed most instructions take
+less than a 7 MHz clock, and the old rule of at least 2 clocks per
+instruction would have capped it at 3.5 MIPS. So for the 040 the
+remainder is carried to the next instruction instead, with no minimum.
+The other CPUs are timed as before. `--fpu` now defaults to `auto`: none
+for the 68020/030, and the built-in FPU for the 040, which `--fpu none`
+removes (a 68LC040). The configuration screen has the 68040, and save
+states (version 16) keep its MMU registers.
+
+**Verified:**
+- `m68k/m68040_test.go` covers:
+  - the MOVEC registers and their masks, and CAAR being illegal;
+  - the 030's PMOVE being F-line on the 040;
+  - translation with 4 KB and 8 KB pages, and indirect descriptors;
+  - U/M updates at each level;
+  - an access error at an invalid page, with the handler mapping the
+    page and RTE rerunning the instruction (60-byte frame, (A3)+
+    undone);
+  - write-protected and supervisor-only pages;
+  - DTT0 transparent translation, and TT write protection with the MMU
+    off;
+  - PTESTR and MMUSR;
+  - PFLUSHAN keeping global pages, and PFLUSH (An);
+  - MOVE16, CINV/CPUSH privilege, the format $2 address error, the
+    FSAVE idle frame, FSADD rounding, and save-state round-trips.
+- `m68kmem`: `TestMapperWide` (mapping above 16 MB, open bus at
+  $40000000, the top of the 4 GB space, and a 24-bit Mapper refusing
+  $07000000) and `TestDecoderNegativeAddress`.
+- `TestBootKS32On68040` boots Kickstart 3.2 (the A1200 ROM with AGA, and
+  the A500 ROM with ECS) to Workbench on a 68040 with 8 MB of fast RAM:
+  - exec sets AttnFlags $804F (68010-68040 and FPU40);
+  - running 300 more frames takes no bus errors, address errors or
+    F-line exceptions. The only other exceptions are exec's own
+    Supervisor() privilege violations.
+- The full suite passes.
+
+**Not done yet:**
+- The 68LC040's format $4 frame for FPU instructions: they take a plain
+  F-line exception.
+- An option to trap the instructions the real 040 leaves to software.
+- Nothing in AmigaOS 3.2 turns the 040's MMU on, so it is tested only
+  by the unit tests until a program that uses it (MMULib, or a Unix)
+  runs.
 
 ## 2026-10-14 — AMIX: networking (the A2065 and a user-mode network)
 

@@ -292,19 +292,19 @@ var presets = []struct {
 	apply func(s *config.Settings)
 }{
 	{"A500", func(s *config.Settings) {
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ocs", 512, 512, 0
+		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ocs", 512, 512, 0
 		s.Gayle, s.ClockY2K = "off", false
 	}},
 	{"A500+", func(s *config.Settings) {
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ecs", 1024, 0, 0
+		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
 		s.Gayle, s.ClockY2K = "off", false
 	}},
 	{"A600", func(s *config.Settings) {
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "none", "ecs", 1024, 0, 0
+		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
 		s.Gayle, s.ClockY2K = "on", false
 	}},
 	{"A1200", func(s *config.Settings) {
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "none", "aga", 2048, 0, 0
+		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "auto", "aga", 2048, 0, 0
 		s.Gayle, s.ClockY2K = "on", false
 	}},
 	{"A1200 + fast", func(s *config.Settings) {
@@ -345,16 +345,18 @@ func (l *launcher) machineTab(x, y int) {
 	l.fileRow(x, y, 260, "rom", &l.s.ROM, romFilter, false)
 	y += 40
 	u.label(x-10, y, "CPU")
-	cycleOf(u, x, y, 200, []string{"68000 (A500, A600)", "68020 (A1200)", "68030 (A3000)"}, []string{"68000", "68020", "68030"}, &l.s.CPU)
+	cycleOf(u, x, y, 200, []string{"68000 (A500, A600)", "68020 (A1200)", "68030 (A3000)", "68040 (A4000)"}, []string{"68000", "68020", "68030", "68040"}, &l.s.CPU)
 	y += 34
 	u.label(x-10, y, "CPU speed")
-	cycleOf(u, x, y, 200, []string{"Model's own", "100% (7 MHz)", "150%", "200%", "250% (A1200)", "300%", "400%", "800%"},
-		[]int{0, 100, 150, 200, 250, 300, 400, 800}, &l.s.CPUSpeed)
+	cycleOf(u, x, y, 200, []string{"Model's own", "100% (7 MHz)", "150%", "200%", "250% (A1200)", "300%", "400%", "800%", "1000% (A4000)", "1600%"},
+		[]int{0, 100, 150, 200, 250, 300, 400, 800, 1000, 1600}, &l.s.CPUSpeed)
 	y += 34
 	u.label(x-10, y, "FPU")
-	cycleOf(u, x, y, 200, []string{"None", "68881", "68882"}, []string{"none", "68881", "68882"}, &l.s.FPU)
-	if l.s.FPU != "none" && l.s.CPU == "68000" {
+	cycleOf(u, x, y, 200, []string{"Auto", "None", "68881", "68882"}, []string{"auto", "none", "68881", "68882"}, &l.s.FPU)
+	if l.s.FPU != "none" && l.s.FPU != "auto" && l.s.CPU == "68000" {
 		u.text(x+210, y+3, "needs a 68020 or 68030", uiRed)
+	} else if l.s.CPU == "68040" {
+		u.text(x+210, y+3, map[bool]string{true: "68LC040: no FPU", false: "the 68040's own"}[l.s.FPU == "none"], uiDim)
 	}
 	y += 34
 	u.label(x-10, y, "Chipset")

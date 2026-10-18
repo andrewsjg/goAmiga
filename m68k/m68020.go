@@ -43,6 +43,8 @@ func (m Model) String() string {
 		return "68020"
 	case Model68030:
 		return "68030"
+	case Model68040:
+		return "68040"
 	}
 	return "68000"
 }
@@ -53,7 +55,12 @@ func (c *Processor) is020() bool { return c.Model >= Model68020 }
 // bit 0). Instruction fetches that hit it make no bus cycles; the
 // processor doesn't model the cache itself, but a memory system can use
 // this with Decoder.Fetch.
-func (c *Processor) ICacheEnabled() bool { return c.is020() && c.CACR&1 != 0 }
+func (c *Processor) ICacheEnabled() bool {
+	if c.is040() {
+		return c.CACR&0x8000 != 0
+	}
+	return c.is020() && c.CACR&1 != 0
+}
 
 // opcodes020 are the 68020's additions, matched before the 68000 table.
 var opcodes020 = []opcode{
@@ -128,6 +135,24 @@ func (c *Processor) rte020() error {
 	if err != nil {
 		return err
 	}
+	if c.is040() {
+		// The 040's frames: four words, throwaway, six words (format 2
+		// and the floating-point post-instruction format 3), the
+		// LC040's eight words, and the 30-word access error frame.
+		switch fw >> 12 {
+		case 0, 1:
+			c.A[7] += 2
+		case 2, 3:
+			c.A[7] += 6
+		case 4:
+			c.A[7] += 10
+		case 7:
+			c.A[7] += 54
+		default:
+			return errFormat
+		}
+		return nil
+	}
 	switch fw >> 12 {
 	case 0, 1:
 		c.A[7] += 2
@@ -150,6 +175,14 @@ var errFormat = fmt.Errorf("bad exception stack frame format")
 // ---- Control registers ----
 
 func (c *Processor) controlReg(n uint16) (*uint32, uint32, bool) {
+	if c.is040() {
+		return c.controlReg040(n)
+	}
+	return c.controlReg020(n)
+}
+
+// controlReg020 is MOVEC's register n on the 68020 and 68030.
+func (c *Processor) controlReg020(n uint16) (*uint32, uint32, bool) {
 	switch n {
 	case 0x000:
 		return &c.SFC, 7, true
@@ -205,6 +238,9 @@ func opMovec(c *Processor) (t stepTrace) {
 	} else {
 		*cr = *reg & mask
 		t.src, t.dst = name, crName
+		if c.is040() && (ext&0xFFF >= 0x003 && ext&0xFFF <= 0x007 || ext&0xFFF >= 0x806) {
+			c.mmu040Changed()
+		}
 	}
 	return
 }

@@ -45,7 +45,8 @@ import (
 // Model68030 is the 68030: Model68020 plus the MMU.
 const Model68030 Model = 2
 
-func (c *Processor) is030() bool { return c.Model >= Model68030 }
+// is030 reports a 68030 (the 040 has its own MMU and CACR).
+func (c *Processor) is030() bool { return c.Model == Model68030 }
 
 // mmu030 is the MMU's registers and its translation cache.
 type mmu030 struct {
@@ -137,11 +138,7 @@ func (c *Processor) flushATC() { c.mmu.atc = [atcSize]atcEntry{} }
 // updateTranslation installs the Decoder's translation hook while the
 // MMU is on.
 func (c *Processor) updateTranslation() {
-	if c.is030() && c.mmu.enabled {
-		c.M.Translate = c.translate
-	} else {
-		c.M.Translate = nil
-	}
+	c.M.Translate = c.translateOrNil()
 }
 
 // functionCode is the function code of an access: 1 user data, 2 user
@@ -467,6 +464,9 @@ func (c *Processor) raiseBusError030(f *busFault) (err error) {
 func (c *Processor) translateOrNil() func(int, int, bool) int {
 	if c.is030() && c.mmu.enabled {
 		return c.translate
+	}
+	if c.translating040() {
+		return c.translate040
 	}
 	return nil
 }

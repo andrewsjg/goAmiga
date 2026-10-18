@@ -172,11 +172,13 @@ func (a *Amiga) Chipset() string {
 	return "ocs"
 }
 
-// SetCPU chooses the processor: "68000" (the A500's, 7 MHz) or "68020"
-// (a 68EC020 accelerator: 24-bit addressing, no MMU or FPU). speed is the
-// CPU's speed in percent of the 7 MHz 68000, 0 meaning the model's usual:
-// 100 for the 68000, 250 for the 68020 (about an A1200's 14 MHz 68EC020).
-// Call it before Reset.
+// SetCPU chooses the processor: "68000" (the A500's, 7 MHz), "68020"
+// (a 68EC020 as in the A1200: 24-bit addressing, no MMU), "68030" (with
+// its MMU, as in the A3000) or "68040" (MMU and FPU, as in the A4000).
+// speed is the CPU's speed in percent of the 7 MHz 68000, 0 meaning the
+// model's usual: 100 for the 68000, 250 for the 68020 (about an A1200's
+// 14 MHz 68EC020), 350 for the 68030, 1000 for the 68040. Call it before
+// Reset, and SetFPU after it.
 func (a *Amiga) SetCPU(model string, speed int) error {
 	switch model {
 	case "68000":
@@ -194,11 +196,17 @@ func (a *Amiga) SetCPU(model string, speed int) error {
 		if speed == 0 {
 			speed = 350 // a 25 MHz 68030, as in the A3000
 		}
+	case "68040":
+		a.CPU.Model = m68k.Model68040
+		a.CPU.FPU = m68k.FPU68040
+		if speed == 0 {
+			speed = 1000 // a 25 MHz 68040: about 1.5 clocks an instruction
+		}
 	default:
-		return fmt.Errorf("CPU must be 68000, 68020 or 68030, not %q", model)
+		return fmt.Errorf("CPU must be 68000, 68020, 68030 or 68040, not %q", model)
 	}
-	if speed < 100 || speed > 2000 {
-		return fmt.Errorf("CPU speed must be 100-2000%%, not %d", speed)
+	if speed < 100 || speed > 4000 {
+		return fmt.Errorf("CPU speed must be 100-4000%%, not %d", speed)
 	}
 	a.CPUSpeed = speed
 	return nil
@@ -206,9 +214,20 @@ func (a *Amiga) SetCPU(model string, speed int) error {
 
 // SetFPU fits a floating-point coprocessor: "none", "68881" or "68882".
 // It needs the 68020 or 68030 (SetCPU first). Call it before Reset.
+//
+// The 68040 has its FPU on the chip: "auto" (or "", or any FPU) keeps
+// it, and "none" makes the processor a 68LC040, without one. For the
+// others "auto" is none.
 func (a *Amiga) SetFPU(model string) error {
+	if a.CPU.Model >= m68k.Model68040 {
+		a.CPU.FPU = m68k.FPU68040
+		if model == "none" {
+			a.CPU.FPU = m68k.FPUNone
+		}
+		return nil
+	}
 	switch model {
-	case "", "none":
+	case "", "none", "auto":
 		a.CPU.FPU = m68k.FPUNone
 		return nil
 	case "68881":

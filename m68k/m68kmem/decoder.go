@@ -57,8 +57,11 @@ func (m *Decoder) Read(addr int, p []byte) (n int, err error) {
 }
 
 // read and write are the accesses after the odd-address check: through
-// the MMU, if there is one.
+// the MMU, if there is one. The CPU's address arithmetic is done in int
+// (a sign-extended absolute word is negative), so the address is first
+// reduced to the 32 bits the CPU puts out.
 func (m *Decoder) read(addr int, p []byte) (int, error) {
+	addr = int(uint32(addr))
 	if m.Translate == nil {
 		return m.M.Read(addr, p)
 	}
@@ -74,6 +77,7 @@ func (m *Decoder) read(addr int, p []byte) (int, error) {
 }
 
 func (m *Decoder) write(addr int, p []byte) (int, error) {
+	addr = int(uint32(addr))
 	if m.Translate != nil {
 		if len(p) > 1 && addr&0xFF+len(p) > 0x100 {
 			// Translate every byte before writing any, so a fault on the

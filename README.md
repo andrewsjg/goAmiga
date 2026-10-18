@@ -9,8 +9,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 ## What it emulates
 
 **Machines:**
-- 68000, 68020 or 68030 CPU (the 68030 with its MMU), with an optional
-  68881/68882 FPU.
+- 68000, 68020, 68030 or 68040 CPU (the 68030 and 68040 with their
+  MMUs), with an optional 68881/68882 FPU; the 68040 has its own.
 - OCS, ECS or AGA chipset, PAL or NTSC.
 - 512 KB to 2 MB of chip RAM, plus trapdoor slow RAM and Zorro II fast
   RAM.
@@ -128,10 +128,16 @@ screen even when other flags are given.
     It runs 2.5× as fast as the 68000.
   - `68030`: as in the A3000, with its MMU for software that uses virtual
     memory, such as Amiga Unix. It runs 3.5× as fast as the 68000.
+  - `68040`: as in the A4000, with its MMU and its own FPU. It runs 10×
+    as fast as the 68000 (a 25 MHz 68040). Its FPU does every
+    instruction itself, including those a real 68040 leaves to
+    `68040.library`, so programs run without that library.
+    `--fpu none` makes it a 68LC040, with no FPU.
 
-  `--cpu-speed PERCENT` changes the speed. `--fpu 68881` or `--fpu 68882`
-  adds a floating-point unit to the 68020 or 68030. Kickstart and Workbench
-  detect all of this themselves.
+  The 68030 and 68040 have a 32-bit address bus; the others have 24 bits,
+  and addresses wrap at 16 MB. `--cpu-speed PERCENT` changes the speed.
+  `--fpu 68881` or `--fpu 68882` adds a floating-point unit to the 68020
+  or 68030. Kickstart and Workbench detect all of this themselves.
 - **Chipset.** `--chipset` chooses:
   - `ocs`: the original A500.
   - `ecs-agnus`: the Fat Agnus with the original Denise, as in A500s with

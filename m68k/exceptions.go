@@ -306,6 +306,9 @@ func (c *Processor) raiseAddressError(ae *addressError) error {
 		c.runState = RunStateStopped // double fault
 		return nil
 	}
+	if c.is040() {
+		return c.raiseAddressError040(ae)
+	}
 	if c.is020() {
 		return c.raiseAddressError020(ae, fc)
 	}
