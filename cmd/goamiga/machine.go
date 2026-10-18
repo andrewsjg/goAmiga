@@ -73,6 +73,18 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 		func() error { return a.SetChipset(chipset) },
 		func() error { return a.SetVideoStandard(s.Video) },
 		func() error { return a.ConfigureMemory(s.SlowRAM, s.FastRAM) },
+		func() error {
+			if s.Motherboard == "" || s.Motherboard == "none" {
+				if s.Z3RAM != 0 {
+					return fmt.Errorf("--z3ram needs --motherboard a3000 or a4000")
+				}
+				return nil
+			}
+			if err := a.EnableMotherboard(s.Motherboard, s.MBRAM); err != nil {
+				return err
+			}
+			return a.EnableZorro3RAM(s.Z3RAM)
+		},
 	} {
 		if err := step(); err != nil {
 			return fail(err)
@@ -80,6 +92,13 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 	}
 	fmt.Fprintf(out, "Memory: %d KB chip, %d KB slow, %d KB fast; chipset %s, %s; CPU %s at %d%%\n",
 		chipRAM, s.SlowRAM, s.FastRAM, a.Chipset(), strings.ToUpper(a.VideoStandard()), a.CPU.Model, a.CPUSpeed)
+	if a.Motherboard != nil {
+		fmt.Fprintf(out, "Motherboard: %s with %d KB of motherboard RAM", strings.ToUpper(s.Motherboard), s.MBRAM)
+		if s.Z3RAM > 0 {
+			fmt.Fprintf(out, ", %d MB of Zorro III RAM", s.Z3RAM)
+		}
+		fmt.Fprintln(out)
+	}
 
 	// Connect drives and load each one's first disk; the rest are for the
 	// swap keys. A zip holding several disks stands for all of them, boot
@@ -199,8 +218,18 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 	default:
 		return fail(fmt.Errorf("--gayle must be auto, on or off, not %q", s.Gayle))
 	}
-	if gayle || len(s.IDE) > 0 {
-		a.EnableGayle()
+	a4000 := s.Motherboard == "a4000"
+	if a4000 && s.Gayle == "on" {
+		return fail(fmt.Errorf("the A4000 has its own IDE interface, not Gayle: leave out --gayle on"))
+	}
+	if gayle || len(s.IDE) > 0 || a4000 {
+		ideName := "Gayle"
+		if a4000 {
+			a.EnableA4000IDE() // always there on the A4000
+			ideName = "A4000"
+		} else {
+			a.EnableGayle()
+		}
 		for i, p := range s.IDE {
 			if err := a.AttachIDE(p, s.WriteProtect); err != nil {
 				return fail(fmt.Errorf("IDE drive %s: %v", p, err))
@@ -214,7 +243,7 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			printFileSystems(out, hf)
 		}
 		if len(s.IDE) == 0 {
-			fmt.Fprintln(out, "Gayle: IDE interface fitted, no drives")
+			fmt.Fprintf(out, "%s: IDE interface fitted, no drives\n", ideName)
 		}
 	}
 	if a.HardDisk != nil {

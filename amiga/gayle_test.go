@@ -25,31 +25,36 @@ func ideTest(t *testing.T) (*Amiga, *gayle, string) {
 	return a, a.Gayle, path
 }
 
-func (g *gayle) w8(reg int, v byte) {
-	addr := gayleIDEBase + reg*4
-	if reg == 0x406 {
-		addr = gayleIDEBase + 0x1018
+// regAddr is a task file register's address on Gayle or the A4000.
+func (g *gayle) regAddr(reg int) int {
+	switch {
+	case g.a4000 && reg == 0:
+		return a4000IDEData
+	case g.a4000 && reg == 0x406:
+		return a4000IDECtrl + 0x1A
+	case g.a4000:
+		return a4000IDEData + 4*reg + 2
+	case reg == 0x406:
+		return gayleIDEBase + 0x1018
 	}
-	g.Write(addr, []byte{v})
+	return gayleIDEBase + reg*4
 }
 
+func (g *gayle) w8(reg int, v byte) { g.Write(g.regAddr(reg), []byte{v}) }
+
 func (g *gayle) r8(reg int) byte {
-	addr := gayleIDEBase + reg*4
-	if reg == 0x406 {
-		addr = gayleIDEBase + 0x1018
-	}
 	var b [1]byte
-	g.Read(addr, b[:])
+	g.Read(g.regAddr(reg), b[:])
 	return b[0]
 }
 
 func (g *gayle) rData() uint16 {
 	var b [2]byte
-	g.Read(gayleIDEBase, b[:])
+	g.Read(g.regAddr(0), b[:])
 	return binary.BigEndian.Uint16(b[:])
 }
 
-func (g *gayle) wData(v uint16) { g.Write(gayleIDEBase, binary.BigEndian.AppendUint16(nil, v)) }
+func (g *gayle) wData(v uint16) { g.Write(g.regAddr(0), binary.BigEndian.AppendUint16(nil, v)) }
 
 // waitDRQ lets the drive finish being busy and checks it wants data moved.
 func (g *gayle) waitReady(t *testing.T, wantDRQ bool) {

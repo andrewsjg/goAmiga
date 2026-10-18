@@ -32,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 16
+	stateVersion = 17
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -202,6 +202,14 @@ func (a *Amiga) state(s *stateCodec) {
 		s.err = cmpErr(s.err, fmt.Errorf("state was saved with the A2065 %v; it is %v now (--a2065)", onOff(hasEth), onOff(a.Ethernet != nil)))
 		return
 	}
+	// The A3000/A4000 parts must match too.
+	board := a.boardDescription()
+	saved := board
+	s.str(&saved)
+	if s.load && saved != board {
+		s.err = cmpErr(s.err, fmt.Errorf("state was saved on %q; this machine is %q", saved, board))
+		return
+	}
 	hasNet := a.Net != nil
 	s.bool(&hasNet)
 	if s.load && hasNet != (a.Net != nil) {
@@ -241,25 +249,25 @@ func (a *Amiga) state(s *stateCodec) {
 			hdfs = append(hdfs, "ide:"+p)
 		}
 	}
-	saved := slices.Clone(hdfs)
-	n := len(saved)
+	savedHDFs := slices.Clone(hdfs)
+	n := len(savedHDFs)
 	num(s, &n)
 	if s.load {
 		if s.err != nil || n > 16 {
 			s.err = cmpErr(s.err, errors.New("state: bad hardfile count"))
 			return
 		}
-		saved = make([]string, n)
+		savedHDFs = make([]string, n)
 	}
-	for i := range saved {
-		s.str(&saved[i])
+	for i := range savedHDFs {
+		s.str(&savedHDFs[i])
 	}
 	if s.err != nil {
 		return
 	}
 	if s.load {
-		if !slices.Equal(saved, hdfs) {
-			s.err = fmt.Errorf("state was saved with hardfiles %q; attached now: %q", saved, hdfs)
+		if !slices.Equal(savedHDFs, hdfs) {
+			s.err = fmt.Errorf("state was saved with hardfiles %q; attached now: %q", savedHDFs, hdfs)
 			return
 		}
 		if err := a.SetChipset(chipset); err != nil {
@@ -315,6 +323,17 @@ func (a *Amiga) state(s *stateCodec) {
 	if a.FastRAM != nil {
 		a.FastRAM.autoconfigState.state(s)
 		s.fixed(a.FastRAM.mem.b)
+	}
+	if m := a.Motherboard; m != nil {
+		s.fixed(m.gary[:])
+		num(s, &m.ramseyCtl)
+	}
+	if a.MotherboardRAM != nil {
+		s.fixed(a.MotherboardRAM.b)
+	}
+	if a.Z3RAM != nil {
+		a.Z3RAM.autoconfigState.state(s)
+		s.fixed(a.Z3RAM.mem.b)
 	}
 	if a.HardDisk != nil {
 		a.HardDisk.state(s)

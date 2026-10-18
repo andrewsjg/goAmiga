@@ -91,6 +91,13 @@ type Amiga struct {
 	// SCSI is an A2091 SCSI controller (AttachSCSI), or nil.
 	SCSI *a2091
 
+	// Motherboard is the A3000/A4000's Gary and Ramsey registers, and
+	// MotherboardRAM its 32-bit fast RAM (EnableMotherboard), or nil.
+	Motherboard    *motherboard
+	MotherboardRAM *ram
+	// Z3RAM is a Zorro III fast RAM board (EnableZorro3RAM), or nil.
+	Z3RAM *zorro3RAM
+
 	// RTC is the battery-backed clock (EnableClock), or nil.
 	RTC *rtc
 
@@ -128,6 +135,10 @@ type Amiga struct {
 	NTSC bool
 	// CPUSpeed is the CPU's speed in percent of a 7 MHz 68000 (see SetCPU).
 	CPUSpeed int
+	// OnOpenBus, if set before Reset, is called for every access to an
+	// unmapped address (a diagnostic: what software probes for).
+	OnOpenBus func(addr, n int, write bool)
+
 	// cpuCycleFrac is the 68040's part-cycle left over, in hundredths of
 	// a cycle times CPUSpeed.
 	cpuCycleFrac int
@@ -318,6 +329,7 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	// The 68030 and 68040 drive all 32 address lines (the A3000, A4000);
 	// the 68000 and the 68EC020 have 24, and addresses wrap at 16 MB.
 	a.Mapper.Wide = a.CPU != nil && a.CPU.Model >= m68k.Model68030
+	a.Mapper.OnOpenBus = a.OnOpenBus
 
 	// Anything not mapped floats (open bus): Kickstart probes for memory
 	// by reading and writing, and finds nothing there.
@@ -338,13 +350,16 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		a.Mapper.Map(&busCounter{m: a.SlowRAM, accesses: &a.cpuChipAccesses}, SlowRAMBase, SlowRAMBase+len(a.SlowRAM.b)-1)
 	}
 	a.Mapper.Map(&busCounter{m: a.Custom, accesses: &a.cpuChipAccesses}, CustomBase, CustomEnd)
-	if a.Gayle != nil {
+	if a.Gayle != nil && a.Gayle.a4000 {
+		a.Mapper.Map(gayleView{a.Gayle, a4000IDEBase}, a4000IDEBase, a4000IDEEnd)
+	} else if a.Gayle != nil {
 		a.Mapper.Map(gayleView{a.Gayle, gayleIDEBase}, gayleIDEBase, gayleIDEEnd)
 		a.Mapper.Map(gayleView{a.Gayle, gayleIDBase}, gayleIDBase, gayleIDEnd)
 	}
 	if a.RTC != nil {
 		a.Mapper.Map(a.RTC, rtcBase, rtcEnd)
 	}
+	a.mapMotherboard()
 
 	a.mapROM(ROMBase)
 
@@ -406,6 +421,9 @@ func (a *Amiga) Reset() error {
 	}
 	if a.Paula != nil {
 		a.Paula.Reset()
+	}
+	if a.Motherboard != nil {
+		a.Motherboard.reset()
 	}
 	if a.Gayle != nil {
 		a.Gayle.reset()

@@ -14,9 +14,10 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 - OCS, ECS or AGA chipset, PAL or NTSC.
 - 512 KB to 2 MB of chip RAM, plus trapdoor slow RAM and Zorro II fast
   RAM.
-- Presets for the A500, A500+, A600, A1200 and A3000. The A3000 has its
-  processor and chipset, with an A2091 card standing in for its built-in
-  SCSI.
+- Presets for the A500, A500+, A600, A1200, A3000 and A4000. The A3000
+  has its processor and chipset, with an A2091 card standing in for its
+  built-in SCSI. The A4000 is the whole machine: a 68040, AGA, Ramsey
+  with 16 MB of 32-bit motherboard RAM, its IDE interface, and Zorro III.
 - Kickstart 1.3 to 3.2. Workbench 1.3 and 3.2 run from floppy or hard
   disk.
 - Amiga Unix (AMIX 2.1) on a 68030 with an A2091 SCSI controller (see
@@ -174,6 +175,26 @@ screen even when other flags are given.
   For an original 512 KB A500, pass `--chipram 512 --fastram 0`. Old games
   often want exactly that: some crash under Kickstart 1.3 when fast RAM is
   fitted.
+- **A4000.** `--motherboard a4000` adds the A4000's motherboard to a
+  68030 or 68040 machine:
+  - Ramsey, the RAM controller, and the system registers at $DE0000;
+  - `--mbram KB` of 32-bit fast RAM below $08000000, up to 16384 (the
+    default);
+  - the A4000's IDE interface at $DD2000, always fitted, which `--ide`
+    drives go on;
+  - Zorro III: `--z3ram MB` adds a Zorro III RAM board (16 MB to 1 GB),
+    which expansion.library puts at $40000000.
+
+  It needs the A4000 Kickstart (3.1 or 3.2 for the A4000). Other
+  Kickstarts ignore the motherboard's RAM.
+
+  ```bash
+  goamiga --rom ROMS/kicka4000.rom --cpu 68040 --chipset aga --fastram 0 \
+          --motherboard a4000 --z3ram 64 --ide wb.hdf
+  ```
+
+  `--motherboard a3000` gives the A3000's Ramsey and RAM. It is only
+  useful with an A3000 Kickstart, and isn't part of the A3000 preset.
 
 ### Floppy disks
 

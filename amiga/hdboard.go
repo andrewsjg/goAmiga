@@ -745,8 +745,10 @@ func ioErr(err error) byte {
 
 // ---- Host access to Amiga memory ----
 
-func (a *Amiga) peekBytes(addr uint32, p []byte) { a.Mapper.Read(int(addr&0xFFFFFF), p) }
-func (a *Amiga) pokeBytes(addr uint32, p []byte) { a.Mapper.Write(int(addr&0xFFFFFF), p) }
+// peekBytes and pokeBytes reach Amiga memory as the CPU would (a 24- or
+// 32-bit bus: the Mapper wraps the address to its width).
+func (a *Amiga) peekBytes(addr uint32, p []byte) { a.Mapper.Read(int(addr), p) }
+func (a *Amiga) pokeBytes(addr uint32, p []byte) { a.Mapper.Write(int(addr), p) }
 
 func (a *Amiga) peek8(addr uint32) byte {
 	var b [1]byte

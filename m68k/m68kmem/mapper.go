@@ -20,6 +20,10 @@ type Mapper struct {
 	// all its address lines, as in the A3000 and A4000) instead of the
 	// 68000's 24 bits. Without it addresses wrap at 16 MB.
 	Wide bool
+
+	// OnOpenBus, when set, is called for each access to unmapped
+	// addresses in OpenBus mode (a diagnostic: what software probes).
+	OnOpenBus func(addr, n int, write bool)
 }
 
 // mask is the bus's address mask.
@@ -95,6 +99,9 @@ func (mm *Mapper) Read(addr int, p []byte) (n int, err error) {
 			if !mm.OpenBus {
 				return n, accessViolationError(i)
 			}
+			if mm.OnOpenBus != nil {
+				mm.OnOpenBus(i, min(len(p)-n, mm.gap(i)), false)
+			}
 			n += mm.float(p[n:], mm.gap(i))
 			continue
 		}
@@ -125,6 +132,9 @@ func (mm *Mapper) Write(addr int, p []byte) (n int, err error) {
 		if m == nil {
 			if !mm.OpenBus {
 				return n, accessViolationError(i)
+			}
+			if mm.OnOpenBus != nil {
+				mm.OnOpenBus(i, min(len(p)-n, mm.gap(i)), true)
 			}
 			n += min(len(p)-n, mm.gap(i)) // unmapped: write is lost
 			continue

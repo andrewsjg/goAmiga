@@ -37,6 +37,9 @@ func (s *autoconfigState) autoconfig() *autoconfigState { return s }
 // zorroBoards lists the boards in chain order.
 func (a *Amiga) zorroBoards() []zorroBoard {
 	var bs []zorroBoard
+	if a.Z3RAM != nil {
+		bs = append(bs, a.Z3RAM)
+	}
 	if a.FastRAM != nil {
 		bs = append(bs, a.FastRAM)
 	}
@@ -110,7 +113,7 @@ func (s *autoconfigSpace) Write(addr int, p []byte) (int, error) {
 func (s *autoconfigSpace) Reset() error { return nil }
 
 // mapZorro maps configured boards at their bases and the first
-// unconfigured one at $E80000.
+// unconfigured one at $E80000 (Zorro II) or $FF000000 (Zorro III).
 func (a *Amiga) mapZorro() {
 	answering := false
 	for _, b := range a.zorroBoards() {
@@ -120,7 +123,11 @@ func (a *Amiga) mapZorro() {
 		case st.base != 0:
 			a.Mapper.Map(b.space(), int(st.base), int(st.base)+b.size()-1)
 		case !answering:
-			a.Mapper.Map(&autoconfigSpace{a, b}, AutoconfigBase, AutoconfigEnd)
+			if z, ok := b.(z3Board); ok && z.zorro3() {
+				a.Mapper.Map(&autoconfig3Space{a, b}, z3ConfigBase, z3ConfigEnd)
+			} else {
+				a.Mapper.Map(&autoconfigSpace{a, b}, AutoconfigBase, AutoconfigEnd)
+			}
 			answering = true
 		}
 	}

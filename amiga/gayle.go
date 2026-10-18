@@ -25,6 +25,20 @@ import (
 // Kickstart 3.x for the A600 and A1200 checks the ID, and its scsi.device
 // then looks for drives and boots from the partitions in their Rigid Disk
 // Blocks (an IDE disk needs an RDB; plain hardfiles go on goamiga.device).
+//
+// The A4000's IDE interface (a4000 set) has the same drives behind a
+// different decoding, as the A4000 Kickstart's scsi.device uses it:
+//
+//	$DD2020          the data register (words)
+//	$DD2022 + 4n     task file register n (1-7)
+//	$DD3020          interrupt status: bit 7 is the drive's interrupt,
+//	                 which goes to INT2 (PORTS) with no enable or latch
+//	$DD303A          device control and alternate status
+//	$DD303E          drive address
+//
+// The rest of $DD2000-$DD3FFF floats high. (Kickstart 3.2 also probes for
+// a second channel at $DD3020, whose status reads back as the first
+// channel's control block: it finds nothing there.)
 
 const (
 	gayleIDEBase = 0xDA0000
@@ -32,11 +46,19 @@ const (
 	gayleIDBase  = 0xDE1000
 	gayleIDEnd   = 0xDE1FFF
 	gayleID      = 0xD0
+
+	a4000IDEBase  = 0xDD2000
+	a4000IDEEnd   = 0xDD3FFF
+	a4000IDEData  = 0xDD2020
+	a4000IDEIRQ   = 0xDD3020
+	a4000IDECtrl  = 0xDD3020 // the control block: register n at +4n+2
+	a4000IDEFloat = 0xFF
 )
 
 type gayle struct {
 	amiga  *Amiga
 	drives [2]*ideDrive // master, slave
+	a4000  bool         // the A4000's IDE interface rather than Gayle
 
 	devCtrl             byte // device control: bit 1 nIEN, bit 2 SRST
 	cs, irq, intEn, cfg byte
@@ -62,6 +84,16 @@ func (a *Amiga) EnableGayle() {
 	if a.Gayle == nil {
 		a.Gayle = &gayle{amiga: a}
 	}
+}
+
+// EnableA4000IDE fits the A4000's IDE interface in place of Gayle's.
+// Call it before Reset, and before AttachIDE.
+func (a *Amiga) EnableA4000IDE() {
+	if a.Gayle == nil {
+		a.Gayle = &gayle{amiga: a}
+	}
+	a.Gayle.a4000 = true
+	a.wireMemoryMap(a.overlay)
 }
 
 // AttachIDE connects a hardfile as the next IDE drive: the master, then
@@ -141,7 +173,31 @@ func (v gayleView) Read(addr int, p []byte) (int, error)  { return v.g.Read(v.ba
 func (v gayleView) Write(addr int, p []byte) (int, error) { return v.g.Write(v.base+addr, p) }
 func (v gayleView) Reset() error                          { return nil }
 
+// a4000Reg decodes an A4000 IDE address: a task file register 0-7,
+// $406/$407 in the control block, $1000 for the interrupt status, or -1.
+func a4000Reg(addr int) int {
+	switch {
+	case addr == a4000IDEIRQ:
+		return 0x1000
+	case addr >= a4000IDEData && addr < a4000IDEData+0x20:
+		if addr&^1 == a4000IDEData {
+			return 0
+		}
+		if addr&3 == 2 {
+			return (addr - a4000IDEData) >> 2
+		}
+	case addr == a4000IDECtrl+0x1A:
+		return 0x406
+	case addr == a4000IDECtrl+0x1E:
+		return 0x407
+	}
+	return -1
+}
+
 func (g *gayle) Read(addr int, p []byte) (int, error) {
+	if g.a4000 {
+		return g.read4000(addr, p)
+	}
 	off := addr & 0xFFFF
 	if addr >= gayleIDBase && addr <= gayleIDEnd {
 		g.tracef("read ID $%06X (bit %d)", addr, g.idCount)
@@ -231,6 +287,9 @@ func (g *gayle) readReg(reg int, d *ideDrive) byte {
 }
 
 func (g *gayle) Write(addr int, p []byte) (int, error) {
+	if g.a4000 {
+		return g.write4000(addr, p)
+	}
 	off := addr & 0xFFFF
 	if addr >= gayleIDBase && addr <= gayleIDEnd {
 		g.tracef("write ID $%06X: reset", addr)
@@ -310,6 +369,70 @@ func (g *gayle) writeReg(reg int, v byte) {
 	}
 }
 
+func (g *gayle) read4000(addr int, p []byte) (int, error) {
+	reg := a4000Reg(addr)
+	d := g.selected()
+	switch reg {
+	case -1:
+		for i := range p {
+			p[i] = a4000IDEFloat
+		}
+		return len(p), nil
+	case 0:
+		for i := 0; i+1 < len(p); i += 2 {
+			w := uint16(0xFFFF)
+			if d != nil {
+				w = d.readData()
+			}
+			p[i], p[i+1] = byte(w>>8), byte(w)
+		}
+		if len(p)%2 == 1 {
+			p[len(p)-1] = a4000IDEFloat
+		}
+		g.update()
+		return len(p), nil
+	case 0x1000:
+		v := byte(0)
+		if g.line() {
+			v = 0x80
+		}
+		p[0] = v
+		for i := 1; i < len(p); i++ {
+			p[i] = a4000IDEFloat
+		}
+		g.tracef("read  $%06X (interrupt) = $%02X", addr, v)
+		return len(p), nil
+	}
+	v := g.readReg(reg, d)
+	p[0] = v
+	for i := 1; i < len(p); i++ {
+		p[i] = a4000IDEFloat
+	}
+	g.tracef("read  $%06X (reg $%X) = $%02X", addr, reg, v)
+	g.update()
+	return len(p), nil
+}
+
+func (g *gayle) write4000(addr int, p []byte) (int, error) {
+	reg := a4000Reg(addr)
+	switch reg {
+	case -1, 0x1000, 0x407:
+		return len(p), nil
+	case 0:
+		if d := g.selected(); d != nil {
+			for i := 0; i+1 < len(p); i += 2 {
+				d.writeData(uint16(p[i])<<8 | uint16(p[i+1]))
+			}
+		}
+		g.update()
+		return len(p), nil
+	}
+	g.tracef("write $%06X (reg $%X) = % X", addr, reg, p)
+	g.writeReg(reg, p[0])
+	g.update()
+	return len(p), nil
+}
+
 // line is the drive's interrupt request as Gayle sees it.
 func (g *gayle) line() bool {
 	d := g.selected()
@@ -325,7 +448,7 @@ func (g *gayle) update() {
 		g.irq |= 0x80
 	}
 	g.lastLine = line
-	if g.irq&g.intEn&0x80 != 0 {
+	if g.irq&g.intEn&0x80 != 0 || g.a4000 && line {
 		g.amiga.Custom.SetIntreq(1 << 3)
 	}
 }
@@ -339,7 +462,7 @@ func (g *gayle) tick(cycles int) {
 			busy = true
 		}
 	}
-	if busy || g.irq&g.intEn&0x80 != 0 {
+	if busy || g.irq&g.intEn&0x80 != 0 || g.a4000 && g.lastLine {
 		g.update()
 	}
 }

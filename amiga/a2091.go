@@ -367,14 +367,14 @@ func (c *a2091) selectAndTransfer() {
 	if n := dev.dataOut(cdb); n > 0 {
 		out = make([]byte, n)
 		got := min(n, tc)
-		c.amiga.peekBytes(c.acr, out[:got])
+		c.amiga.peekBytes(c.acr&0xFFFFFF, out[:got]) // a Zorro II card: 24-bit DMA
 		c.acr += uint32(got)
 		tc -= got
 	}
 	in, status := dev.command(lun, cdb, out)
 	if len(in) > 0 {
 		n := min(len(in), tc)
-		c.amiga.pokeBytes(c.acr, in[:n])
+		c.amiga.pokeBytes(c.acr&0xFFFFFF, in[:n])
 		c.acr += uint32(n)
 		tc -= n
 	}

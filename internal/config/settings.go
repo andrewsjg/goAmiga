@@ -36,6 +36,10 @@ type Settings struct {
 	SlowRAM  int
 	FastRAM  int
 
+	Motherboard string // none, a3000 or a4000
+	MBRAM       int    // motherboard fast RAM in KB
+	Z3RAM       int    // Zorro III fast RAM in MB
+
 	Serial    string
 	BSDSocket bool
 	Clock     bool
@@ -56,7 +60,7 @@ type Settings struct {
 // Defaults are the settings with nothing given: an A500 with 1 MB of chip
 // RAM and 2 MB of fast RAM.
 func Defaults() Settings {
-	return Settings{CPU: "68000", FPU: "auto", Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true, A2065Fwd: "2323:23",
+	return Settings{CPU: "68000", FPU: "auto", Motherboard: "none", MBRAM: 16384, Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true, A2065Fwd: "2323:23",
 		ScreenshotDir: ".", StateDir: "."}
 }
 
@@ -86,7 +90,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.Var(&s.Dirs, "dir", "Host folder as an Amiga drive: PATH, or VOLUME=PATH to name its volume (else the folder's name); bootable if it has S/Startup-Sequence; repeat for more")
 	fs.Var(&s.SCSI, "scsi", "Hardfile as a SCSI disk on an A2091 controller, as ID:PATH (ID 0-6), for Amiga Unix, which drives the A2091 itself (put its disk at ID 6); AmigaOS reaches the same disk through goamiga.device; repeat for more")
 	fs.StringVar(&s.Tape, "tape", s.Tape, "A read-only SCSI tape drive on the A2091, as ID:DIR, playing the tape kept in DIR (its files in index.tape order, with filemarks between): Amiga Unix's distribution tape at ID 4")
-	fs.Var(&s.IDE, "ide", "Hardfile (with a Rigid Disk Block) as an IDE drive on Gayle, booted by Kickstart's own scsi.device: the master, then the slave")
+	fs.Var(&s.IDE, "ide", "Hardfile (with a Rigid Disk Block) as an IDE drive on Gayle (or the A4000's IDE interface), booted by Kickstart's own scsi.device: the master, then the slave")
 	fs.StringVar(&s.Gayle, "gayle", s.Gayle, "Gayle, the A600/A1200 IDE interface: auto (fitted with the AGA chipset), on or off; --ide fits it")
 	fs.IntVar(&s.HDFCreate, "hdf-create", s.HDFCreate, "Create any --hdf file that does not exist, blank, this many MB (format it from the Amiga)")
 	fs.IntVar(&s.NumDrives, "drives", s.NumDrives, "Number of drives to connect (1-4), even without disks for them")
@@ -106,6 +110,9 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.StringVar(&s.Video, "video", s.Video, "Video standard: pal (50 Hz) or ntsc (60 Hz, for American games that need it)")
 	fs.IntVar(&s.SlowRAM, "slowram", s.SlowRAM, "Slow (trapdoor) RAM at $C00000 in KB: 0, 512, 1024 or 1536")
 	fs.IntVar(&s.FastRAM, "fastram", s.FastRAM, "Zorro II fast RAM in KB: 0 or a power of two from 64 to 8192")
+	fs.StringVar(&s.Motherboard, "motherboard", s.Motherboard, "A3000 or A4000 motherboard (needs --cpu 68030 or 68040): none, a3000 or a4000; Ramsey, 32-bit motherboard RAM (--mbram), Zorro III, and on the A4000 its IDE interface (--ide). Use the A4000 Kickstart for the A4000")
+	fs.IntVar(&s.MBRAM, "mbram", s.MBRAM, "Motherboard fast RAM with --motherboard, in KB: 0 to 16384 in whole megabytes")
+	fs.IntVar(&s.Z3RAM, "z3ram", s.Z3RAM, "Zorro III fast RAM with --motherboard, in MB: 0 or a power of two from 16 to 1024")
 	fs.BoolVar(&s.Overscan, "overscan", s.Overscan, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	fs.IntVar(&s.Scale, "scale", s.Scale, "Window size multiplier (the emulated resolution is unchanged); reduced if it doesn't fit the screen")
 	fs.BoolVar(&s.StatusBar, "statusbar", s.StatusBar, "Show the activity lights (power, drives, hard disk) and warp speed below the picture")

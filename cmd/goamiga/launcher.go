@@ -293,31 +293,38 @@ var presets = []struct {
 }{
 	{"A500", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ocs", 512, 512, 0
-		s.Gayle, s.ClockY2K = "off", false
+		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "off", false, "none", 0
 	}},
 	{"A500+", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
-		s.Gayle, s.ClockY2K = "off", false
+		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "off", false, "none", 0
 	}},
 	{"A600", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
-		s.Gayle, s.ClockY2K = "on", false
+		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
 	}},
 	{"A1200", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "auto", "aga", 2048, 0, 0
-		s.Gayle, s.ClockY2K = "on", false
+		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
 	}},
 	{"A1200 + fast", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "68882", "aga", 2048, 0, 8192
-		s.Gayle, s.ClockY2K = "on", false
+		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
 	}},
 	// The A3000's processor and chipset: what Amiga Unix needs (its disk
 	// goes on the A2091 at SCSI ID 6). The real machine's built-in SCSI
 	// and 32-bit memory aren't emulated.
 	{"A3000", func(s *config.Settings) {
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68030", 0, "68882", "ecs", 1024, 0, 8192
-		s.Gayle = "off"
+		s.Gayle, s.Motherboard, s.Z3RAM = "off", "none", 0
 		s.Clock, s.ClockY2K = true, true // AMIX's date wants a year before 2000
+	}},
+	// The A4000/040: its motherboard (Ramsey, 16 MB of 32-bit RAM, the
+	// IDE interface) and Zorro III. It needs the A4000 Kickstart.
+	{"A4000", func(s *config.Settings) {
+		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68040", 0, "auto", "aga", 2048, 0, 0
+		s.Gayle, s.Motherboard, s.MBRAM, s.Z3RAM = "auto", "a4000", 16384, 0
+		s.Clock, s.ClockY2K = true, false
 	}},
 }
 
@@ -334,6 +341,8 @@ func (l *launcher) machineTab(x, y int) {
 			p.apply(&l.s)
 			if p.name == "A3000" {
 				l.say(false, "A3000 settings: for Amiga Unix, add its disk as a SCSI disk (ID 6) on the Hard disks tab")
+			} else if p.name == "A4000" {
+				l.say(false, "A4000 settings: choose the A4000 Kickstart ROM; IDE drives go on its own interface")
 			} else {
 				l.say(false, "%s settings (choose a matching Kickstart ROM)", p.name)
 			}
@@ -369,6 +378,13 @@ func (l *launcher) machineTab(x, y int) {
 	u.label(x-10, y, "Gayle (IDE)")
 	cycleOf(u, x, y, 260, []string{"Automatic (with AGA)", "Fitted (A600, A1200)", "Not fitted"},
 		[]string{"auto", "on", "off"}, &l.s.Gayle)
+	y += 34
+	u.label(x-10, y, "Motherboard")
+	cycleOf(u, x, y, 260, []string{"None", "A3000 (Ramsey, 32-bit RAM)", "A4000 (with its IDE)"},
+		[]string{"none", "a3000", "a4000"}, &l.s.Motherboard)
+	if l.s.Motherboard != "none" && l.s.Motherboard != "" && (l.s.CPU == "68000" || l.s.CPU == "68020") {
+		u.text(x+270, y+3, "needs a 68030 or 68040", uiRed)
+	}
 }
 
 func (l *launcher) memoryTab(x, y int) {
@@ -382,6 +398,16 @@ func (l *launcher) memoryTab(x, y int) {
 	u.label(x-10, y, "Fast RAM")
 	cycleOf(u, x, y, 220, []string{"None", "64 KB", "128 KB", "256 KB", "512 KB", "1 MB", "2 MB", "4 MB", "8 MB"},
 		[]int{0, 64, 128, 256, 512, 1024, 2048, 4096, 8192}, &l.s.FastRAM)
+	if l.s.Motherboard != "none" && l.s.Motherboard != "" {
+		y += 34
+		u.label(x-10, y, "Motherboard RAM")
+		cycleOf(u, x, y, 220, []string{"None", "1 MB", "2 MB", "4 MB", "8 MB", "16 MB"},
+			[]int{0, 1024, 2048, 4096, 8192, 16384}, &l.s.MBRAM)
+		y += 34
+		u.label(x-10, y, "Zorro III RAM")
+		cycleOf(u, x, y, 220, []string{"None", "16 MB", "32 MB", "64 MB", "128 MB", "256 MB"},
+			[]int{0, 16, 32, 64, 128, 256}, &l.s.Z3RAM)
+	}
 	y += 50
 	for _, ln := range u.wrap("Chip RAM is shared with the custom chips; slow RAM is the A500 trapdoor "+
 		"expansion at $C00000; fast RAM is a Zorro II board. Some old games refuse to run with fast "+

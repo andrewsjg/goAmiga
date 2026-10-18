@@ -22,6 +22,9 @@ verified. Longer investigations get their own write-up in `docs/`.
   network.
 - Amiga Unix (AMIX 2.1) boots from a disk made by `cmd/amixdisk`, runs
   multi-user with networking, and runs X Windows.
+- The A4000: the A4000 Kickstart boots Workbench 3.2 from floppy or IDE
+  on a 68040 with Ramsey, motherboard RAM, its IDE interface and Zorro
+  III RAM.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
@@ -43,14 +46,113 @@ verified. Longer investigations get their own write-up in `docs/`.
    programmable beam. So the 31 kHz modes (Productivity, Multiscan,
    DblPAL/DblNTSC, Euro72) and AGA scan doubling aren't emulated. A
    plain hardfile (no RDB) can only use Kickstart's own filesystems.
-   There is no Zorro III and no A4000 (its IDE, Ramsey), and no
-   68060 (see `docs/a4000-68040-plan.md`). The caches aren't emulated
+   There is no 68060, no Zorro III I/O boards (only RAM), and no
+   CPU-slot RAM at $08000000 (see `docs/a4000-68040-plan.md`). The caches aren't emulated
    (CACR is stored). The 68LC040 takes FPU instructions as plain F-line
    exceptions, not with its format $4 frame.
 6. **AMIX.** The arrow keys don't work under X Windows (the X server's
    keymap); they work everywhere else.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+
+## 2026-10-18 — The A4000
+
+Phase 3 of `docs/a4000-68040-plan.md`, with the A4000 Kickstart 3.2
+(exec 47.7) the user supplied as `ROMS/kicka4000.rom`.
+
+**Method.** A new diagnostic hook, `Mapper.OnOpenBus` (`Amiga.OnOpenBus`),
+reports every access to an unmapped address. `TestA4000ROMProbe`
+(`GOAMIGA_DIAG=1`) boots the ROM and lists them in order, so each
+missing piece showed up as the next thing the ROM touched. The code
+around each one was then disassembled with `diag/disasm68k.py`.
+
+**1. Gary and Ramsey** (`amiga/motherboard.go`). The ROM's first accesses
+are bytes $DE0000-$DE0002: bus timeout mode, timeout enable, and cold
+boot.
+- On a 68020+ the reset code checks the cold boot bit (bit 7 of
+  $DE0002). If it is set, it clears the ExecBase pointer to force a cold
+  start, then clears the bit.
+- Later exec copies a routine into chip RAM that reads Ramsey's version
+  at $DE0043 ($7F would mean no Ramsey). It then writes page mode, burst
+  and wrap into the control register at $DE0003 and loops until it reads
+  them back. With nothing mapped, the read gave 0 and the boot hung
+  there.
+- The emulation keeps the three bit-7 registers (cold boot set at power
+  on, not at reset), keeps Ramsey's control register, and reports
+  version $0F (the A4000's; the A3000's is $0D).
+
+**2. Motherboard RAM.** Exec sizes it a megabyte at a time downwards from
+$08000000 (checking whether the ROM appears mirrored at $07F80000), then
+upwards from $08000000 for CPU-slot RAM. `--mbram` (default 16 MB) maps
+RAM ending at $07FFFFFF. Exec adds it at priority 30, and it becomes the
+fastest RAM in the system.
+
+**3. The IDE interface.** The ROM's scsi.device keeps $DD2020 in A4. From
+its accesses:
+- data is at $DD2020 and register n at $DD2022 + 4n;
+- the control block is at +$1000: device control and alternate status at
+  $DD303A;
+- it also probes for a second channel at $DD3020;
+- the interrupt status is at $DD3020 (bit 7), reaching INT2 with no
+  enable or latch.
+
+This is Gayle's IDE with different decoding, so it is a mode of the
+Gayle code (`a4000`), sharing its ATA drives. Everything else in
+$DD2000-$DD3FFF floats high, so with no drive the status reads $FF and
+the driver gives up quickly. Before this was mapped it read 0, and the
+boot hung waiting for a drive.
+
+**4. A 24-bit mask in host access.** With the motherboard RAM, exec put
+ExecBase at $07xxxxxx, and the test helper read AttnFlags as 0.
+`peekBytes`/`pokeBytes`, which goamiga.device, bsdsocket.library and the
+diagnostics use to reach Amiga memory, masked addresses to 24 bits. They
+now pass the full address; the Mapper wraps to its own width. The
+A2091's DMA, a 24-bit Zorro II device, keeps its own mask.
+
+**5. Zorro III** (`amiga/zorro3.go`). From the ROM's expansion code
+(`ReadExpansionByte` at $F8493E, `WriteExpansionByte`/`Word`):
+- An unconfigured Zorro III board answers at $FF000000. Register k's
+  high nibble is at $FF000000 + 4k and its low nibble at +$100; all but
+  er_Type read inverted, as on Zorro II.
+- The base is written as a word to $44 (A31-A16), after a byte to $48.
+
+`--z3ram MB` adds a RAM board (er_Type $A0 + size, er_Flags $30:
+extended sizes, Zorro III). The Autoconfig chain now maps its first
+unconfigured board at $FF000000 or $E80000, depending on its bus.
+
+**Configuration.**
+- New flags: `--motherboard none|a3000|a4000`, `--mbram KB`, `--z3ram MB`.
+- The A4000 preset is a 68040, AGA, 2 MB chip, 16 MB on the motherboard
+  and the clock. The configuration screen has a motherboard choice
+  (Machine tab) and motherboard and Zorro III RAM (Memory tab).
+- On the A4000 the IDE interface is always fitted and `--ide` uses it.
+  `--gayle on` with it is an error.
+- Save states (version 17) record the motherboard parts and refuse to
+  load on a different machine.
+
+**Verified:**
+- `TestA4000BootsFloppy`: Workbench 3.2 from floppy. AttnFlags show the
+  040 and FPU40, there is a 16 MB fast region at $07000000, the cold boot
+  bit is cleared, and Ramsey is set up.
+- `TestA4000BootsIDE`: Workbench from an RDB disk on the A4000's IDE, in
+  309 frames.
+- `TestA4000IDERegisters`: IDENTIFY through the A4000 decoding, the
+  interrupt status at $DD3020 and INT2, the floating bus, and Gayle's
+  addresses not answering.
+- `TestA4000Zorro3RAM`: a 64 MB board configured at $40000000 and in the
+  free list, alongside a Zorro II board at $200000.
+- The `--headless` binary builds the A4000 from the command line, and
+  refuses the motherboard on a 68020 and `--z3ram` without a
+  motherboard.
+- The full suite passes.
+
+**Notes:**
+- The floppy boot takes about 2200 frames, the same as the A1200 ROM with
+  the same disk: it is the Install disk, not the A4000.
+- The A500/A2000 Kickstart 3.2 ignores the A3000 motherboard (no Ramsey
+  setup, no motherboard RAM), so it isn't in the A3000 preset.
+- Not done: Zorro III I/O boards, CPU-slot RAM above $08000000, the
+  A4000's Ricoh clock (the Oki serves), and the A4000T's SCSI.
 
 ## 2026-10-18 — The 68040, and a 32-bit address bus
 
