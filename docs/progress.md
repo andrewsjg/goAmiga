@@ -15,15 +15,20 @@ verified. Longer investigations get their own write-up in `docs/`.
 - Up to four floppy drives, writable and swappable. Hardfiles on an
   autobooting controller or IDE, and host folders as drives.
 - The CPU passes the SingleStepTests 68000 suite with 68000 cycle timing,
-  and can be a 68020 (`--cpu 68020`).
+  and can be a 68020 or a 68030 with its MMU (`--cpu 68020|68030`), with
+  an optional 68881/68882 FPU.
+- The A3000 preset: the A2091 SCSI controller (disks and a tape drive),
+  the battery-backed clock, and the A2065 Ethernet card on a user-mode
+  network.
+- Amiga Unix (AMIX 2.1) boots from a disk made by `cmd/amixdisk`, runs
+  multi-user with networking, and runs X Windows.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
 1. **Timing (remaining).** The CPU's bus cycles are counted per
    instruction rather than placed within it. The Copper's bus use is
    predicted from its list rather than taken cycle by cycle. IPF tracks'
-   variable cell timing isn't modelled. The CPU's bus cycles are counted per
-   instruction rather than placed within it.
+   variable cell timing isn't modelled.
 2. **Display.** A resolution change (hires bit) partway through a line
    isn't shown, and neither are sprite data rewrites while a sprite is
    being shifted out. Collisions are only detected on lines that are drawn
@@ -36,9 +41,14 @@ verified. Longer investigations get their own write-up in `docs/`.
    interface is emulated, but not its PCMCIA slot. BEAMCON0 is stored
    but ignored: PAL or NTSC is chosen with `--video`, and there is no
    programmable beam. So the 31 kHz modes (Productivity, Multiscan,
-   DblPAL/DblNTSC, Euro72) and AGA scan doubling aren't emulated. A plain hardfile (no RDB) can only use
-   Kickstart's own filesystems. The CPU stops at the 68030: there is no
-   68040 or 68060. The 68030's caches aren't emulated (CACR is stored).
+   DblPAL/DblNTSC, Euro72) and AGA scan doubling aren't emulated. A
+   plain hardfile (no RDB) can only use Kickstart's own filesystems.
+   There is no Zorro III, no A4000 (Fat Gayle IDE, Ramsey/Buster), and
+   the CPU stops at the 68030: there is no 68040 or 68060 (see
+   `docs/a4000-68040-plan.md`). The 68030's caches aren't emulated
+   (CACR is stored).
+6. **AMIX.** The arrow keys don't work under X Windows (the X server's
+   keymap); they work everywhere else.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
 
