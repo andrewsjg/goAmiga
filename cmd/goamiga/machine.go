@@ -38,7 +38,11 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(out, "Loaded ROM: %s (%d bytes)\n", s.ROM, len(romData))
+	romInfo := amiga.IdentifyROM(romData)
+	fmt.Fprintf(out, "Loaded ROM: %s (%d bytes): %s\n", s.ROM, len(romData), romInfo)
+	if m := romInfo.Mismatch(s.CPU, s.Motherboard); m != "" {
+		fmt.Fprintf(out, "Warning: %s; with these settings it will not start (try --cpu 68040 --chipset aga --motherboard %s).\n", m, romInfo.Machine)
+	}
 	if sum := amiga.ROMChecksum(romData); sum != 0xFFFFFFFF {
 		fmt.Fprintf(out, "Warning: %s fails the Kickstart checksum ($%08X, want $FFFFFFFF);\n"+
 			"  the image is damaged or modified and Kickstart will stop with a red screen.\n", s.ROM, sum)

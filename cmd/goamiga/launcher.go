@@ -13,6 +13,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/ncruces/zenity"
 
+	"github.com/andrewsjg/goamiga/amiga"
 	"github.com/andrewsjg/goamiga/internal/config"
 )
 
@@ -39,6 +40,47 @@ type launcher struct {
 
 	chooser chan fileChoice // an open file dialog's result
 	confirm string          // "delete": waiting for a second click
+
+	// The Kickstart ROM chosen, identified (romInfo for romPath).
+	romPath string
+	romInfo amiga.ROMInfo
+	romErr  error
+}
+
+// rom identifies the chosen Kickstart ROM, reading it again only when the
+// path changes.
+func (l *launcher) rom() (amiga.ROMInfo, error) {
+	if l.s.ROM != l.romPath {
+		l.romPath = l.s.ROM
+		l.romInfo, l.romErr = amiga.ROMInfo{}, nil
+		if l.s.ROM != "" {
+			data, err := amiga.LoadROM(l.s.ROM)
+			if err != nil {
+				l.romErr = err
+			} else {
+				l.romInfo = amiga.IdentifyROM(data)
+			}
+		}
+	}
+	return l.romInfo, l.romErr
+}
+
+// romMismatch says why the settings can't run the chosen ROM, or "".
+func (l *launcher) romMismatch() string {
+	r, err := l.rom()
+	if err != nil {
+		return ""
+	}
+	return r.Mismatch(l.s.CPU, l.s.Motherboard)
+}
+
+// applyPreset applies the named model's settings (the ROM and disks stay).
+func (l *launcher) applyPreset(name string) {
+	for _, p := range presets {
+		if p.name == name {
+			p.apply(&l.s)
+		}
+	}
 }
 
 type fileChoice struct {
@@ -122,6 +164,11 @@ func (l *launcher) update() (start *config.Settings, quit bool) {
 		quit = true
 	}
 	if start != nil {
+		if m := l.romMismatch(); m != "" {
+			l.say(true, "%s. Click its model on the Machine tab, then Start.", m)
+			l.tab = 0
+			return nil, quit
+		}
 		if l.name != "" && slices.Contains(l.saved, l.name) {
 			config.SetLastUsed(l.name)
 		}
@@ -352,7 +399,25 @@ func (l *launcher) machineTab(x, y int) {
 	y += 40
 	u.label(x-10, y, "Kickstart ROM")
 	l.fileRow(x, y, 260, "rom", &l.s.ROM, romFilter, false)
-	y += 40
+	// What the ROM is, and a warning (with the fix) if these settings
+	// can't run it.
+	if r, err := l.rom(); err != nil {
+		u.text(x, y+28, u.fit(err.Error(), 390), uiRed)
+	} else if l.s.ROM != "" {
+		if r.Mismatch(l.s.CPU, l.s.Motherboard) != "" {
+			model := map[string]string{"a3000": "A3000", "a4000": "A4000"}[r.Machine]
+			msg := "Kickstart " + r.Release() + " for the " + model + ":"
+			u.text(x, y+29, msg, uiRed)
+			label := "Use " + model + " settings"
+			if u.button(x+u.textWidth(msg)+8, y+26, u.textWidth(label)+20, 22, label) {
+				l.applyPreset(model)
+				l.say(false, "%s settings, for the %s Kickstart", model, model)
+			}
+		} else {
+			u.text(x, y+28, r.String(), uiDim)
+		}
+	}
+	y += 58
 	u.label(x-10, y, "CPU")
 	cycleOf(u, x, y, 200, []string{"68000 (A500, A600)", "68020 (A1200)", "68030 (A3000)", "68040 (A4000)"}, []string{"68000", "68020", "68030", "68040"}, &l.s.CPU)
 	y += 34
