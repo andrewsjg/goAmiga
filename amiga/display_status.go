@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -80,11 +81,23 @@ func statusTextWidth(s string) float64 {
 	return text.Advance(s, statusFace(statusFontSize))
 }
 
-// statusLight is an activity light: its label and colour (nil: off).
+// statusLight is an activity light: its label and colour (nil: off), the
+// floppy drive it stands for (-1 for the others), and where it is: x and
+// w in logical pixels, label and LED together.
 type statusLight struct {
 	label string
 	on    color.Color
+	unit  int
+	x, w  float64
 }
+
+// The lights' geometry, in logical pixels.
+const (
+	lightsLeft = 7.0
+	ledGap     = 5.0  // label to LED
+	ledW       = 13.0 // the LED
+	lightGap   = 14.0 // LED to the next label
+)
 
 // statusLights are the bar's lights, left to right.
 func (d *Display) statusLights() []statusLight {
@@ -93,7 +106,7 @@ func (d *Display) statusLights() []statusLight {
 	if a.PowerLEDBright() {
 		power = ledPower
 	}
-	ls := []statusLight{{"POWER", power}}
+	ls := []statusLight{{label: "POWER", on: power, unit: -1}}
 	for n := 0; n < 4; n++ {
 		dr := a.Disk.DF(n)
 		if dr == nil {
@@ -103,7 +116,7 @@ func (d *Display) statusLights() []statusLight {
 		if dr.MotorOn() {
 			c = ledDrive
 		}
-		ls = append(ls, statusLight{fmt.Sprintf("DF%d %02d", n, dr.Cylinder()), c})
+		ls = append(ls, statusLight{label: fmt.Sprintf("DF%d %02d", n, dr.Cylinder()), on: c, unit: n})
 	}
 	activity := func(label string, active, write bool) {
 		var c color.Color
@@ -113,7 +126,7 @@ func (d *Display) statusLights() []statusLight {
 				c = ledWrite
 			}
 		}
-		ls = append(ls, statusLight{label, c})
+		ls = append(ls, statusLight{label: label, on: c, unit: -1})
 	}
 	if h := a.HardDisk; h != nil {
 		active, write := h.Activity()
@@ -130,11 +143,44 @@ func (d *Display) statusLights() []statusLight {
 	if e := a.Ethernet; e != nil {
 		activity("NET", e.Activity(), false)
 	}
+	x := lightsLeft
+	for i := range ls {
+		ls[i].x = x
+		ls[i].w = statusTextWidth(ls[i].label) + ledGap + ledW
+		x += ls[i].w + lightGap
+	}
 	return ls
 }
 
-// statusNoteText is the note after the lights: paused, and any message.
-func (d *Display) statusNoteText() string {
+// hoveredDrive is the floppy drive whose light the pointer is over
+// (logical coordinates, the bar's top at y), or -1.
+func (d *Display) hoveredDrive(mx, my, y int) int {
+	if d.mouseGrabbed || my < y || my >= y+statusHeight {
+		return -1
+	}
+	for _, l := range d.statusLights() {
+		if l.unit >= 0 && float64(mx) >= l.x-3 && float64(mx) < l.x+l.w+3 {
+			return l.unit
+		}
+	}
+	return -1
+}
+
+// statusNoteText is the note after the lights: with the pointer on a
+// drive's light, its disk and what clicking does; otherwise paused, and
+// any message.
+func (d *Display) statusNoteText(y int) string {
+	mx, my := ebiten.CursorPosition()
+	if unit := d.hoveredDrive(mx, my, y); unit >= 0 {
+		disk := "empty"
+		if i := d.DiskIndex[unit]; i >= 0 && i < len(d.Disks[unit]) && d.amiga.Disk.DF(unit).Inserted() {
+			disk = filepath.Base(d.Disks[unit][i])
+			if _, inner, ok := strings.Cut(disk, "#"); ok {
+				disk = inner // a disk inside a zip
+			}
+		}
+		return disk + " · click: change, right-click: eject"
+	}
 	var notes []string
 	if d.paused {
 		notes = append(notes, "Paused (Cmd+P)")
@@ -212,12 +258,16 @@ func (d *Display) renderStatus(w, y int, scale float64) {
 	}
 	mid := float32(statusHeight) / 2 * s
 
-	// The lights.
-	x := 7.0
+	// The lights; a drive's is highlighted under the pointer.
+	x := lightsLeft
+	mx, my := ebiten.CursorPosition()
+	hovered := d.hoveredDrive(mx, my, y)
 	for _, l := range d.statusLights() {
-		drawText(l.label, x, statusText)
-		x += statusTextWidth(l.label) + 5
-		lx, lw, lh := float32(x)*s, 13*s, 6*s
+		if l.unit >= 0 && l.unit == hovered {
+			fillRoundedRect(img, float32(l.x-3)*s, 2*s, float32(l.w+6)*s, float32(statusHeight-4)*s, 3*s, buttonHover)
+		}
+		drawText(l.label, l.x, statusText)
+		lx, lw, lh := float32(l.x+l.w-ledW)*s, ledW*s, 6*s
 		ly := mid - lh/2
 		if l.on != nil {
 			// A soft glow round a lit LED.
@@ -229,7 +279,7 @@ func (d *Display) renderStatus(w, y int, scale float64) {
 			fillRoundedRect(img, lx, ly, lw, lh, 2*s, ledOff)
 			strokeRoundedRect(img, lx+s/2, ly+s/2, lw-s, lh-s, 2*s, s/2, ledOffEdge)
 		}
-		x += 13 + 14
+		x = l.x + l.w + lightGap
 	}
 
 	// The buttons and the warp speed, at the right.
@@ -246,7 +296,6 @@ func (d *Display) renderStatus(w, y int, scale float64) {
 		drawText(label, px+6, statusBG)
 		right = px
 	}
-	mx, my := ebiten.CursorPosition()
 	for _, b := range buttons {
 		bg := buttonBG
 		if !d.mouseGrabbed && my >= y && my < y+statusHeight && mx >= b.x && mx < b.x+b.w {
@@ -264,7 +313,7 @@ func (d *Display) renderStatus(w, y int, scale float64) {
 
 	// The note, between the lights and the right-hand side, shortened to
 	// fit.
-	if note := []rune(d.statusNoteText()); len(note) > 0 {
+	if note := []rune(d.statusNoteText(y)); len(note) > 0 {
 		room := right - 12 - (x + 4)
 		if statusTextWidth(string(note)) > room {
 			for len(note) > 0 && statusTextWidth(string(note)+"…") > room {

@@ -118,7 +118,10 @@ func (d *Display) confirming(id string) bool {
 
 // statusClick handles a click on the status bar's buttons and reports
 // whether it was on one.
-func (d *Display) statusClick() bool {
+//
+// A click on a floppy drive's light opens the file chooser for it; a
+// right click ejects its disk.
+func (d *Display) statusClick(right bool) bool {
 	if !d.StatusBar {
 		return false
 	}
@@ -126,6 +129,17 @@ func (d *Display) statusClick() bool {
 	mx, my := ebiten.CursorPosition()
 	if my < h || my >= h+statusHeight {
 		return false
+	}
+	if unit := d.hoveredDrive(mx, my, h); unit >= 0 {
+		if right {
+			d.eject(unit)
+		} else {
+			d.openChooser(unit)
+		}
+		return true
+	}
+	if right {
+		return true
 	}
 	for _, b := range d.statusButtons(w) {
 		if mx < b.x || mx >= b.x+b.w {

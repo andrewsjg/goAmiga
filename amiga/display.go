@@ -120,6 +120,7 @@ func (d *Display) Update() error {
 	d.pollHostKeys()
 	d.pollMouseGrab()
 	d.pollDiskKeys()
+	d.pollDrops()
 	d.updateTitle()
 	if d.paused {
 		return nil // Amiga input waits too, rather than arriving in a burst
@@ -270,10 +271,15 @@ func (d *Display) pollMouseGrab() {
 		return
 	}
 
-	// The status bar's buttons take their clicks (with the pointer free).
-	if !d.mouseGrabbed && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && d.statusClick() {
-		d.ignoreButtonsUntilUp = true
-		return
+	// The status bar's buttons and drive lights take their clicks (with
+	// the pointer free).
+	if !d.mouseGrabbed {
+		left := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
+		right := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
+		if (left || right) && d.statusClick(right) {
+			d.ignoreButtonsUntilUp = true
+			return
+		}
 	}
 
 	// Click-to-trap when free — apply only after buttons are released.

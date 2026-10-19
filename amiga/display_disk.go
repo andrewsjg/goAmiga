@@ -4,8 +4,10 @@ package amiga
 
 import (
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -50,9 +52,7 @@ func (d *Display) pollDiskKeys() {
 	}
 	switch {
 	case ebiten.IsKeyPressed(ebiten.KeyShift):
-		dr.Eject()
-		d.DiskIndex[unit] = -1
-		fmt.Printf("DF%d: ejected\n", unit)
+		d.eject(unit)
 	case ebiten.IsKeyPressed(ebiten.KeyMeta):
 		disks := d.Disks[unit]
 		if len(disks) > 0 {
@@ -61,6 +61,17 @@ func (d *Display) pollDiskKeys() {
 	default:
 		d.openChooser(unit)
 	}
+}
+
+// eject takes the disk out of a drive.
+func (d *Display) eject(unit int) {
+	dr := d.amiga.Disk.DF(unit)
+	if dr == nil {
+		return
+	}
+	dr.Eject()
+	d.DiskIndex[unit] = -1
+	d.message("DF%d: ejected", unit)
 }
 
 // openChooser shows the file dialog for a drive, starting in the folder
@@ -140,7 +151,71 @@ func (d *Display) insert(unit, i int) {
 		return
 	}
 	d.DiskIndex[unit] = i
-	fmt.Printf("DF%d: %s\n", unit, path)
+	name := filepath.Base(path)
+	if _, inner, ok := strings.Cut(name, "#"); ok {
+		name = inner // a disk inside a zip
+	}
+	more := ""
+	if n := len(d.Disks[unit]); n > 1 {
+		more = fmt.Sprintf(" (disk %d of %d; Cmd+F11 for the next)", i+1, n)
+	}
+	d.message("DF%d: %s%s", unit, name, more)
+}
+
+// diskImageExt are the floppy image files the drives take (as the file
+// dialog offers them).
+var diskImageExt = map[string]bool{".adf": true, ".adz": true, ".ipf": true, ".zip": true, ".gz": true}
+
+// pollDrops inserts disk images dropped on the window: in the drive whose
+// light they're dropped on, else DF0:. Several at once (or a zip of
+// several) become that drive's list, the first going in.
+func (d *Display) pollDrops() {
+	files := ebiten.DroppedFiles()
+	if files == nil {
+		return
+	}
+	entries, err := fs.ReadDir(files, ".")
+	if err != nil || len(entries) == 0 {
+		return
+	}
+	_, h := d.amiga.Video.DisplaySize()
+	mx, my := ebiten.CursorPosition()
+	unit := d.hoveredDrive(mx, my, h)
+	if unit < 0 {
+		unit = 0
+	}
+	var paths, skipped []string
+	for _, e := range entries {
+		ap, ok := e.(ebiten.AbsPather)
+		if !ok || e.IsDir() || !diskImageExt[strings.ToLower(filepath.Ext(e.Name()))] {
+			skipped = append(skipped, e.Name())
+			continue
+		}
+		disks, err := DiskImagesIn(ap.AbsPath())
+		if err != nil {
+			skipped = append(skipped, e.Name())
+			continue
+		}
+		paths = append(paths, disks...)
+	}
+	if len(paths) == 0 {
+		if len(skipped) > 0 {
+			d.message("%s: not a disk image (hard disks go on the configuration screen)", skipped[0])
+		}
+		return
+	}
+	first := -1
+	for _, p := range paths {
+		i := slices.Index(d.Disks[unit], p)
+		if i < 0 {
+			d.Disks[unit] = append(d.Disks[unit], p)
+			i = len(d.Disks[unit]) - 1
+		}
+		if first < 0 {
+			first = i
+		}
+	}
+	d.insert(unit, first)
 }
 
 // heldModifiers lists the modifier keys Ebitengine reports as held.
