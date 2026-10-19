@@ -327,6 +327,9 @@ func (a *Amiga) state(s *stateCodec) {
 	if m := a.Motherboard; m != nil {
 		s.fixed(m.gary[:])
 		num(s, &m.ramseyCtl)
+		if s.load {
+			m.sync()
+		}
 	}
 	if a.MotherboardRAM != nil {
 		s.fixed(a.MotherboardRAM.b)

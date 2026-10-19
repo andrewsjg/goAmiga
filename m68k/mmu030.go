@@ -87,6 +87,13 @@ type busFault struct {
 	fc    uint8
 	size  int
 	fetch bool
+	bus   bool // a bus error from the memory, not the MMU
+}
+
+// onBusError is the Decoder's OnBusError hook: it aborts the instruction
+// with a bus error for the access.
+func (c *Processor) onBusError(addr, n int, write bool) {
+	panic(&busFault{addr: uint32(addr), write: write, fc: c.functionCode(), size: n, fetch: c.M.Fetch, bus: true})
 }
 
 // MMU registers, for diagnostics and save states.

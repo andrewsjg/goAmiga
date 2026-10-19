@@ -29,6 +29,12 @@ type Decoder struct {
 	// smallest page) is translated a byte at a time.
 	Translate func(addr, n int, write bool) int
 
+	// OnBusError, when set, is called when the memory ends an access with
+	// a bus error (IsBusError), with the access's logical address. The
+	// CPU installs it to take the exception; it may panic to abort the
+	// instruction.
+	OnBusError func(addr, n int, write bool)
+
 	buf [4]byte
 }
 
@@ -62,6 +68,23 @@ func (m *Decoder) Read(addr int, p []byte) (n int, err error) {
 // reduced to the 32 bits the CPU puts out.
 func (m *Decoder) read(addr int, p []byte) (int, error) {
 	addr = int(uint32(addr))
+	n, err := m.readPhys(addr, p)
+	if err != nil && m.OnBusError != nil && IsBusError(err) {
+		m.OnBusError(addr, len(p), false)
+	}
+	return n, err
+}
+
+func (m *Decoder) write(addr int, p []byte) (int, error) {
+	addr = int(uint32(addr))
+	n, err := m.writePhys(addr, p)
+	if err != nil && m.OnBusError != nil && IsBusError(err) {
+		m.OnBusError(addr, len(p), true)
+	}
+	return n, err
+}
+
+func (m *Decoder) readPhys(addr int, p []byte) (int, error) {
 	if m.Translate == nil {
 		return m.M.Read(addr, p)
 	}
@@ -76,8 +99,7 @@ func (m *Decoder) read(addr int, p []byte) (int, error) {
 	return m.M.Read(m.Translate(addr, len(p), false), p)
 }
 
-func (m *Decoder) write(addr int, p []byte) (int, error) {
-	addr = int(uint32(addr))
+func (m *Decoder) writePhys(addr int, p []byte) (int, error) {
 	if m.Translate != nil {
 		if len(p) > 1 && addr&0xFF+len(p) > 0x100 {
 			// Translate every byte before writing any, so a fault on the

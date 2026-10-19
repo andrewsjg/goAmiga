@@ -54,6 +54,31 @@ verified. Longer investigations get their own write-up in `docs/`.
    keymap); they work everywhere else.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
+   Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-19 — Bus timeouts on the A3000/A4000
+
+Gary's bus timeout enable (bit 7 of $DE0001) now works. With it set, an
+access to nothing in Gary's range ends in a bus error, as a Unix expects
+when it probes for hardware. Kickstart writes 0 there and never sets it,
+so AmigaOS sees no change: empty addresses still read 0.
+
+- `m68kmem`: a Mapper's `Fault` hook can end an unmapped access with a
+  bus error (`IsBusError`) instead of floating. The Decoder hands bus
+  errors to `OnBusError` with the logical address.
+- The CPU (`Processor.BusErrors`, 030 and 040) takes them through the
+  same path as MMU faults: the instruction is undone and a format $B
+  (030) or format $7 (040) frame is stacked. On the 040 the SSW's ATC
+  bit is clear, which marks a bus error rather than a translation fault.
+- The motherboard keeps `BusErrors` in step with the bit (also after a
+  reset or a state load). `garyTimesOut` follows WinUAE's model of which
+  addresses Gary times out: from $B80000 up, except $DF8000-$DFFFFF and
+  $E80000-$F7FFFF, and everything above 16 MB. I have no Commodore
+  documentation for this.
+
+`TestGaryBusTimeout` checks this on the 030 and 040: the frame, the fault
+address, the stacked PC, the Autoconfig area staying quiet, and quiet
+reads again once the bit is cleared.
 
 ## 2026-10-18 — The A4000
 

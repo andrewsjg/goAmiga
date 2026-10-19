@@ -13,7 +13,10 @@ import (
 // three one-bit registers, in bit 7 of bytes $DE0000-$DE0002:
 //
 //   - $DE0000: bus timeout mode (Kickstart sets it).
-//   - $DE0001: bus timeout enable.
+//   - $DE0001: bus timeout enable. With it set, an access to nothing in
+//     Gary's range times out with a bus error (garyTimesOut), which is
+//     how a Unix probes for hardware. Kickstart leaves it clear, so under
+//     AmigaOS such accesses read nothing, as elsewhere.
 //   - $DE0002: cold boot. Set at power-on; Kickstart clears it, and on a
 //     68020+ seeing it set forces a cold start (it clears the ExecBase
 //     pointer at 4).
@@ -35,6 +38,7 @@ const (
 )
 
 type motherboard struct {
+	amiga     *Amiga
 	model     string
 	gary      [3]byte // bit 7 of $DE0000-$DE0002
 	ramseyCtl byte
@@ -65,6 +69,7 @@ func (m *motherboard) Write(addr int, p []byte) (int, error) {
 		switch off := addr + i; off {
 		case 0, 1, 2:
 			m.gary[off] = b & 0x80
+			m.sync()
 		case 3:
 			m.ramseyCtl = b
 		}
@@ -85,6 +90,34 @@ func (r *ram) bytes() []byte {
 func (m *motherboard) reset() {
 	m.gary[0], m.gary[1] = 0, 0
 	m.ramseyCtl = 0
+	m.sync()
+}
+
+// sync tells the CPU whether accesses can end in bus errors: while the
+// bus timeout is enabled.
+func (m *motherboard) sync() {
+	m.amiga.CPU.BusErrors = m.gary[1] != 0
+}
+
+// garyTimesOut is the Mapper's Fault: whether an access to nothing at
+// addr ends in a bus error. That needs the timeout enabled, and an address
+// Gary times out, as WinUAE models it: from $B80000 up in the 24-bit
+// space, except the custom chips' neighbourhood ($DF8000-
+// $DFFFFF) and the Autoconfig and ROM area ($E80000-$F7FFFF); and all of
+// the space above 16 MB.
+func (a *Amiga) garyTimesOut(addr int, write bool) bool {
+	if a.Motherboard == nil || a.Motherboard.gary[1] == 0 {
+		return false
+	}
+	switch {
+	case addr >= 0x01000000:
+		return true
+	case addr < 0xB80000:
+		return false
+	case addr >= 0xDF8000 && addr < 0xE00000, addr >= 0xE80000 && addr < 0xF80000:
+		return false
+	}
+	return true
 }
 
 // EnableMotherboard makes the machine an A3000 ("a3000") or A4000
@@ -107,7 +140,7 @@ func (a *Amiga) EnableMotherboard(model string, mbRAM int) error {
 	if mbRAM < 0 || mbRAM > 16384 || mbRAM%1024 != 0 {
 		return fmt.Errorf("motherboard RAM must be 0-16384 KB in whole megabytes, not %d", mbRAM)
 	}
-	a.Motherboard = &motherboard{model: model, ramseyVer: ver}
+	a.Motherboard = &motherboard{amiga: a, model: model, ramseyVer: ver}
 	a.Motherboard.gary[2] = 0x80 // power-on: a cold boot
 	a.MotherboardRAM = nil
 	if mbRAM > 0 {
@@ -138,6 +171,7 @@ func (a *Amiga) mapMotherboard() {
 	if a.Motherboard == nil {
 		return
 	}
+	a.Mapper.Fault = a.garyTimesOut
 	a.Mapper.Map(a.Motherboard, motherboardBase, motherboardEnd)
 	if r := a.MotherboardRAM; r != nil {
 		a.Mapper.Map(r, mbRAMTop-len(r.b), mbRAMTop-1)

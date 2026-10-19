@@ -510,7 +510,10 @@ func (c *Processor) raiseAccessError040(f *busFault) (err error) {
 		c.SR |= StatusSupervisor
 	}
 	c.SR &^= StatusTrace
-	ssw := uint16(0x0400) | uint16(f.fc) // ATC fault; TT normal; TM the function code
+	ssw := uint16(f.fc) // TT normal; TM the function code
+	if !f.bus {
+		ssw |= 0x0400 // ATC: the MMU refused it (else a bus error)
+	}
 	if !f.write {
 		ssw |= 0x0100 // RW: read
 	}

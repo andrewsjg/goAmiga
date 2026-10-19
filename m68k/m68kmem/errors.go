@@ -35,3 +35,15 @@ func IsAccessViolation(err error) bool {
 	}
 	return false
 }
+
+// busError is an access the bus terminated with a bus error (BERR), as a
+// timeout does on hardware that has one.
+type busError uint32
+
+func (e busError) Error() string { return fmt.Sprintf("bus error: 0x%X", uint32(e)) }
+
+// IsBusError reports whether err is a bus error from a Mapper's Fault.
+func IsBusError(err error) bool {
+	_, ok := err.(busError)
+	return ok
+}

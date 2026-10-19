@@ -159,6 +159,12 @@ type Processor struct {
 	FPCR, FPSR, FPIAR uint32
 	fpuUsed           bool // an FPU instruction ran since reset (FSAVE gives an idle frame)
 
+	// BusErrors, on a 68030 or 68040, takes a bus error exception when
+	// the memory ends an access with one (m68kmem.IsBusError), as the
+	// A3000's and A4000's bus timeout does. Off, such errors are returned
+	// from Step as before.
+	BusErrors bool
+
 	// mmu is the 68030's MMU (mmu030.go), mmu4 the 68040's (m68040.go).
 	mmu  mmu030
 	mmu4 mmu040
@@ -340,8 +346,15 @@ func (c *Processor) Step() (err error) {
 	c.M.Accesses = 0
 
 	// With the MMU on, a refused access undoes the instruction's register
-	// changes and takes a bus error (mmu030.go, m68040.go).
-	if c.M.Translate != nil {
+	// changes and takes a bus error (mmu030.go, m68040.go); so does an
+	// access the bus ends with a bus error, with BusErrors.
+	busErrors := c.BusErrors && (c.is030() || c.is040())
+	if busErrors {
+		c.M.OnBusError = c.onBusError
+	} else {
+		c.M.OnBusError = nil
+	}
+	if c.M.Translate != nil || busErrors {
 		snap := c.snapshot()
 		defer func() {
 			if r := recover(); r != nil {

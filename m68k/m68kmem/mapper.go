@@ -24,6 +24,12 @@ type Mapper struct {
 	// OnOpenBus, when set, is called for each access to unmapped
 	// addresses in OpenBus mode (a diagnostic: what software probes).
 	OnOpenBus func(addr, n int, write bool)
+
+	// Fault, when set, decides whether an access to unmapped addresses in
+	// OpenBus mode ends in a bus error (a timeout, as the A3000's and
+	// A4000's Gary can raise) rather than floating. The Mapper then
+	// returns an error IsBusError recognises.
+	Fault func(addr int, write bool) bool
 }
 
 // mask is the bus's address mask.
@@ -102,6 +108,9 @@ func (mm *Mapper) Read(addr int, p []byte) (n int, err error) {
 			if mm.OnOpenBus != nil {
 				mm.OnOpenBus(i, min(len(p)-n, mm.gap(i)), false)
 			}
+			if mm.Fault != nil && mm.Fault(i, false) {
+				return n, busError(i)
+			}
 			n += mm.float(p[n:], mm.gap(i))
 			continue
 		}
@@ -135,6 +144,9 @@ func (mm *Mapper) Write(addr int, p []byte) (n int, err error) {
 			}
 			if mm.OnOpenBus != nil {
 				mm.OnOpenBus(i, min(len(p)-n, mm.gap(i)), true)
+			}
+			if mm.Fault != nil && mm.Fault(i, true) {
+				return n, busError(i)
 			}
 			n += min(len(p)-n, mm.gap(i)) // unmapped: write is lost
 			continue
