@@ -32,6 +32,8 @@ type app struct {
 	// screen as a PNG there and quits (for checking the layout).
 	shotDir   string
 	shotFrame int
+
+	dockIconSet bool
 }
 
 // runLauncher opens the window on the configuration screen.
@@ -92,6 +94,7 @@ func (g *app) stopMachine() {
 }
 
 func (g *app) Update() error {
+	g.setDockIconOnce()
 	if g.disp != nil {
 		if err := g.disp.Update(); err != nil {
 			return err

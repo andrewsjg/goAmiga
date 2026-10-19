@@ -145,17 +145,50 @@ func (d *Display) statusNoteText() string {
 	return strings.Join(notes, "   ")
 }
 
-// The bar's own image, drawn at the window's resolution.
-var statusImg *ebiten.Image
+// The bar's own image, drawn at the window's resolution (statusScale
+// window pixels per logical pixel).
+var (
+	statusImg   *ebiten.Image
+	statusScale float64
+)
 
-// drawStatusFinal draws the bar onto the final screen. geoM maps the
-// logical screen (picture and bar) onto it; y is the bar's top and w the
-// width, in logical pixels.
-func (d *Display) drawStatusFinal(screen ebiten.FinalScreen, geoM ebiten.GeoM, w, y int) {
-	scale := geoM.Element(0, 0)
+// finalScale is how many window pixels a logical pixel takes: the
+// window's size (from Layout) over the logical screen's, at the monitor's
+// pixel density, as Ebitengine fits the screen to the window.
+func (d *Display) finalScale(lw, lh int) float64 {
+	if lw <= 0 || lh <= 0 || d.outsideW <= 0 || d.outsideH <= 0 {
+		return 1
+	}
+	dsf := 1.0
+	if m := ebiten.Monitor(); m != nil {
+		dsf = m.DeviceScaleFactor()
+	}
+	return min(float64(d.outsideW)/float64(lw), float64(d.outsideH)/float64(lh)) * dsf
+}
+
+// placeStatus puts the bar drawn by renderStatus onto the final screen,
+// where geoM puts logical row y.
+func placeStatus(screen ebiten.FinalScreen, geoM ebiten.GeoM, y int) {
+	if statusImg == nil || statusScale <= 0 {
+		return
+	}
+	op := &ebiten.DrawImageOptions{}
+	// The image is at statusScale already; correct for any difference.
+	if k := geoM.Element(0, 0) / statusScale; k < 0.999 || k > 1.001 {
+		op.GeoM.Scale(k, k)
+		op.Filter = ebiten.FilterLinear
+	}
+	op.GeoM.Translate(geoM.Apply(0, float64(y)))
+	screen.DrawImage(statusImg, op)
+}
+
+// renderStatus draws the bar into its image at scale window pixels per
+// logical pixel. y is the bar's top and w the width, in logical pixels.
+func (d *Display) renderStatus(w, y int, scale float64) {
 	if scale <= 0 {
 		return
 	}
+	statusScale = scale
 	pw, ph := int(float64(w)*scale+0.5), int(statusHeight*scale+0.5)
 	if pw <= 0 || ph <= 0 {
 		return
@@ -242,10 +275,6 @@ func (d *Display) drawStatusFinal(screen ebiten.FinalScreen, geoM ebiten.GeoM, w
 		drawText(string(note), x+4, statusNote)
 	}
 
-	// The bar is already at the window's scale: only move it into place.
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(geoM.Apply(0, float64(y)))
-	screen.DrawImage(img, op)
 }
 
 // roundedRect is the path of a rectangle with corners of radius r.

@@ -21,6 +21,9 @@ const (
 
 // Display implements ebiten.Game to show the Amiga's video output.
 type Display struct {
+	// outsideW and outsideH are the window's size, from Layout.
+	outsideW, outsideH int
+
 	amiga  *Amiga
 	screen *ebiten.Image
 
@@ -433,6 +436,8 @@ func (d *Display) Draw(screen *ebiten.Image) {
 		// The bar itself is drawn at the window's resolution
 		// (DrawFinalScreen); its place here is just its background.
 		vector.FillRect(screen, 0, float32(picH), float32(screen.Bounds().Dx()), statusHeight, statusBG, false)
+		b := screen.Bounds()
+		d.renderStatus(b.Dx(), picH, d.finalScale(b.Dx(), b.Dy()))
 	}
 }
 
@@ -447,8 +452,7 @@ func (d *Display) Draw(screen *ebiten.Image) {
 func (d *Display) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.Image, geoM ebiten.GeoM) {
 	ebiten.DefaultDrawFinalScreen(screen, offscreen, geoM)
 	if d.StatusBar {
-		b := offscreen.Bounds()
-		defer d.drawStatusFinal(screen, geoM, b.Dx(), b.Dy()-statusHeight)
+		defer placeStatus(screen, geoM, offscreen.Bounds().Dy()-statusHeight)
 	}
 	v := d.amiga.Video
 	if v == nil || d.screen == nil {
@@ -474,6 +478,7 @@ func (d *Display) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.I
 // Layout returns the logical screen size: the framebuffer width and two
 // rows per non-interlaced line (Video.DisplaySize).
 func (d *Display) Layout(outsideWidth, outsideHeight int) (int, int) {
+	d.outsideW, d.outsideH = outsideWidth, outsideHeight
 	w, h := d.amiga.Video.DisplaySize()
 	return w, h + d.statusBarHeight()
 }
