@@ -449,3 +449,55 @@ func TestState040(t *testing.T) {
 		t.Errorf("translation not resumed")
 	}
 }
+
+// On the 68LC040 every FP instruction takes the F-line vector with a
+// format $4 frame: the next instruction's PC, the effective address and
+// the instruction's own PC; registers are untouched and RTE goes on past
+// it.
+func TestLC040FLine(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code []uint16
+		ea   uint32
+	}{
+		{"FADD.X FP0,FP1", []uint16{0xF200, 0x00A2}, 0},
+		{"FMOVE.D (A0)+,FP1", []uint16{0xF218, 0x5480}, 0x2000},
+		{"FMOVE.D -(A0),FP1", []uint16{0xF220, 0x5480}, 0x2000 - 8},
+		{"FMOVE.L #imm,FP0", []uint16{0xF23C, 0x4000, 0x1234, 0x5678}, 0},
+		{"FMOVE.X FP2,($10,A0)", []uint16{0xF228, 0x6900, 0x0010}, 0x2010},
+		{"FBEQ.W", []uint16{0xF281, 0x0010}, 0},
+		{"FSEQ (A0)", []uint16{0xF250, 0x0001}, 0x2000},
+		{"FSAVE -(A7)", []uint16{0xF327}, 0x8000 - 4},
+	} {
+		c := new040(t, append(tc.code, 0x4E71)...) // then a NOP
+		c.FPU = FPUNone
+		c.A[0] = 0x2000
+		c.physL(VecLine1111*4, 0x3000)
+		c.physW(0x3000, 0x4E73) // RTE
+		next := 0x1000 + 2*uint32(len(tc.code))
+		step(t, c, 1)
+		if c.PC != 0x3000 {
+			t.Fatalf("%s: PC $%X, want the F-line handler", tc.name, c.PC)
+		}
+		sp := c.A[7]
+		if fv := c.peekW(sp + 6); fv != 0x402C {
+			t.Errorf("%s: format/vector $%04X, want $402C", tc.name, fv)
+		}
+		if pc := c.physPeekL(sp + 2); pc != next {
+			t.Errorf("%s: stacked PC $%X, want the next instruction at $%X", tc.name, pc, next)
+		}
+		if ea := c.physPeekL(sp + 8); ea != tc.ea {
+			t.Errorf("%s: effective address $%X, want $%X", tc.name, ea, tc.ea)
+		}
+		if pc := c.physPeekL(sp + 12); pc != 0x1000 {
+			t.Errorf("%s: faulted instruction's PC $%X, want $1000", tc.name, pc)
+		}
+		if c.A[0] != 0x2000 {
+			t.Errorf("%s: A0 = $%X: the instruction mustn't run", tc.name, c.A[0])
+		}
+		step(t, c, 1) // RTE
+		if c.PC != next || c.A[7] != 0x8000 {
+			t.Errorf("%s: RTE to $%X with A7 $%X, want $%X and $8000", tc.name, c.PC, c.A[7], next)
+		}
+	}
+}

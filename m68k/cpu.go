@@ -390,6 +390,8 @@ func (c *Processor) Step() (err error) {
 	if c.is020() {
 		if c.op&0xFE00 == 0xF200 && c.hasFPU() { // coprocessor 1: the FPU
 			fn = opFPU
+		} else if c.op&0xFE00 == 0xF200 && c.is040() { // the 68LC040
+			fn = opFPLC040
 		} else if c.op&0xFFC0 == 0xF000 && c.is030() { // the MMU
 			fn = opMMU030
 		} else if c.op>>12 == 0xF && c.is040() {

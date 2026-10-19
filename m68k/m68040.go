@@ -582,3 +582,149 @@ func (c *Processor) raiseAddressError040(ae *addressError) error {
 	c.LastCycles = 50
 	return nil
 }
+
+// ---- The 68LC040 ----
+
+// opFPLC040 is any floating-point instruction ($F200-$F3FF) on a 68040
+// without its FPU (the 68LC040, FPU none). Each takes the F-line vector
+// with a format $4 frame (M68040UM appendix A.5): the stacked PC is the
+// next instruction's, followed by the effective address the instruction
+// calculated (0 for register and immediate operands) and the PC of the
+// instruction itself, so an emulator in the F-line handler can run it.
+// Nothing else happens: (An)+ and -(An) are left as they were.
+func opFPLC040(c *Processor) (t stepTrace) {
+	t = stepTrace{addr: c.PC, op: "f-line", sz: noSize, n: 1}
+	kind := c.op >> 6 & 7
+	if kind == 4 || kind == 5 { // FSAVE and FRESTORE are privileged
+		if ok, err := c.checkPrivilege(t.addr); !ok {
+			t.err = err
+			return
+		}
+	}
+	regs := c.A
+	c.PC += 2
+	ea := c.op & 0x3F
+	var addr uint32
+	var err error
+	skip := func(n uint32) { c.PC += n }
+	switch kind {
+	case 0: // general: a command word, then the operand
+		var cmd uint16
+		if cmd, _, err = c.readImmWord(); err != nil {
+			break
+		}
+		f := int(cmd >> 10 & 7)
+		switch cmd >> 13 {
+		case 2: // <ea>,FPn (FMOVECR, source 7, has none)
+			if f != 7 {
+				addr, err = c.fpEA(ea, fmtSize[f])
+			}
+		case 3: // FMOVE FPn,<ea>
+			addr, err = c.fpEA(ea, fmtSize[f])
+		case 4, 5: // FMOVE(M) control registers: 4 bytes each
+			n := 0
+			for b := uint16(0x1000); b >= 0x0400; b >>= 1 {
+				if cmd&b != 0 {
+					n += 4
+				}
+			}
+			addr, err = c.fpEA(ea, n)
+		case 6, 7: // FMOVEM data registers: 12 bytes each
+			n := 12 * 8
+			if cmd&0x0800 == 0 { // a static list
+				n = 0
+				for b := 0; b < 8; b++ {
+					if cmd>>b&1 != 0 {
+						n += 12
+					}
+				}
+			}
+			addr, err = c.fpEA(ea, n)
+		}
+	case 1: // FScc, FDBcc, FTRAPcc: a condition word first
+		if _, _, err = c.readImmWord(); err != nil {
+			break
+		}
+		switch {
+		case ea>>3 == 1: // FDBcc: a displacement
+			skip(2)
+		case ea == 0x3A: // FTRAPcc.W
+			skip(2)
+		case ea == 0x3B: // FTRAPcc.L
+			skip(4)
+		case ea == 0x3C: // FTRAPcc
+		default: // FScc <ea>, a byte
+			addr, err = c.fpEA(ea, 1)
+		}
+	case 2: // FBcc.W
+		skip(2)
+	case 3: // FBcc.L
+		skip(4)
+	case 4, 5: // FSAVE, FRESTORE
+		addr, err = c.fpEA(ea, 4)
+	default:
+		c.PC = t.addr
+		t.err = c.lineF()
+		return
+	}
+	c.A = regs
+	if err != nil {
+		t.err = err
+		return
+	}
+	next := c.PC
+	c.tim.exception, c.tim.trapped = VecLine1111, true
+	if c.OnException != nil {
+		c.OnException(VecLine1111, next, t.addr)
+	}
+	oldSR := uint16(c.SR)
+	c.runState = RunStateRunning
+	if c.SR&StatusSupervisor == 0 {
+		c.USP = c.A[7]
+		c.A[7] = c.SSP
+		c.SR |= StatusSupervisor
+	}
+	c.SR &^= StatusTrace
+	for _, v := range []struct {
+		v    uint32
+		size int
+	}{{t.addr, 4}, {addr, 4}, {0x4000 | VecLine1111*4, 2}, {next, 4}, {uint32(oldSR), 2}} {
+		if v.size == 4 {
+			err = c.push32(v.v)
+		} else {
+			err = c.push16(uint16(v.v))
+		}
+		if err != nil {
+			t.err = err
+			return
+		}
+	}
+	c.PC, t.err = c.M.Long(int(c.VBR) + VecLine1111*4)
+	c.tim.fixed = 50
+	return
+}
+
+// fpEA is an FP instruction's effective address for an operand of n
+// bytes, reading any extension words but changing no register: (An)+
+// gives An, -(An) gives An less n. Register and immediate operands give 0
+// (an immediate's words are skipped).
+func (c *Processor) fpEA(ea uint16, n int) (uint32, error) {
+	reg := ea & 7
+	switch mode := ea >> 3 & 7; {
+	case mode == 0, mode == 1:
+		return 0, nil
+	case mode == 3:
+		return c.A[reg], nil
+	case mode == 4:
+		step := uint32(n)
+		if reg == 7 && n == 1 {
+			step = 2
+		}
+		return c.A[reg] - step, nil
+	case ea == 0x3C: // #imm
+		c.PC += uint32(n+1) &^ 1
+		return 0, nil
+	}
+	addr, _, err := c.controlAddr(ea)
+	return addr, err
+}
