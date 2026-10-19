@@ -38,6 +38,7 @@ type app struct {
 func runLauncher() error {
 	g := &app{shotDir: os.Getenv("GOAMIGA_UISHOT")}
 	g.showLauncher(startupLauncher())
+	setIcon()
 	return ebiten.RunGame(g)
 }
 
@@ -45,6 +46,7 @@ func runLauncher() error {
 func runMachine(m *machine, s *config.Settings) error {
 	g := &app{}
 	g.startMachine(m, s, "")
+	setIcon()
 	return ebiten.RunGame(g)
 }
 

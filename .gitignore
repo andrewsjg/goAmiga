@@ -21,3 +21,4 @@ amix/
 __pycache__/
 goamiga.conf
 *.hdf
+/goAmiga.app/

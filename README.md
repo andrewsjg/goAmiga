@@ -72,6 +72,11 @@ go build ./cmd/goamiga
 
 Or install it with `go install github.com/andrewsjg/goamiga/cmd/goamiga@latest`.
 
+On macOS, `scripts/macos-app.sh` builds `goAmiga.app`, an application
+bundle with the Boing Ball icon, which you can put in Applications. The
+bare binary shows the icon in the Dock too, and on Windows and Linux it is
+the window's icon.
+
 You also need a **Kickstart ROM**; none is included. Amiga Forever (Cloanto)
 supplies the classic ROMs, and Hyperion sells Kickstart 3.2.
 - Kickstart 1.3 (256 KB) runs Workbench 1.3.
