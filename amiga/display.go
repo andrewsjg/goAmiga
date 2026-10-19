@@ -12,6 +12,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
@@ -429,7 +430,9 @@ func (d *Display) Draw(screen *ebiten.Image) {
 	op.GeoM.Scale(sw, sh)
 	screen.DrawImage(d.screen, op)
 	if d.StatusBar {
-		d.drawStatus(screen, picH)
+		// The bar itself is drawn at the window's resolution
+		// (DrawFinalScreen); its place here is just its background.
+		vector.FillRect(screen, 0, float32(picH), float32(screen.Bounds().Dx()), statusHeight, statusBG, false)
 	}
 }
 
@@ -439,8 +442,14 @@ func (d *Display) Draw(screen *ebiten.Image) {
 // drawn again here straight from the framebuffer at the window's own
 // resolution: one window pixel per super-hires pixel at 2×, and averaged
 // (linear filtering) in a smaller window.
+//
+// The status bar is drawn here too, at the window's resolution.
 func (d *Display) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.Image, geoM ebiten.GeoM) {
 	ebiten.DefaultDrawFinalScreen(screen, offscreen, geoM)
+	if d.StatusBar {
+		b := offscreen.Bounds()
+		defer d.drawStatusFinal(screen, geoM, b.Dx(), b.Dy()-statusHeight)
+	}
 	v := d.amiga.Video
 	if v == nil || d.screen == nil {
 		return
