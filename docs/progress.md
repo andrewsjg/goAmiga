@@ -41,11 +41,11 @@ verified. Longer investigations get their own write-up in `docs/`.
    slots are not charged against the blitter.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
    Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). Gayle's IDE
-   interface is emulated, but not its PCMCIA slot. BEAMCON0 is stored
-   but ignored: PAL or NTSC is chosen with `--video`, and there is no
-   programmable beam. So the 31 kHz modes (Productivity, Multiscan,
-   DblPAL/DblNTSC, Euro72) and AGA scan doubling aren't emulated. A
-   plain hardfile (no RDB) can only use Kickstart's own filesystems.
+   interface is emulated, but not its PCMCIA slot. The programmable beam
+   works (BEAMCON0, HTOTAL, VTOTAL; the 31 kHz modes), but the sync and
+   blanking registers (HSSTRT, VBSTRT ...) are only stored, and the A2024
+   isn't emulated. A plain hardfile (no RDB) can only use Kickstart's
+   own filesystems.
    There is no 68060, no Zorro III I/O boards (only RAM), and no
    CPU-slot RAM at $08000000 (see `docs/a4000-68040-plan.md`). The caches aren't emulated
    (CACR is stored). The 68LC040 takes FPU instructions as plain F-line
@@ -55,6 +55,87 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-19 — The 31 kHz modes: a programmable beam
+
+Workbench now runs in Multiscan's Productivity (640x480) and in DblPAL,
+on AGA and (Productivity) on ECS. The monitor drivers come from the
+Storage disk, which isn't among the ADFs here; the tests take them from
+an installed Workbench 3.2 on `HDD/dh0.hdf` (`diag/adf.py` now reads
+plain hardfiles as well as ADFs, and so do the tests' `adfRead`).
+
+**1. The false genlock.** With the drivers loaded, IPrefs still opened
+Workbench in PAL. To find out why, I wrote a test helper, `callLib`,
+that calls a library function from the host as the running task.
+`ModeNotAvailable()` said `DI_AVAIL_NOTWITHGENLOCK`, and `GfxBase->
+DisplayFlags` had GENLOC set.
+
+graphics.library tests for a genlock at $F8F378 in the 3.2 ROM: it sets
+BPLCON0 ERSY (external resync), reads VHPOSR for a while, then reads it
+again. On real chips with no genlock the counters wait for an external
+sync that never comes, so the two readings match. Ours kept counting, so
+every machine had a "genlock", and every 31 kHz mode was ruled out.
+VPOSR/VHPOSR now read a latched position while ERSY is set. VPOSR also
+gives ECS's V9/V10.
+
+**2. The programmable beam.** The copper lists then programmed it (on AGA
+BEAMCON0 $1B88: VARBEAMEN, VARVBEN, VARHSYEN, VARVSYEN, LOLDIS,
+BLANKEN):
+
+| Mode | HTOTAL+1 | VTOTAL+1 | Rate | Picture |
+|---|---|---|---|---|
+| Productivity (AGA) | 122 | 506 | 57.5 Hz | 640x480 super-hires |
+| Productivity (ECS) | 114 | 525 | 59.3 Hz | 640x480 super-hires |
+| DblPAL High Res (AGA) | 130 | 574 | 47.5 Hz | 640x256 scan-doubled to 512 lines |
+
+The line length had been the constant `CPUClocksPerLine` throughout.
+Now `Amiga.lineCycles` is recomputed at each line start: HTOTAL+1 colour
+clocks with VARBEAMEN, else 227. The frame is VTOTAL+1 lines. The beam
+loop, the fast idle path, the DMA slot model and `FrameRate` use them.
+Without VARBEAMEN, BEAMCON0's PAL bit picks the PAL or NTSC frame on ECS,
+as on the chips; it comes up from `--video`. The copper already compared
+8 bits of the line, as the hardware does, so it needed nothing.
+
+**3. The picture.** For the standard beam the framebuffer still shows a
+fixed piece of it. For a programmable beam it shows what the display
+window covered on the last frame's displayed lines, as a monitor syncs
+to the picture. It is drawn at 4:3 with all its lines
+(`Video.DisplaySize`).
+
+**4. Scan doubling** (AGA FMODE BSCAN2 and SSCAN2, for DblPAL/DblNTSC).
+With BSCAN2 each line's modulo is BPL1MOD or BPL2MOD for every plane,
+chosen by the line's parity against DIWSTRT's start line (from memory of
+WinUAE). DblPAL uses -88 and +72: each line shows twice. With SSCAN2
+sprite DMA fetches data every other line, so the pointer is twice as
+tall, as graphics.library expects (its VSTOP is 32 lines on).
+
+**5. The pointer.** On AGA in these modes graphics.library writes sprite
+positions 256 lores pixels further right than the display window's
+coordinates: the pointer at the left edge of a screen starting at H $53
+is at $152, where on a PAL screen starting at $81 it is at $80. ECS
+Productivity keeps the PAL relation ($3F for $40). So on AGA with the
+programmable beam, sprite positions are taken 256 lores pixels back.
+This is derived from what graphics.library writes, consistent across
+Productivity and DblPAL.
+
+**6. ECS super-hires was a word off** (at 15 kHz too). The first pixel
+was placed with hires's delay (DIW = 2×DDFSTRT + 9). A super-hires word
+takes half as long, so it is +5, continuing lores +17 and hires +9. The
+picture sat 16 pixels to the right, with its right border wrapped round
+to the left edge. AGA's wide fetches reach the 8-clock cap either way,
+which is why AGA was right.
+
+**Tests:**
+- `TestWorkbench31kHzModes` covers Productivity on AGA and ECS, and
+  DblPAL on AGA. It checks the beam (line and frame length), the frame
+  size, and the pointer in the corner.
+- `TestWorkbenchSuperHiresECS` checks the placement fix.
+- The full suite passes.
+
+Not done: the sync and blanking registers only affect timing that isn't
+modelled (HSSTRT, VSSTRT, HBSTRT, VBSTRT ...). The 31 kHz modes on a
+real monitor also need its sync polarity (BEAMCON0 HSYTRUE ...), which a
+window doesn't.
 
 ## 2026-10-19 — Bus timeouts on the A3000/A4000
 

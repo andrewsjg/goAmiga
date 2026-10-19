@@ -237,9 +237,9 @@ func (a *Amiga) chipBusWait(n int) int {
 	start := t
 	for i := 0; i < n; i++ {
 		for {
-			if t >= ColorClocksPerLine {
-				t -= ColorClocksPerLine
-				start -= ColorClocksPerLine
+			if lcck := a.lineCycles / CPUCyclesPerColorClock; t >= lcck {
+				t -= lcck
+				start -= lcck
 				vpos++
 				f = a.bitplaneDMA(vpos)
 				t += t & 1
@@ -268,7 +268,7 @@ func (a *Amiga) blitterSlots(cpuCycles int) int {
 	f := a.bitplaneDMA(vpos)
 	free := 0
 	for i := 0; i < n; i++ {
-		if cck >= ColorClocksPerLine {
+		if cck >= a.lineCycles/CPUCyclesPerColorClock {
 			cck = 0
 			vpos++
 			if vpos >= a.linesThisFrame() {

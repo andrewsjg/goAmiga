@@ -62,6 +62,10 @@ type CustomChips struct {
 	// written, or -1 for CPU writes (which use the beam at the start of
 	// the instruction).
 	copperHpos int
+
+	// The beam position held while BPLCON0 ERSY is set (beamCounters).
+	ersyLatched  bool
+	ersyV, ersyH int
 }
 
 // NewCustomChips creates a new custom chip register set.
@@ -71,6 +75,25 @@ func NewCustomChips(logger io.Writer, a *Amiga) *CustomChips {
 		amiga:      a,
 		copperHpos: -1,
 	}
+}
+
+// beamCounters is the beam position VPOSR and VHPOSR report: the line and
+// colour clock. With BPLCON0 ERSY (external resync) set the counters wait
+// for a genlock's sync, so with none they stand still: graphics.library
+// tests for a genlock just so (it sets ERSY, reads VHPOSR twice and sees
+// whether it moved), and a moving counter made it think one was there,
+// which rules out the 31 kHz modes.
+func (c *CustomChips) beamCounters() (vpos, hcc int) {
+	a := c.amiga
+	if c.ReadReg16(0x100)&0x0002 == 0 {
+		c.ersyLatched = false
+		return a.vpos, a.hpos / CPUCyclesPerColorClock
+	}
+	if !c.ersyLatched {
+		c.ersyLatched = true
+		c.ersyV, c.ersyH = a.vpos, a.hpos/CPUCyclesPerColorClock
+	}
+	return c.ersyV, c.ersyH
 }
 
 func (c *CustomChips) Read(addr int, p []byte) (int, error) {
@@ -148,7 +171,11 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 			if c.amiga.lof {
 				val |= 0x8000 // LOF
 			}
-			val |= uint16((c.amiga.vpos >> 8) & 1) // V8
+			vpos, hcc := c.beamCounters()
+			val |= uint16(vpos >> 8 & 1) // V8
+			if c.amiga.ECSAgnus {
+				val |= uint16(vpos >> 8 & 7) // V10-V8 (ECS)
+			}
 			switch {
 			case c.amiga.AGA:
 				val |= 0x2200 // Alice, PAL
@@ -164,17 +191,18 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 			}
 			// Longword read: bytes 2-3 = VHPOSR (V7:V0 in byte 2, H8:H1 in byte 3)
 			if len(p) > 2 {
-				p[2] = byte(c.amiga.vpos) // V7:V0
+				p[2] = byte(vpos) // V7:V0
 			}
 			if len(p) > 3 {
-				p[3] = byte(c.amiga.hpos / CPUCyclesPerColorClock) // H8:H1
+				p[3] = byte(hcc) // H8:H1
 			}
 		}
 	case 0x006: // VHPOSR - V7-V0 (bits 15-8), H8-H1 (bits 7-0)
 		if c.amiga != nil {
-			p[0] = byte(c.amiga.vpos)
+			vpos, hcc := c.beamCounters()
+			p[0] = byte(vpos)
 			if len(p) > 1 {
-				p[1] = byte(c.amiga.hpos / CPUCyclesPerColorClock)
+				p[1] = byte(hcc)
 			}
 		}
 	case 0x00A: // JOY0DAT - mouse/joystick 0 data
@@ -629,6 +657,10 @@ func (c *CustomChips) Reset() error {
 	c.regs = [512]byte{}
 	if c.amiga != nil && c.amiga.AGA {
 		c.agaReset()
+	}
+	// BEAMCON0's PAL bit comes up from Agnus's PAL/NTSC pin.
+	if c.amiga != nil && !c.amiga.NTSC {
+		c.regs[0x1DD] = 0x20
 	}
 	return nil
 }

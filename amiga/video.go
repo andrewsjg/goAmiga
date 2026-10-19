@@ -68,6 +68,18 @@ type Video struct {
 	// is then 512 rows and each field fills alternate rows.
 	laced bool
 
+	// fixed is the view SetOverscan chose, for the standard beam. With a
+	// programmable beam (BEAMCON0 VARBEAMEN: the 31 kHz modes) the view is
+	// instead what the display window covered in the last frame (seen),
+	// as a monitor syncs to the picture; variable notes that.
+	fixed    viewArea
+	variable bool
+	seen     struct {
+		any                 bool
+		left, right         int // lores beam positions
+		firstLine, lastLine int
+	}
+
 	// DisplayActive controls whether RenderLine actually renders pixels.
 	// Set to true when a display window is open. When false, rendering is
 	// skipped for performance (headless/test mode).
@@ -111,15 +123,47 @@ func NewVideo(a *Amiga) *Video {
 	return v
 }
 
+// viewArea is the part of the beam the framebuffer shows: lores beam
+// position of column 0, first line, rows per field and hires columns.
+type viewArea struct{ left, top, rows, w int }
+
 // SetOverscan selects the standard view (640x256 from H $81, line 44) or
 // the overscan view (720x284 from H $6D, line 28). Interlace doubles the
 // rows in either.
 func (v *Video) SetOverscan(on bool) {
-	v.left, v.top, v.rows, v.baseW = OutputLeft, DisplayTop, PALVisibleLines, OutputWidth
+	v.fixed = viewArea{OutputLeft, DisplayTop, PALVisibleLines, OutputWidth}
 	if on {
-		v.left, v.top, v.rows, v.baseW = OverscanLeft, OverscanTop, OverscanRows, OverscanWidth
+		v.fixed = viewArea{OverscanLeft, OverscanTop, OverscanRows, OverscanWidth}
 	}
+	v.setView(v.fixed)
+}
+
+func (v *Video) setView(a viewArea) {
+	v.left, v.top, v.rows, v.baseW = a.left, a.top, a.rows, a.w
 	v.resize()
+}
+
+// noteDisplayed records a line that fetched bitplanes, for the variable
+// beam's view.
+func (v *Video) noteDisplayed(vpos int, w displayWindow) {
+	s := &v.seen
+	if !s.any {
+		s.any, s.left, s.right, s.firstLine, s.lastLine = true, w.hstart, w.hstop, vpos, vpos
+		return
+	}
+	s.left, s.right = min(s.left, w.hstart), max(s.right, w.hstop)
+	s.firstLine, s.lastLine = min(s.firstLine, vpos), max(s.lastLine, vpos)
+}
+
+// variableView is the view for a frame of the programmable beam: the
+// display window's extent over the last frame's displayed lines.
+func (v *Video) variableView() (viewArea, bool) {
+	s := v.seen
+	if !s.any || s.right <= s.left {
+		return viewArea{}, false
+	}
+	w := min(2*(s.right-s.left), OverscanWidth)
+	return viewArea{left: s.left, top: s.firstLine, rows: s.lastLine - s.firstLine + 1, w: w}, true
 }
 
 // resize allocates the framebuffer for the current view and interlace.
@@ -135,7 +179,13 @@ func (v *Video) resize() {
 // DisplaySize is the size to show the framebuffer at on the host: hires
 // width (a super-hires frame has twice the columns), and two host rows per
 // non-interlaced line so pixels keep the Amiga's aspect ratio.
+//
+// A programmable-beam frame (a 31 kHz mode) is shown at 4:3 with all its
+// lines: the monitor fills its screen with the picture.
 func (v *Video) DisplaySize() (w, h int) {
+	if v.variable {
+		return v.Height * 4 / 3, v.Height
+	}
 	return v.baseW, 2 * v.rows
 }
 
@@ -182,9 +232,19 @@ func (v *Video) StartFrame() {
 		cs = 2
 	}
 	v.sawShres = false
-	if laced != v.laced || cs != v.cs {
-		v.laced, v.cs = laced, cs
-		v.resize()
+	view, variable := v.fixed, false
+	if v.amiga.beamVariable() {
+		if vv, ok := v.variableView(); ok {
+			view, variable = vv, true
+		} else if v.variable {
+			view, variable = viewArea{v.left, v.top, v.rows, v.baseW}, true
+		}
+	}
+	v.seen.any = false
+	cur := viewArea{v.left, v.top, v.rows, v.baseW}
+	if laced != v.laced || cs != v.cs || view != cur || variable != v.variable {
+		v.laced, v.cs, v.variable = laced, cs, variable
+		v.setView(view)
 	}
 }
 
@@ -341,6 +401,9 @@ func (v *Video) RenderLine(vpos int) {
 	}
 
 	fetch := numPlanes > 0 && v.bitplaneFetchWindow(vpos)
+	if fetch && v.DisplayActive && v.amiga.beamVariable() {
+		v.noteDisplayed(vpos, v.window())
+	}
 	draw := v.DisplayActive && vpos >= v.top && vpos < v.top+v.rows
 	if draw && fetch && v.shres {
 		v.sawShres = true
@@ -353,10 +416,22 @@ func (v *Video) RenderLine(vpos int) {
 	if fetch {
 		bpl1mod := int32(int16(v.amiga.Custom.ReadReg16(0x108)))
 		bpl2mod := int32(int16(v.amiga.Custom.ReadReg16(0x10A)))
+		// AGA's bitplane scan doubling (FMODE BSCAN2), for DblPAL and
+		// DblNTSC: every plane takes BPL1MOD on lines of DIWSTRT's start
+		// line's parity and BPL2MOD on the others, so a modulo of minus a
+		// line's fetch shows each line twice.
+		scan2 := v.amiga.AGA && v.amiga.Custom.ReadReg16(0x1FC)&0x4000 != 0
+		lineMod := bpl1mod
+		if scan2 && (int(v.amiga.Custom.ReadReg16(0x08E)>>8)^vpos)&1 != 0 {
+			lineMod = bpl2mod
+		}
 		for p := 0; p < numPlanes; p++ {
 			mod := bpl1mod // odd planes (BPL1, 3, 5)
 			if p%2 == 1 {
 				mod = bpl2mod
+			}
+			if scan2 {
+				mod = lineMod
 			}
 			v.bplpt[p] = uint32(int32(v.bplpt[p]) + int32(2*words) + mod)
 		}
@@ -499,10 +574,13 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	// is in colour clocks; the pipeline shows pixels a fetch unit (at
 	// most 8 colour clocks) plus one lores pixel later: 17 lores pixels in
 	// lores and 9 in hires (HRM: DIWSTRT = 2*DDFSTRT + 17 / + 9, so the
-	// standard $38/$3C both line up with DIWSTRT $81). AGA's wide fetches
-	// keep the 8-clock delay: graphics.library pairs FMODE 3 hires with
-	// DDFSTRT $38 and DIWSTRT $81.
-	unit := min(fetchUnitCCK(hires, false, v.fetchFactor()), 8)
+	// standard $38/$3C both line up with DIWSTRT $81). ECS super-hires
+	// (a word every 2 colour clocks) shows 5 lores pixels after DDFSTRT:
+	// with the hires delay a super-hires Workbench sat a word to the right,
+	// its last 16 pixels wrapping round to the left edge. AGA's wide
+	// fetches keep the 8-clock delay: graphics.library pairs FMODE 3 hires
+	// with DDFSTRT $38 and DIWSTRT $81.
+	unit := min(fetchUnitCCK(hires && !v.shres, v.shres, v.fetchFactor()), 8)
 	cs := v.cs
 	pf := playfieldLayout{planes: numPlanes, words: words, pixW: 2 * cs,
 		origin: cs * (2*(2*ddfstrt+2*unit+1) - 2*v.left), aga: aga}

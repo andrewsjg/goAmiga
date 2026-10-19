@@ -281,11 +281,18 @@ func (se *SpriteEngine) FetchLine(vpos int) {
 				} else {
 					s.state = sprWaitVStart
 				}
-			} else {
+			} else if !se.scan2() || (vpos-s.vstart())&1 == 0 {
 				se.fetchData(s)
 			}
 		}
 	}
+}
+
+// scan2 reports AGA's sprite scan doubling (FMODE SSCAN2), which the
+// 31 kHz modes use: sprite DMA fetches data every other line, so each
+// line of a sprite shows on two.
+func (se *SpriteEngine) scan2() bool {
+	return se.amiga.AGA && se.amiga.Custom.ReadReg16(0x1FC)&0x8000 != 0
 }
 
 // lineBuffer fills the current line's sprite pixels for the compositor:
@@ -414,8 +421,18 @@ func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int
 		if blank {
 			return
 		}
-		// Columns are measured in super-hires pixels times cs/2.
-		sx := s.hstartShres(aga) - 4*left
+		// Columns are measured in super-hires pixels times cs/2. On AGA
+		// with the programmable beam, sprite positions are 256 lores
+		// pixels (H8) ahead of the display window's: graphics.library puts
+		// a pointer at the left edge of a Productivity or DblPAL screen
+		// whose window starts at H $53 at H $152, where on a PAL screen
+		// starting at $81 it uses $80. On ECS it uses the PAL relation in
+		// Productivity too ($3F for a window at $40).
+		h := s.hstartShres(aga)
+		if aga && se.amiga.beamVariable() {
+			h = (h - 4*256) & 0x7FF
+		}
+		sx := h - 4*left
 		x0 := sx * cs / 2
 		if x0 < from || x0 >= to {
 			return

@@ -156,6 +156,12 @@ screen even when other flags are given.
     Use it with the A1200 Kickstart and the 68020.
   - **Super-hires** is drawn at its full 1280 pixels across, so a
     super-hires Workbench is sharp in a window twice the Amiga's width.
+  - **The 31 kHz modes.** ECS and AGA have a programmable beam, and the
+    monitor drivers' modes work: Multiscan (Productivity, 640x480),
+    DblPAL and DblNTSC (scan-doubled), Euro72 and the rest. Install the
+    driver in DEVS:Monitors (from the Storage disk) and pick the mode in
+    ScreenMode prefs. The window shows the picture at 4:3, as a monitor
+    would.
 - **Gayle.** `--gayle auto|on|off` fits Gayle, the A600/A1200 chip with
   the IDE interface. `auto`, the default, fits it with the AGA chipset, as
   in every A1200. It also matters with no drive attached: Kickstart's

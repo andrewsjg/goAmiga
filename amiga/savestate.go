@@ -32,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 17
+	stateVersion = 18
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -291,6 +291,7 @@ func (a *Amiga) state(s *stateCodec) {
 	// The beam and machine-level state.
 	num(s, &a.hpos)
 	num(s, &a.vpos)
+	num(s, &a.lineCycles)
 	num(s, &a.cycles)
 	s.bool(&a.lof)
 	num(s, &a.eClockCounter)

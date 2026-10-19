@@ -114,7 +114,7 @@ func (c *Copper) canWake(hposEnd, vpos int) bool {
 //     the second WAIT is only fetched after the fetch window, at the very
 //     end of line 255, so it is compared on line 256.
 //
-// hpos is the beam tracker's position in CPU cycles (0..CPUClocksPerLine);
+// hpos is the beam tracker's position in CPU cycles (0..Amiga.lineCycles);
 // see beamHP for the conversion to Copper horizontal positions.
 func (c *Copper) Step(hpos, vpos int) {
 	if c.halted {

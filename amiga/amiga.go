@@ -139,6 +139,11 @@ type Amiga struct {
 	// unmapped address (a diagnostic: what software probes for).
 	OnOpenBus func(addr, n int, write bool)
 
+	// lineCycles is the current line's length in CPU cycles: 454 (227
+	// colour clocks), or HTOTAL+1 colour clocks with BEAMCON0 VARBEAMEN
+	// (see beamLineCycles). It changes only at the start of a line.
+	lineCycles int
+
 	// cpuCycleFrac is the 68040's part-cycle left over, in hundredths of
 	// a cycle times CPUSpeed.
 	cpuCycleFrac int
@@ -186,6 +191,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 		logger:      logger,
 		debugWriter: os.Stderr,
 		lof:         true,
+		lineCycles:  CPUClocksPerLine,
 	}
 
 	// Create memory devices
@@ -412,6 +418,7 @@ func (a *Amiga) Reset() error {
 	a.hpos = 0
 	a.vpos = 0
 	a.lof = true // non-interlaced frames are long
+	a.lineCycles = CPUClocksPerLine
 	a.cycles = 0
 	a.cpuStopped = false
 	a.busErrorCount = 0
@@ -461,7 +468,7 @@ func (a *Amiga) Step() error {
 		// underflow or VBL) instead of ticking 4 cycles at a time.
 		skip := CyclesPerFrame // upper bound: one full frame
 		// Cycles until next VBL (line 0 wrap)
-		cyclesToVBL := (a.linesThisFrame()-a.vpos)*CPUClocksPerLine - a.hpos
+		cyclesToVBL := (a.linesThisFrame()-a.vpos)*a.lineCycles - a.hpos
 		if cyclesToVBL > 0 && cyclesToVBL < skip {
 			skip = cyclesToVBL
 		}
@@ -610,7 +617,7 @@ func (a *Amiga) Step() error {
 	// Use fast per-line beam advance when the CPU is stopped (no instruction
 	// side-effects to worry about). This processes complete scanlines at a time
 	// instead of per-cycle, giving ~100x speedup during idle periods.
-	if a.cpuStopped && elapsed > CPUClocksPerLine {
+	if a.cpuStopped && elapsed > a.lineCycles {
 		a.advanceBeamFast(elapsed)
 	} else {
 		a.advanceBeamPerCycle(elapsed)
@@ -694,15 +701,41 @@ func (a *Amiga) Run(maxCycles uint64) error {
 
 // linesThisFrame is the length of the current frame: long frames have
 // 313 lines, short (interlace odd-field) frames 312; on NTSC, 263 and 262.
+//
+// ECS and AGA make the beam programmable (BEAMCON0, beamVariable): with
+// VARBEAMEN the long frame is VTOTAL+1 lines and the short one VTOTAL,
+// as graphics.library sets up for the 31 kHz modes (DblPAL, Multiscan's
+// Productivity, Euro72 ...). Without it, BEAMCON0's PAL bit chooses
+// between the PAL and NTSC frames, as on the real chips; it comes up from
+// --video, which also sets the clock.
 func (a *Amiga) linesThisFrame() int {
 	n := LinesPerLongFrame
-	if a.NTSC {
+	switch {
+	case a.beamVariable():
+		n = max(int(a.Custom.ReadReg16(0x1C8)&0x7FF)+1, 32)
+	case a.ECSAgnus && a.Custom.ReadReg16(0x1DC)&0x0020 == 0, !a.ECSAgnus && a.NTSC:
 		n = NTSCLinesPerLongFrame
 	}
 	if !a.lof {
 		n--
 	}
 	return n
+}
+
+// beamVariable reports whether the beam counters follow HTOTAL and
+// VTOTAL (BEAMCON0 VARBEAMEN, ECS and AGA only).
+func (a *Amiga) beamVariable() bool {
+	return a.ECSAgnus && a.Custom.ReadReg16(0x1DC)&0x0080 != 0
+}
+
+// beamLineCycles is the length of a line starting now, in CPU cycles:
+// 227 colour clocks, or HTOTAL+1 with VARBEAMEN (113-114 for the 31 kHz
+// modes).
+func (a *Amiga) beamLineCycles() int {
+	if a.beamVariable() {
+		return max(int(a.Custom.ReadReg16(0x1C0)&0xFF)+1, 32) * CPUCyclesPerColorClock
+	}
+	return CPUClocksPerLine
 }
 
 // ColorClock is the chipset's clock in Hz: the colour carrier of the video
@@ -721,7 +754,10 @@ func (a *Amiga) FrameRate() float64 {
 	if a.NTSC {
 		lines = NTSCLinesPerLongFrame
 	}
-	return float64(a.ColorClock()) / float64(ColorClocksPerLine*lines)
+	if a.beamVariable() {
+		lines = a.linesThisFrame()
+	}
+	return float64(a.ColorClock()) / float64(a.lineCycles/CPUCyclesPerColorClock*lines)
 }
 
 // nextLine moves the beam to the start of the next scanline, starting a new
@@ -729,6 +765,7 @@ func (a *Amiga) FrameRate() float64 {
 func (a *Amiga) nextLine() bool {
 	a.hpos = 0
 	a.vpos++
+	a.lineCycles = a.beamLineCycles()
 	a.CIAB.TickTOD() // CIA-B TOD ← horizontal sync
 	if a.vpos < a.linesThisFrame() {
 		return false
@@ -766,7 +803,7 @@ func (a *Amiga) advanceBeamPerCycle(elapsed int) {
 		a.cycles++
 		a.hpos++
 
-		if a.hpos >= CPUClocksPerLine {
+		if a.hpos >= a.lineCycles {
 			// Render the completed scanline
 			if a.Video != nil {
 				a.Video.RenderLine(a.vpos)
@@ -823,18 +860,18 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 
 		remaining := elapsed
 		for remaining > 0 {
-			lineRemain := CPUClocksPerLine - a.hpos
+			lineRemain := a.lineCycles - a.hpos
 			if lineRemain > remaining {
 				lineRemain = remaining
 			}
 			if copperEnabled {
 				// Full horizontal range so HP waits complete on this line
-				a.Copper.StepLine(0, CPUClocksPerLine, a.vpos)
+				a.Copper.StepLine(0, a.lineCycles, a.vpos)
 			}
 			a.hpos += lineRemain
 			remaining -= lineRemain
 
-			if a.hpos >= CPUClocksPerLine {
+			if a.hpos >= a.lineCycles {
 				if a.nextLine() {
 					dmacon = a.Custom.ReadReg16(0x096)
 					copperEnabled = dmacon&0x0280 == 0x0280
@@ -850,7 +887,7 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 
 	remaining := elapsed
 	for remaining > 0 {
-		lineRemain := CPUClocksPerLine - a.hpos
+		lineRemain := a.lineCycles - a.hpos
 		if lineRemain > remaining {
 			lineRemain = remaining
 		}
@@ -864,7 +901,7 @@ func (a *Amiga) advanceBeamFast(elapsed int) {
 
 		a.hpos += lineRemain
 
-		if a.hpos >= CPUClocksPerLine {
+		if a.hpos >= a.lineCycles {
 			a.Video.RenderLine(a.vpos)
 
 			if a.nextLine() {

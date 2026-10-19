@@ -146,9 +146,14 @@ func adfDataBlocks(d []byte, h int) []int {
 	return out
 }
 
-// adfRead reads a file from an OFS or FFS image.
+// adfRoot is an image's root block: in the middle, 880 on a floppy (a
+// plain hardfile's too).
+func adfRoot(d []byte) int { return (len(d)/512 + 1) / 2 }
+
+// adfRead reads a file from an OFS or FFS image (an ADF or a plain
+// hardfile).
 func adfRead(d []byte, path string) []byte {
-	cur := 880
+	cur := adfRoot(d)
 	for _, part := range strings.Split(path, "/") {
 		names, blocks, _ := adfEntries(d, cur)
 		cur = 0

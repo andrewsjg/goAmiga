@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""List and extract files from an Amiga ADF (OFS or FFS).
+"""List and extract files from an Amiga ADF or plain hardfile (OFS or FFS).
+
+A plain hardfile (one partition, no RDB) works too: its root block is in
+the middle, as for a floppy.
 
     python3 diag/adf.py list Workbench/Workbench3.2.adf
     python3 diag/adf.py find Workbench/Workbench3.2.adf Clock
@@ -42,7 +45,14 @@ def entries(d, dirblock):
             h = be(e, 496)
 
 
-def walk(d, dirblock=880, prefix=""):
+def root(d):
+    """The root block: in the middle of the partition (880 on a floppy)."""
+    return (len(d) // BS - 1 + 2) // 2
+
+
+def walk(d, dirblock=None, prefix=""):
+    if dirblock is None:
+        dirblock = root(d)
     for n, h, st in sorted(entries(d, dirblock)):
         path = prefix + n
         if st == 2:  # directory
@@ -53,7 +63,7 @@ def walk(d, dirblock=880, prefix=""):
 
 
 def lookup(d, path):
-    cur = 880
+    cur = root(d)
     for part in path.strip("/").split("/"):
         for n, h, st in entries(d, cur):
             if n.lower() == part.lower():

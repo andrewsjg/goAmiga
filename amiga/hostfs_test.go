@@ -28,7 +28,7 @@ func adfExtract(t *testing.T, d []byte, dst string) {
 			}
 		}
 	}
-	walk(880, dst)
+	walk(adfRoot(d), dst)
 }
 
 // bootFolder boots rom from a host folder holding the files of adf.
@@ -349,8 +349,29 @@ func screenModePrefs(displayID uint32, w, h, depth uint16) []byte {
 // disk, with IPrefs and screen mode preferences for displayID, and returns
 // the machine some frames after Workbench starts.
 func workbenchInMode(t *testing.T, displayID uint32, w, h, depth uint16) *Amiga {
+	return workbenchInModeWith(t, displayID, w, h, depth, nil)
+}
+
+// installedHDF is a Workbench 3.2 installed on a plain hardfile, for the
+// monitor drivers (on the Storage disk, which isn't among the ADFs).
+const installedHDF = "../HDD/dh0.hdf"
+
+// workbenchInModeWith is workbenchInMode with monitor drivers from the
+// installed system's Storage/Monitors, run at boot before IPrefs.
+func workbenchInModeWith(t *testing.T, displayID uint32, w, h, depth uint16, monitors []string) *Amiga {
 	t.Helper()
-	rom, err := LoadROM("../ROMS/kick32a1200.rom")
+	return workbenchInModeOn(t, "aga", displayID, w, h, depth, monitors)
+}
+
+// workbenchInModeOn is workbenchInModeWith on the given chipset: AGA (the
+// A1200 Kickstart, a 68020) or ECS (the A500 Kickstart, a 68000).
+func workbenchInModeOn(t *testing.T, chipset string, displayID uint32, w, h, depth uint16, monitors []string) *Amiga {
+	t.Helper()
+	romFile := "../ROMS/kick32a1200.rom"
+	if chipset != "aga" {
+		romFile = "../ROMS/Kick32.rom"
+	}
+	rom, err := LoadROM(romFile)
 	if err != nil {
 		t.Skip(err)
 	}
@@ -361,14 +382,37 @@ func workbenchInMode(t *testing.T, displayID uint32, w, h, depth uint16) *Amiga 
 	os.WriteFile(filepath.Join(dir, "C", "IPrefs"), adfRead(wb, "C/IPrefs"), 0o644)
 	ss := filepath.Join(dir, "S", "Startup-Sequence")
 	b, _ := os.ReadFile(ss)
-	os.WriteFile(ss, []byte(strings.Replace(string(b), "LoadWB", "C:IPrefs\nLoadWB", 1)), 0o644)
+	start := "C:IPrefs\nLoadWB"
+	if len(monitors) > 0 {
+		hdf, err := os.ReadFile(installedHDF)
+		if err != nil {
+			t.Skip(err)
+		}
+		os.MkdirAll(filepath.Join(dir, "Devs", "Monitors"), 0o755)
+		for _, m := range monitors {
+			for _, f := range []string{m, m + ".info"} {
+				drv := adfRead(hdf, "Storage/Monitors/"+f)
+				if drv == nil {
+					t.Skipf("no Storage/Monitors/%s on %s", f, installedHDF)
+				}
+				os.WriteFile(filepath.Join(dir, "Devs", "Monitors", f), drv, 0o644)
+			}
+		}
+		os.WriteFile(filepath.Join(dir, "C", "LoadMonDrvs"), adfRead(hdf, "C/LoadMonDrvs"), 0o644)
+		start = "C:LoadMonDrvs >SYS:monitors.log\nEcho \"rc $RC\" >>SYS:monitors.log\n" + start
+	}
+	os.WriteFile(ss, []byte(strings.Replace(string(b), "LoadWB", start, 1)), 0o644)
 	os.WriteFile(filepath.Join(dir, "Prefs", "Env-Archive", "Sys", "screenmode.prefs"),
 		screenModePrefs(displayID, w, h, depth), 0o644)
 
 	a, _ := New(rom, nil)
-	a.SetCPU("68020", 0)
-	a.SetChipset("aga")
-	a.SetChipRAM(2048)
+	if chipset == "aga" {
+		a.SetCPU("68020", 0)
+		a.SetChipRAM(2048)
+	} else {
+		a.SetChipRAM(1024)
+	}
+	a.SetChipset(chipset)
 	a.ConfigureMemory(0, 4096)
 	if err := a.AttachDirectory(dir, "", false); err != nil {
 		t.Fatal(err)
