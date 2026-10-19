@@ -36,12 +36,13 @@ verified. Longer investigations get their own write-up in `docs/`.
    isn't shown, and neither are sprite data rewrites while a sprite is
    being shifted out. Collisions are only detected on lines that are drawn
    (not in headless mode).
-3. **Paula (other).** The POTxDAT proportional
-   counters (analogue joysticks, paddles) are not implemented. Audio DMA
-   slots are not charged against the blitter.
+3. **Paula (other).** Audio DMA slots are not charged against the
+   blitter. The pot counters have no paddles, only an analogue joystick.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
    Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). Gayle's IDE
-   interface is emulated, but not its PCMCIA slot. The programmable beam
+   interface is emulated, but not its PCMCIA slot (Kickstart only has
+   carddisk.device for SRAM cards; CompactFlash and network cards need
+   drivers from Aminet). The programmable beam
    works (BEAMCON0, HTOTAL, VTOTAL; the 31 kHz modes), but the sync and
    blanking registers (HSSTRT, VBSTRT ...) are only stored, and the A2024
    isn't emulated. A plain hardfile (no RDB) can only use Kickstart's
@@ -54,6 +55,28 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-19 — The pot counters; an analogue joystick
+
+Paula's proportional counters now work (`amiga/pots.go`). POT0DAT and
+POT1DAT used to read 0.
+- Writing POTGO with START clears the four 8-bit counters, which then
+  count once a line until each pin's capacitor charges.
+- What it charges to:
+  - a mouse pin charges at once through the mouse's pull-up (0), unless
+    a pressed button grounds it (255);
+  - an unconnected pin counts to 255;
+  - a pin POTGO makes an output doesn't count;
+  - an analogue joystick in port 2 gives its position.
+- `--joy-analog` (and a checkbox on the configuration screen) makes the
+  gamepad that joystick: its left stick sets the counts. Its buttons are
+  on the left and right lines, as on analogue sticks, rather than fire
+  and POTY.
+- Save states (version 19) keep the counters.
+
+`TestPotCounters` covers START, the stick's position, the mouse pins
+with and without a button, an output pin, the counts part-way, and the
+analogue buttons.
 
 ## 2026-10-19 — Game sweep; the 68LC040's FPU trap
 

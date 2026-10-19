@@ -49,7 +49,7 @@ func (d *Display) pollJoystick() {
 	if j == nil {
 		return
 	}
-	*j = Joystick{}
+	*j = Joystick{Analog: d.JoyAnalog}
 	if d.JoyKeys {
 		j.Up = ebiten.IsKeyPressed(ebiten.KeyArrowUp)
 		j.Down = ebiten.IsKeyPressed(ebiten.KeyArrowDown)
@@ -77,6 +77,9 @@ func (d *Display) pollJoystick() {
 			}
 			fire = ebiten.IsGamepadButtonPressed(id, ebiten.GamepadButton0)
 			fire2 = ebiten.IsGamepadButtonPressed(id, ebiten.GamepadButton1)
+		}
+		if j.Analog && id == d.gamepads[0] {
+			j.AnalogX, j.AnalogY = x, y
 		}
 		j.Up = j.Up || up || y < -stickDeadZone
 		j.Down = j.Down || down || y > stickDeadZone

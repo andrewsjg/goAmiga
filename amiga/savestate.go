@@ -32,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 18
+	stateVersion = 19
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -300,6 +300,8 @@ func (a *Amiga) state(s *stateCodec) {
 	num(s, &a.busErrorCount)
 	num(s, &a.CPUSpeed)
 	num(s, &a.cpuCycleFrac)
+	s.fixed(a.pots.count[:])
+	s.bool(&a.pots.running)
 	num(s, &a.cpuChipAccesses)
 	num(s, &a.cpuCIAAccesses)
 

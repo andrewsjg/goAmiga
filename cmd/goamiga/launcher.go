@@ -589,6 +589,8 @@ func (l *launcher) portsTab(x, y int) {
 	u.checkbox(x, y, "Arrow keys and Right Ctrl/Alt (Ctrl+F12 toggles)", &l.s.JoyKeys)
 	y += 22
 	u.text(x, y, "A gamepad, if connected, is always the joystick.", uiDim)
+	y += 26
+	u.checkbox(x, y, "Gamepad as an analogue joystick (proportional, for the few games that read one)", &l.s.JoyAnalog)
 }
 
 func (l *launcher) displayTab(x, y int) {

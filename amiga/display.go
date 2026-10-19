@@ -57,8 +57,11 @@ type Display struct {
 
 	// JoyKeys makes the arrow keys and Right Ctrl/Alt/Shift a joystick in
 	// port 2 (Ctrl+F12 toggles). Gamepads always work.
-	JoyKeys  bool
-	gamepads []ebiten.GamepadID
+	JoyKeys bool
+	// JoyAnalog makes the gamepad an analogue joystick: its left stick
+	// sets port 2's pot counters (pots.go) rather than its directions.
+	JoyAnalog bool
+	gamepads  []ebiten.GamepadID
 
 	// Mute turns off host audio (Paula still runs).
 	Mute bool

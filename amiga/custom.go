@@ -222,6 +222,14 @@ func (c *CustomChips) Read(addr int, p []byte) (int, error) {
 		if len(p) > 1 {
 			p[1] = byte(val)
 		}
+	case 0x012, 0x014: // POT0DAT, POT1DAT: the pot counters
+		if c.amiga != nil {
+			val := c.amiga.potDat((offset - 0x012) / 2)
+			p[0] = byte(val >> 8)
+			if len(p) > 1 {
+				p[1] = byte(val)
+			}
+		}
 	case 0x016: // POTGOR - pot port data
 		if c.amiga != nil {
 			val := c.amiga.potgor()
@@ -368,6 +376,11 @@ func (c *CustomChips) Write(addr int, p []byte) (int, error) {
 		// interlace on or off so the next field has the right parity.
 		if c.amiga != nil && n == 2 {
 			c.amiga.lof = p[0]&0x80 != 0
+		}
+
+	case 0x034: // POTGO: START dumps the pots and starts the counters
+		if c.amiga != nil && n == 2 && p[1]&1 != 0 {
+			c.amiga.potStart()
 		}
 
 	case 0x036: // JOYTEST

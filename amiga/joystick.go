@@ -8,14 +8,31 @@ package amiga
 // down and up appear as X1 XOR X0 and Y1 XOR Y0. The fire button pulls
 // /FIR1 (CIA-A PRA bit 7) low; a second button pulls the port's POTY pin
 // low, read back as POTGOR DATRY (bit 14).
+//
+// With Analog set it is an analogue joystick instead: AnalogX and AnalogY
+// (-1 to 1) set the pot counters of the port's X and Y pins (pots.go), and
+// its two buttons are on the left and right inputs, as on analogue sticks.
 type Joystick struct {
 	Up, Down, Left, Right bool
 	Fire, Fire2           bool
+
+	Analog           bool
+	AnalogX, AnalogY float64
 }
 
 // JOYDAT returns the value of the port's JOYxDAT register.
 func (j *Joystick) JOYDAT() uint16 {
 	var v uint16
+	if j.Analog {
+		// The buttons pull the left (Fire) and right (Fire2) lines.
+		if j.Fire {
+			v |= 1<<9 | 1<<8
+		}
+		if j.Fire2 {
+			v |= 1<<1 | 1
+		}
+		return v
+	}
 	if j.Right {
 		v |= 1 << 1
 	}
@@ -46,7 +63,7 @@ func (a *Amiga) potgor() uint16 {
 	if a.Mouse != nil && a.Mouse.MiddleButton { // port 1 POTX
 		v &^= 1 << 8
 	}
-	if a.Joystick != nil && a.Joystick.Fire2 { // port 2 POTY
+	if a.Joystick != nil && a.Joystick.Fire2 && !a.Joystick.Analog { // port 2 POTY
 		v &^= 1 << 14
 	}
 	return v

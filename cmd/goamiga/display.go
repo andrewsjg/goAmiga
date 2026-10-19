@@ -64,6 +64,7 @@ func (g *app) startMachine(m *machine, s *config.Settings, name string) {
 	d.StatusBar = s.StatusBar
 	d.StartWarp = s.Warp
 	d.JoyKeys = s.JoyKeys
+	d.JoyAnalog = s.JoyAnalog
 	d.ScreenshotDir = s.ScreenshotDir
 	d.StateDir = s.StateDir
 	for n, list := range m.drives {

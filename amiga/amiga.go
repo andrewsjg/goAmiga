@@ -144,6 +144,9 @@ type Amiga struct {
 	// (see beamLineCycles). It changes only at the start of a line.
 	lineCycles int
 
+	// pots is Paula's proportional counters (pots.go).
+	pots potCounters
+
 	// cpuCycleFrac is the 68040's part-cycle left over, in hundredths of
 	// a cycle times CPUSpeed.
 	cpuCycleFrac int
@@ -252,7 +255,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 		} else {
 			val |= 0x40 // released → high
 		}
-		if a.Joystick != nil && a.Joystick.Fire {
+		if a.Joystick != nil && a.Joystick.Fire && !a.Joystick.Analog {
 			val &^= 0x80
 		} else {
 			val |= 0x80
@@ -766,6 +769,7 @@ func (a *Amiga) nextLine() bool {
 	a.hpos = 0
 	a.vpos++
 	a.lineCycles = a.beamLineCycles()
+	a.potLine()
 	a.CIAB.TickTOD() // CIA-B TOD ← horizontal sync
 	if a.vpos < a.linesThisFrame() {
 		return false

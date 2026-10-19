@@ -47,6 +47,7 @@ type Settings struct {
 	A2065     bool
 	A2065Fwd  string
 	JoyKeys   bool
+	JoyAnalog bool
 
 	Mute          bool
 	Overscan      bool
@@ -119,6 +120,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.BoolVar(&s.Warp, "warp", s.Warp, "Start in warp mode (as fast as possible, no sound); Cmd+W toggles")
 	fs.StringVar(&s.ScreenshotDir, "screenshot-dir", s.ScreenshotDir, "Folder for Cmd+S screenshots")
 	fs.StringVar(&s.StateDir, "state-dir", s.StateDir, "Folder for save state slots (Cmd+Shift+1-9 save, Cmd+1-9 load)")
+	fs.BoolVar(&s.JoyAnalog, "joy-analog", s.JoyAnalog, "Make the gamepad an analogue joystick in port 2: its left stick drives the pot counters (POT1DAT), its buttons the left and right lines, for the few games that read one")
 	fs.BoolVar(&s.JoyKeys, "joy-keys", s.JoyKeys, "Start with the arrow keys and Right Ctrl/Alt (fire) as the port 2 joystick; Ctrl+F12 toggles")
 }
 
