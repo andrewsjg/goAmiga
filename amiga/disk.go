@@ -37,6 +37,8 @@ type DiskDrive struct {
 
 	side int // /SIDE: 0 = lower head, 1 = upper (shared by all drives)
 
+	transfers int // DMA transfers started (diagnostics: the batch's disk prompts)
+
 	// Write statistics: sectors committed to the image, and sectors in
 	// write DMA that were dropped (bad checksum or format) or whose header
 	// named a different track than the head was on.
@@ -334,6 +336,7 @@ func (d *DiskDrive) startDMA() {
 		return
 	}
 	d.dmaWaiting = false
+	d.transfers++
 
 	wordCount := int(d.dsklen & 0x3FFF)
 	if wordCount == 0 {

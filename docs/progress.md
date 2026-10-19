@@ -48,13 +48,88 @@ verified. Longer investigations get their own write-up in `docs/`.
    own filesystems.
    There is no 68060, no Zorro III I/O boards (only RAM), and no
    CPU-slot RAM at $08000000 (see `docs/a4000-68040-plan.md`). The caches aren't emulated
-   (CACR is stored). The 68LC040 takes FPU instructions as plain F-line
-   exceptions, not with its format $4 frame.
+   (CACR is stored).
 6. **AMIX.** The arrow keys don't work under X Windows (the X server's
    keymap); they work everywhere else.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-19 — Game sweep; the 68LC040's FPU trap
+
+**The sweep.** `diag/games.txt` lists the 26 titles in `ADF/` with
+options for each: the A500 originals on Kickstart 1.3 and OCS, the rest
+on the A1200. `TestGameBatch` runs them all in about a minute and writes
+contact sheets.
+
+Results:
+
+| Title | Reaches |
+|---|---|
+| Bubble Bobble (both) | play |
+| Chaos Engine | character select (with disk 2 in DF1:) |
+| Frontier | flight |
+| James Pond 2 | in game, after a long load |
+| Kick Off 96 | title |
+| Lemmings | intro |
+| Lotus | track select |
+| Pinball Mania | table select |
+| Prince of Persia | play |
+| SDI (cracked) | title |
+| Speedball 2 | title |
+| Supremacy | in game |
+| Worms | title |
+| Civilization | its setup menu |
+
+Running each again on `main` gave the same end state, so the changes of
+the last days broke nothing.
+
+Not working, none of them the emulator's fault:
+- Colonization and SkidMarks want icon.library on disk.
+- Deluxe Galaga is a Workbench version.
+- The Flashback and Turrican disks aren't boot disks.
+- SDI (Mindscape) asks "Make a ram disk Y/N?" and doesn't take the
+  typed answer; its window probably wants a click first.
+- FA-18 and Three Stooges stop at cracker intros.
+- Alien Breed asks for disk 3 (see below).
+- The AGA-fixed Lotus is an FFS disk, which Kickstart 1.3 can't boot.
+
+What looked like regressions (James Pond 2 black, Alien Breed asking for
+disk 1) were the harness's doing:
+- James Pond 2 loads for over a minute behind a black screen. A disk
+  trace showed a track read every 11 frames. 6000 frames gets it in
+  game.
+- Alien Breed's "Insert disk 1": the old auto-swap changed disks once
+  the drive had sat idle for six seconds after use, which happens during
+  intros. It now changes disks only when the head has stepped a few
+  times with no transfer since the last, which is how a game polls for a
+  disk change. Alien Breed's own prompt reads track 0 instead, so it
+  isn't detected and the game waits at "Insert disk 3".
+
+Harness additions:
+- `more=` gives further disk files, for games zipped one disk to a file
+  (Civilization, Kick Off 96, Lemmings, Three Stooges).
+- `type=FRAME:TEXT` types an answer.
+
+`TestKeyboardReachesAmigaDOS` checks that typed keys reach AmigaDOS (an
+Ask in the Startup-Sequence, under Kickstart 3.2 and 1.3): nothing had
+tested keyboard input to the OS before.
+
+**The 68LC040** (`--cpu 68040 --fpu none`). Every FP instruction now
+takes the F-line vector with the LC040's format $4 frame (M68040UM
+appendix A.5). The frame holds the next instruction's PC, the effective
+address it calculated, and the PC of the FP instruction itself, which is
+what an FPU emulator in the F-line handler needs. The CPU works out each
+FP instruction's length and effective address without running it:
+- the general instructions (by opclass and source format, immediate
+  operands included);
+- FMOVE(M) of control and data registers;
+- FScc, FDBcc, FTRAPcc, FBcc.W and .L;
+- FSAVE and FRESTORE, which are privileged.
+
+(An)+ and -(An) are left alone, with -(An) reporting the address after
+the decrement. `TestLC040FLine` checks eight instructions' frames and
+the RTE past them.
 
 ## 2026-10-19 — The 31 kHz modes: a programmable beam
 

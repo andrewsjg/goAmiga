@@ -1,0 +1,28 @@
+# goAmiga game sweep: GOAMIGA_BATCH=../diag/games.txt GOAMIGA_OUT=DIR \
+#   go test -tags noebitengine -run TestGameBatch -v ./amiga/
+# label | disk (relative to amiga/) | options (see game_batch_test.go)
+Alien Breed TA          | ../ADF/Alien Breed - Tower Assault v1.1 (1994)(Team 17)(OCS-AGA)[2331].zip | swap=auto,frames=6000
+Bubble Bobble US        | ../ADF/Bubble Bobble (1988)(Taito)(US)[1342].zip | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512,video=ntsc
+Bubble Bobble           | ../ADF/Bubble Bobble (1989)(Firebird).zip | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512
+Chaos Engine AGA        | ../ADF/Chaos Engine, The (1994)(Renegade)(AGA)[1324].zip | df1=1,frames=6000
+Civilization AGA        | ../ADF/Civilization v855e.01 (1994)(MicroProse)(AGA)(Disk 1 of 4).zip | swap=auto,more=../ADF/Civilization v855e.01 (1994)(MicroProse)(AGA)(Disk 2 of 4).zip;../ADF/Civilization v855e.01 (1994)(MicroProse)(AGA)(Disk 3 of 4).zip;../ADF/Civilization v855e.01 (1994)(MicroProse)(AGA)(Disk 4 of 4).zip
+Colonization            | ../ADF/Colonization v1.11 (1995-05-31)(MicroProse)(OCS-AGA)(M3)[0452].zip | swap=auto
+Deluxe Galaga AGA       | ../ADF/Deluxe Galaga v2.6 (1994)(Vigdal, Edgar)(AGA)(SW)[WB].zip | swap=auto
+FA-18 Interceptor AGA   | ../ADF/FA-18 Interceptor (1988)(Electronic Arts)[cr UA][f AGA FLT][h Rage - DNS].zip | type=600: 
+Flashback disk 4        | ../ADF/Flashback (1993)(Delphine - U.S. Gold)(Fr)(Disk 4 of 4)[cr Interpol][f AGA Nuts & Bolts][tr en Ministry].zip |
+Frontier Elite II AGA   | ../ADF/Frontier - Elite II v1.10 (1994)(Gametek)(AGA)[cr IPT].zip |
+James Pond 2 AGA        | ../ADF/James Pond 2 - Codename RoboCod (1991)(Millennium)[cr SKR][f AGA AFL].zip | frames=6000
+Kick Off 96 AGA         | ../ADF/Kick Off 96 (1996-06-26)(Anco)(AGA)(Disk 1 of 3).zip | swap=auto,more=../ADF/Kick Off 96 (1996-06-26)(Anco)(AGA)(Disk 2 of 3).zip;../ADF/Kick Off 96 (1996-06-26)(Anco)(AGA)(Disk 3 of 3).zip
+Lemmings                | ../ADF/Lemmings_1.adf | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512,more=../ADF/Lemmings_2.adf,swap=auto
+Lotus Esprit AGA        | ../ADF/Lotus Esprit Turbo Challenge (1990)(Gremlin)[cr Genesis - Angels][f AGA NOMAD].zip |
+Pinball Mania AGA       | ../ADF/Pinball Mania (1995)(21st Century)(AGA)[0896].zip | swap=auto
+Prince of Persia AGA    | ../ADF/Prince of Persia v1.0 (1991)(Domark)[cr Angels][f AGA SKR][t +2 Angels][a].zip |
+SDI crack               | ../ADF/SDI - Strategic Defense Initiative (1987)(Activision)[cr PNA][t +3 Black Monks].zip | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512
+SDI                     | ../ADF/SDI (1987)(Mindscape)[0720].zip | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512,video=ntsc,type=600:n
+SkidMarks               | ../ADF/SkidMarks v1.06 (1994)(Acid)(OCS-AGA)[0204].zip | swap=auto
+Speedball 2 AGA         | ../ADF/Speedball 2 - Brutal Deluxe (1990)(Image Works)[cr CSL][f AGA Ministry].zip |
+Supremacy               | ../ADF/Supremacy (1990)(Virgin)[1384].zip | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512,swap=auto
+Three Stooges           | ../ADF/Three Stooges, The (1987)(Cinemaware)(Disk 1 of 2)[cr Unit A][a2].zip | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512,swap=auto,more=../ADF/Three Stooges, The (1987)(Cinemaware)(Disk 2 of 2)[cr Unit A].zip,type=600: 
+Turrican AGA            | ../ADF/Turrican (1990)(Rainbow Arts)[f AGA][h][HD].zip |
+Worms DC AGA            | ../ADF/Worms - The Director's Cut (1998)(Team 17)(AGA)[0605].zip | swap=auto,frames=6000
+Alien Breed TA A500     | ../ADF/Alien Breed - Tower Assault v1.1 (1994)(Team 17)(OCS-AGA)[2331].zip | rom=../ROMS/Kick13.rom,cpu=68000,chipset=ocs,chip=512,slow=512,chip=1024,chipset=ecs-agnus,swap=auto,frames=6000

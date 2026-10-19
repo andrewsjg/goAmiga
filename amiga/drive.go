@@ -27,6 +27,7 @@ type Drive struct {
 	cylinder   int    // 0-79
 	selected   bool   // /SELn low
 	diskChange bool   // /DSKCHANGE low: set by eject/insert, cleared by a step with a disk in
+	steps      int    // head steps so far (diagnostics: a disk prompt polls by stepping)
 
 	// External drives identify themselves: after the motor is turned off,
 	// each select clocks out the next bit of a 32-bit ID on /RDY (low =
@@ -122,6 +123,7 @@ func (dr *Drive) tickPending(cpuCycles int) {
 
 // step moves the head one cylinder (inward when in is true).
 func (dr *Drive) step(in bool) {
+	dr.steps++
 	if in {
 		if dr.cylinder < 79 {
 			dr.cylinder++
