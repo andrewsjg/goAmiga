@@ -128,7 +128,7 @@ func savePNG(t *testing.T, a *Amiga, path string) {
 		return
 	}
 	defer f.Close()
-	png.Encode(f, a.Video.ScreenImage())
+	png.Encode(f, a.PictureImage())
 }
 
 // A byte write reaches the custom chips as a word write of the byte

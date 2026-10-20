@@ -43,6 +43,9 @@ func (a *Amiga) zorroBoards() []zorroBoard {
 	if a.FastRAM != nil {
 		bs = append(bs, a.FastRAM)
 	}
+	if a.RTG != nil {
+		bs = append(bs, a.RTG)
+	}
 	if a.HardDisk != nil {
 		bs = append(bs, a.HardDisk)
 	}

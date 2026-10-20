@@ -89,6 +89,7 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			}
 			return a.EnableZorro3RAM(s.Z3RAM)
 		},
+		func() error { return a.EnableRTG(s.RTG) },
 	} {
 		if err := step(); err != nil {
 			return fail(err)
@@ -102,6 +103,9 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			fmt.Fprintf(out, ", %d MB of Zorro III RAM", s.Z3RAM)
 		}
 		fmt.Fprintln(out)
+	}
+	if a.RTG != nil {
+		fmt.Fprintf(out, "RTG: the uaegfx card with %d MB on Zorro %s, for Picasso96\n", s.RTG, map[bool]string{false: "II", true: "III"}[a.Motherboard != nil])
 	}
 
 	// Connect drives and load each one's first disk; the rest are for the

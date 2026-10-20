@@ -39,6 +39,7 @@ type Settings struct {
 	Motherboard string // none, a3000 or a4000
 	MBRAM       int    // motherboard fast RAM in KB
 	Z3RAM       int    // Zorro III fast RAM in MB
+	RTG         int    // the uaegfx RTG card's memory in MB (0: none)
 
 	Serial    string
 	BSDSocket bool
@@ -114,6 +115,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.StringVar(&s.Motherboard, "motherboard", s.Motherboard, "A3000 or A4000 motherboard (needs --cpu 68030 or 68040): none, a3000 or a4000; Ramsey, 32-bit motherboard RAM (--mbram), Zorro III, and on the A4000 its IDE interface (--ide). Use the A4000 Kickstart for the A4000")
 	fs.IntVar(&s.MBRAM, "mbram", s.MBRAM, "Motherboard fast RAM with --motherboard, in KB: 0 to 16384 in whole megabytes")
 	fs.IntVar(&s.Z3RAM, "z3ram", s.Z3RAM, "Zorro III fast RAM with --motherboard, in MB: 0 or a power of two from 16 to 1024")
+	fs.IntVar(&s.RTG, "rtg", s.RTG, "Fit the uaegfx RTG graphics card for Picasso96 (install it with its uaegfx driver), with this much video memory in MB: 1, 2 or 4 on Zorro II, or 16 to 1024 (a power of two) on Zorro III with --motherboard")
 	fs.BoolVar(&s.Overscan, "overscan", s.Overscan, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	fs.IntVar(&s.Scale, "scale", s.Scale, "Window size multiplier (the emulated resolution is unchanged); reduced if it doesn't fit the screen")
 	fs.BoolVar(&s.StatusBar, "statusbar", s.StatusBar, "Show the activity lights (power, drives, hard disk) and warp speed below the picture")

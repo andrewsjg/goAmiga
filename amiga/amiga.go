@@ -97,6 +97,8 @@ type Amiga struct {
 	MotherboardRAM *ram
 	// Z3RAM is a Zorro III fast RAM board (EnableZorro3RAM), or nil.
 	Z3RAM *zorro3RAM
+	// RTG is the uaegfx graphics card for Picasso96 (EnableRTG), or nil.
+	RTG *rtgBoard
 
 	// RTC is the battery-backed clock (EnableClock), or nil.
 	RTC *rtc
@@ -369,6 +371,9 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 		a.Mapper.Map(a.RTC, rtcBase, rtcEnd)
 	}
 	a.mapMotherboard()
+	if a.RTG != nil {
+		a.Mapper.Map(a.RTG.area, rtAreaBase, rtAreaEnd)
+	}
 
 	a.mapROM(ROMBase)
 
@@ -393,6 +398,9 @@ func (a *Amiga) Reset() error {
 	// Expansion boards forget their configuration on reset.
 	for _, b := range a.zorroBoards() {
 		b.autoconfig().unconfigure()
+	}
+	if a.RTG != nil {
+		a.RTG.reset()
 	}
 	// Enable ROM overlay for reset vectors
 	a.wireMemoryMap(true)

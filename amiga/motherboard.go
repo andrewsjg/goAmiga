@@ -163,6 +163,9 @@ func (a *Amiga) boardDescription() string {
 	if a.Z3RAM != nil {
 		d += fmt.Sprintf(", %d MB Zorro III RAM", len(a.Z3RAM.mem.b)>>20)
 	}
+	if a.RTG != nil {
+		d += fmt.Sprintf(", %d MB RTG card", len(a.RTG.vram.b)>>20)
+	}
 	return d
 }
 

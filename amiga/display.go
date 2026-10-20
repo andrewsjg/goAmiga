@@ -20,6 +20,7 @@ const (
 // Display implements ebiten.Game to show the Amiga's video output.
 type Display struct {
 	helpShown bool // the help overlay (Cmd+/)
+	rtgShown  bool // the RTG card has the display (fitWindow)
 
 	// Name is the machine's name for the title bar: the configuration's.
 	Name string
@@ -127,6 +128,7 @@ func (d *Display) Update() error {
 	d.pollDiskKeys()
 	d.pollDrops()
 	d.updateTitle()
+	d.fitWindow()
 	if d.paused {
 		return nil // Amiga input waits too, rather than arriving in a burst
 	}
@@ -359,15 +361,13 @@ func (d *Display) pollMouse() {
 		if dx != 0 || dy != 0 {
 			d.zeroMotionFrames = 0
 			aw, ah := LowResWidth, PALVisibleLines
-			if d.amiga.Video != nil {
-				if w, _ := d.amiga.Video.DisplaySize(); w > 0 {
-					aw = w
-				}
-				if d.amiga.Video.Height > 0 {
-					ah = d.amiga.Video.Height
-				}
+			if _, pw, ph := d.amiga.Picture(); pw > 0 && ph > 0 {
+				aw, ah = pw, ph
 			}
-			lw, lh := d.amiga.Video.DisplaySize()
+			if w, _ := d.amiga.PictureSize(); w > 0 {
+				aw = w // hires: the mouse's resolution
+			}
+			lw, lh := d.amiga.PictureSize()
 			adx := dx * aw / lw
 			ady := dy * ah / lh
 			if adx == 0 && dx != 0 {
@@ -406,27 +406,30 @@ func (d *Display) pollMouse() {
 
 // Draw copies the Video framebuffer to the Ebitengine screen.
 func (d *Display) Draw(screen *ebiten.Image) {
-	v := d.amiga.Video
-	if v == nil || v.Width <= 0 || v.Height <= 0 {
+	if d.amiga.Video == nil {
+		return
+	}
+	pix, pw, ph := d.amiga.Picture()
+	if pw <= 0 || ph <= 0 {
 		return
 	}
 
-	need := v.Width * v.Height * 4
-	if len(v.Pixels) < need {
+	need := pw * ph * 4
+	if len(pix) < need {
 		return
 	}
 
 	w, h := d.screen.Bounds().Dx(), d.screen.Bounds().Dy()
-	if w != v.Width || h != v.Height {
-		d.screen = ebiten.NewImage(v.Width, v.Height)
+	if w != pw || h != ph {
+		d.screen = ebiten.NewImage(pw, ph)
 	}
 
-	d.screen.WritePixels(v.Pixels[:need])
+	d.screen.WritePixels(pix[:need])
 
 	op := &ebiten.DrawImageOptions{}
 	picH := screen.Bounds().Dy() - d.statusBarHeight()
-	sw := float64(screen.Bounds().Dx()) / float64(v.Width)
-	sh := float64(picH) / float64(v.Height)
+	sw := float64(screen.Bounds().Dx()) / float64(pw)
+	sh := float64(picH) / float64(ph)
 	op.GeoM.Scale(sw, sh)
 	screen.DrawImage(d.screen, op)
 	if d.helpShown {
@@ -458,16 +461,16 @@ func (d *Display) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.I
 	if d.helpShown {
 		defer placeHelp(screen, geoM) // over the picture (the bar is below it)
 	}
-	v := d.amiga.Video
-	if v == nil || d.screen == nil {
+	if d.amiga.Video == nil || d.screen == nil {
 		return
 	}
-	lw, lh := v.DisplaySize()
-	if v.Width <= lw || d.screen.Bounds().Dx() != v.Width {
+	pw, ph := d.screen.Bounds().Dx(), d.screen.Bounds().Dy()
+	lw, lh := d.amiga.PictureSize()
+	if pw <= lw {
 		return
 	}
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(lw)/float64(v.Width), float64(lh)/float64(v.Height))
+	op.GeoM.Scale(float64(lw)/float64(pw), float64(lh)/float64(ph))
 	op.GeoM.Concat(geoM)
 	sx := op.GeoM.Element(0, 0)
 	switch {
@@ -480,10 +483,11 @@ func (d *Display) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.I
 }
 
 // Layout returns the logical screen size: the framebuffer width and two
-// rows per non-interlaced line (Video.DisplaySize).
+// rows per non-interlaced line (Video.DisplaySize), or the RTG card's
+// mode (PictureSize).
 func (d *Display) Layout(outsideWidth, outsideHeight int) (int, int) {
 	d.outsideW, d.outsideH = outsideWidth, outsideHeight
-	w, h := d.amiga.Video.DisplaySize()
+	w, h := d.amiga.PictureSize()
 	return w, h + d.statusBarHeight()
 }
 
@@ -527,6 +531,24 @@ func (d *Display) Stop() {
 	d.amiga.Paula.Output = nil
 	d.applyGrab(false)
 	ebiten.SetScreenClearedEveryFrame(true)
+}
+
+// fitWindow resizes the window when the RTG card takes the display or
+// gives it back: its picture is another size (often 1:1 square pixels
+// rather than the chipset's doubled rows), shown at the window scale.
+func (d *Display) fitWindow() {
+	on := d.amiga.RTG.showing()
+	if on == d.rtgShown {
+		return
+	}
+	d.rtgShown = on
+	if ebiten.IsFullscreen() {
+		return
+	}
+	w, h := d.amiga.PictureSize()
+	h += d.statusBarHeight()
+	s := d.windowScale(w, h)
+	ebiten.SetWindowSize(w*s, h*s)
 }
 
 // windowScale is the largest scale up to d.Scale at which a w×h screen

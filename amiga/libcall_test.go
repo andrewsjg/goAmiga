@@ -10,6 +10,13 @@ import "testing"
 // be one that can make the call (most library functions don't mind).
 func callLib(t *testing.T, a *Amiga, base uint32, lvo int, d, aregs [2]uint32) uint32 {
 	t.Helper()
+	return callLibRegs(t, a, base, lvo, []uint32{d[0], d[1]}, []uint32{aregs[0], aregs[1]})
+}
+
+// callLibRegs is callLib with any number of data registers (D0 up) and
+// address registers (A0 up, below A6).
+func callLibRegs(t *testing.T, a *Amiga, base uint32, lvo int, d, aregs []uint32) uint32 {
+	t.Helper()
 	const marker = 0x100 // two NOPs in the (unused) vector area's top
 	for i := 0; i < 50_000_000 && a.CPU.SR&0x2000 != 0; i++ {
 		if err := a.Step(); err != nil {
@@ -23,7 +30,9 @@ func callLib(t *testing.T, a *Amiga, base uint32, lvo int, d, aregs [2]uint32) u
 	a.poke16(marker, 0x4E71)
 	a.poke16(marker+2, 0x4E71)
 	c := a.CPU
-	c.D[0], c.D[1], c.A[0], c.A[1], c.A[6] = d[0], d[1], aregs[0], aregs[1], base
+	copy(c.D[:], d)
+	copy(c.A[:6], aregs)
+	c.A[6] = base
 	c.A[7] -= 4
 	a.poke32(c.A[7], marker)
 	c.PC = base + uint32(lvo)

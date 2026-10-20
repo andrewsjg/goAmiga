@@ -341,6 +341,9 @@ func (a *Amiga) state(s *stateCodec) {
 		a.Z3RAM.autoconfigState.state(s)
 		s.fixed(a.Z3RAM.mem.b)
 	}
+	if a.RTG != nil {
+		a.RTG.state(s)
+	}
 	if a.HardDisk != nil {
 		a.HardDisk.state(s)
 	}

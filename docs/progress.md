@@ -25,6 +25,8 @@ verified. Longer investigations get their own write-up in `docs/`.
 - The A4000: the A4000 Kickstart boots Workbench 3.2 from floppy or IDE
   on a 68040 with Ramsey, motherboard RAM, its IDE interface and Zorro
   III RAM.
+- RTG: the uaegfx card for Picasso96 2.0 (`--rtg MB`), on Zorro II or III.
+  Workbench runs on it in 8-, 16- and 32-bit modes.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
@@ -55,6 +57,60 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-20 — RTG: the uaegfx card for Picasso96
+
+`--rtg MB` fits the graphics card UAE gives Picasso96, driven by
+Picasso96's own `uaegfx.card` (`amiga/rtg.go`, `amiga/rtg_picture.go`).
+
+**How uaegfx.card talks to the emulator.** Disassembling the card
+(`diag/hunkload.py` loads a hunk executable with its relocations for a
+disassembler) showed that FindCard looks for a Zorro board from
+manufacturer 2011, product 96, and that most entry points push a function
+number and `JSR $F0FF60`, UAE's "uaelib" entry in its boot ROM area. Here
+that is a small area at $F00000 whose routine writes a trap register
+(`$F0FF00`), and Go answers the call with the CPU's registers: the number
+at 4(SP), BoardInfo in A0, the result in D0. FindCard, InitCard,
+SetSwitch, SetColorArray, SetDAC, SetGC, SetPanning, CalculateBytesPerRow,
+SetDisplay and WaitVerticalSync are implemented; the blitter calls answer
+0, which sends Picasso96 to its software routines. The board itself is the
+video memory, a Zorro II board (1–4 MB) or with a motherboard Zorro III
+(16 MB up, at $40000000).
+
+**Why no modes appeared.** The card was found and initialised, but
+graphics.library listed no uaegfx modes. Building a ResolutionsList in
+InitCard (as UAE's newer card does) made no difference: rtg.library 40.42
+takes its resolutions only from the settings file, and only those whose
+`STHD` chunk names the board's type (BoardInfo +$AA, 1 for uaegfx). The
+supplied presets say 0, "no board"; Picasso96Mode's "Attach settings to"
+is what sets it. The tests patch the preset the same way
+(`renameSettingsBoard`), after which 13 formats × 6 sizes of
+"uaegfx:WxH" modes appear ($5001xxxx up).
+
+**The palette.** rtg.library keeps the CLUT in BoardInfo before calling
+SetColorArray; with Workbench open in 256 colours its colours (AA AA AA,
+00 00 00, FF FF FF, 66 88 BB) were found at +$242.
+
+**The picture.** While the card has the display (SetSwitch on, a mode
+from SetGC, a framebuffer from SetPanning), `Amiga.Picture` converts the
+framebuffer from the card's format (CLUT, 15/16-bit in either byte order,
+24 and 32-bit in any order) to RGBA, and `PictureSize` is the mode's size.
+The window, screenshots, the mouse scaling and the status bar use these
+instead of `Video` directly, and the window resizes when the card takes
+or gives back the display. Reset gives it back to the chipset. Save
+states keep the card (its configuration, mode, palette and memory; the
+machine description includes the card, so a state only loads on a machine
+with the same card).
+
+**Verified:** `TestRTGCardFound` lists the modes; `TestRTGWorkbench`
+boots Workbench 3.2 with Picasso96 into 640×480 CLUT, R5G6B5 and A8R8G8B8
+on an A1200 (Zorro II) and A8R8G8B8 on the A4000 (Zorro III) and checks
+the picture; `TestRTGStateAndReset` round-trips a save state and resets.
+They need `Picasso96/Picasso96.lha` (Aminet) and `lha`.
+
+**Not yet:** the blitter calls (FillRect, BlitRect…) and a hardware
+sprite for the pointer, which would speed Picasso96 up; running
+Picasso96's installer and Picasso96Mode by hand is still to be checked.
 
 ## 2026-10-19 — The pot counters; an analogue joystick
 

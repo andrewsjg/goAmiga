@@ -125,7 +125,7 @@ func (d *Display) statusClick(right bool) bool {
 	if !d.StatusBar {
 		return false
 	}
-	w, h := d.amiga.Video.DisplaySize()
+	w, h := d.amiga.PictureSize()
 	mx, my := ebiten.CursorPosition()
 	if my < h || my >= h+statusHeight {
 		return false
@@ -172,8 +172,8 @@ func (d *Display) message(format string, args ...any) {
 // screenshot saves the picture as a PNG named by the time. Non-interlaced
 // rows are doubled, as on screen, so the image has the right proportions.
 func (d *Display) screenshot() (string, error) {
-	src := d.amiga.Video.ScreenImage()
-	w, h := d.amiga.Video.DisplaySize()
+	src := d.amiga.PictureImage()
+	w, h := d.amiga.PictureSize()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	sb := src.Bounds()
 	for y := 0; y < h; y++ {

@@ -178,7 +178,7 @@ func (d *Display) pollDrops() {
 	if err != nil || len(entries) == 0 {
 		return
 	}
-	_, h := d.amiga.Video.DisplaySize()
+	_, h := d.amiga.PictureSize()
 	mx, my := ebiten.CursorPosition()
 	unit := d.hoveredDrive(mx, my, h)
 	if unit < 0 {

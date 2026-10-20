@@ -23,6 +23,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 - Amiga Unix (AMIX 2.1) on a 68030 with an A2091 SCSI controller (see
   [Amiga Unix](#amiga-unix)).
 - A battery-backed clock, so AmigaOS knows the date.
+- An RTG graphics card for Picasso96 (the uaegfx card), on Zorro II or
+  III, with 8-, 15/16- and 24/32-bit screens up to 2048×2048.
 
 **Chipset:**
 - Copper and blitter, with cycle-based DMA contention.
@@ -206,6 +208,28 @@ screen even when other flags are given.
 
   `--motherboard a3000` gives the A3000's Ramsey and RAM. It is only
   useful with an A3000 Kickstart, and isn't part of the A3000 preset.
+- **RTG graphics card.** `--rtg MB` fits the uaegfx card, the graphics
+  card emulators give Picasso96, with that much video memory: 1, 2 or 4 MB
+  on Zorro II, or 16 MB and up on Zorro III with `--motherboard`. (On
+  Zorro II it shares the 8 MB of expansion space with `--fastram`: 4 MB of
+  each fits.) While a screen is open on the card the window shows it,
+  pixel for pixel, and resizes to fit. On the configuration screen it is
+  under Memory.
+
+  To use it, install Picasso96 2.0 (`Picasso96.lha` on Aminet)
+  on the Amiga: its installer finds the card and chooses the uaegfx
+  driver. After rebooting, run `Prefs/Picasso96Mode` and attach the
+  supplied settings to the uaegfx board (the menu "Attach settings
+  to…"), then save. The uaegfx modes ("uaegfx:640x480 8bit" and so on)
+  then appear in ScreenMode.
+
+  ```bash
+  goamiga --rom ROMS/kick32a1200.rom --cpu 68020 --chipset aga \
+          --fastram 4096 --rtg 4 --ide wb.hdf
+  ```
+
+  Picasso96 draws in software (the card's blitter calls aren't
+  accelerated yet).
 
 ### Floppy disks
 
