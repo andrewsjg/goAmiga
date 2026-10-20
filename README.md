@@ -388,6 +388,11 @@ key, so they never type anything on the Amiga.
 | Cmd+1…9 | Load state from slot 1–9 |
 | F11, Cmd+F11 | Change disk (see Floppy disks) |
 | Ctrl+F12 | Arrow keys as the joystick, on or off |
+| Cmd+/ | Show all of these in the window |
+
+You can also change disks without keys: drop a disk image on the window
+(on a drive's light in the status bar to choose the drive), or click a
+drive's light to choose a disk for it and right-click it to eject.
 
 A save state holds the whole machine, floppy contents included, and resumes
 exactly. `--load-state FILE` starts from one.

@@ -760,7 +760,10 @@ func (l *launcher) pollChooser() {
 	}
 }
 
-func (l *launcher) draw(screen *ebiten.Image) { l.ui.draw(screen) }
+func (l *launcher) draw(screen *ebiten.Image) {
+	screen.Fill(uiGrey) // the margins round the design, when the window's shape differs
+	l.ui.draw(screen)
+}
 
 // freeSCSIID is the ID for a new SCSI disk: 6 (the A3000's internal
 // drive, where Amiga Unix looks for its root) if free, else the lowest

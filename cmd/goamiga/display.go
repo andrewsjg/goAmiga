@@ -34,6 +34,8 @@ type app struct {
 	shotFrame int
 
 	dockIconSet bool
+
+	lw, lh int // the configuration screen's size in pixels (Layout)
 }
 
 // runLauncher opens the window on the configuration screen.
@@ -69,6 +71,7 @@ func (g *app) startMachine(m *machine, s *config.Settings, name string) {
 	d.StartWarp = s.Warp
 	d.JoyKeys = s.JoyKeys
 	d.JoyAnalog = s.JoyAnalog
+	d.Name = name
 	d.ScreenshotDir = s.ScreenshotDir
 	d.StateDir = s.StateDir
 	for n, list := range m.drives {
@@ -115,6 +118,7 @@ func (g *app) Update() error {
 	if g.shotDir != "" && g.launcher.tab >= len(launcherTabs) {
 		return ebiten.Termination
 	}
+	g.launcher.ui.place(launcherW, launcherH, g.lw, g.lh)
 	start, quit := g.launcher.update()
 	if quit {
 		return ebiten.Termination
@@ -195,9 +199,17 @@ func (g *app) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.Image
 	ebiten.DefaultDrawFinalScreen(screen, offscreen, geoM)
 }
 
+// Layout gives the emulator's screen its own size; the configuration
+// screen is the window at its real pixel size, which the widget kit
+// scales its 820×560 design onto (ui.place).
 func (g *app) Layout(w, h int) (int, int) {
 	if g.disp != nil {
 		return g.disp.Layout(w, h)
 	}
-	return launcherW, launcherH
+	dsf := 1.0
+	if m := ebiten.Monitor(); m != nil {
+		dsf = m.DeviceScaleFactor()
+	}
+	g.lw, g.lh = max(1, int(float64(w)*dsf)), max(1, int(float64(h)*dsf))
+	return g.lw, g.lh
 }

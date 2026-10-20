@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"image/color"
+	"math"
 	"strings"
 	"time"
 
@@ -19,6 +20,12 @@ import (
 // screen, raised and recessed bevels, a blue highlight. Each frame Update
 // lays out the screen with the widget calls, which handle input as they
 // go and record drawing operations for Draw to replay.
+//
+// The layout is in design units (the launcher is 820×560 of them). The
+// screen it draws on is the window at its real pixel size (Retina's too),
+// and the drawing operations scale and centre the design onto it (sc,
+// ox, oy), with fonts made at the scaled size, so text and edges are sharp
+// rather than a small picture blown up. Measuring stays in design units.
 
 var (
 	uiGrey   = color.RGBA{0xAA, 0xAA, 0xAA, 0xFF}
@@ -49,6 +56,11 @@ type ui struct {
 	face, bold text.Face
 	ops        []func(*ebiten.Image)
 
+	// The design's placement on the screen: screen = design*sc + offset.
+	sc, ox, oy float64
+	scaled     map[text.Face]text.Face // fonts at sc
+	scaledAt   float64
+
 	mx, my     int
 	clicked    bool // left button went down this frame
 	rclicked   bool
@@ -66,13 +78,46 @@ type ui struct {
 }
 
 func newUI() *ui {
-	return &ui{face: uiFace(14), bold: uiFace(15)}
+	return &ui{face: uiFace(14), bold: uiFace(15), sc: 1}
+}
+
+// place fits a design w×h onto a screen sw×sh pixels, centred.
+func (u *ui) place(w, h, sw, sh int) {
+	u.sc = min(float64(sw)/float64(w), float64(sh)/float64(h))
+	if u.sc <= 0 {
+		u.sc = 1
+	}
+	u.ox = (float64(sw) - float64(w)*u.sc) / 2
+	u.oy = (float64(sh) - float64(h)*u.sc) / 2
+}
+
+// at is design point (x, y) on the screen.
+func (u *ui) at(x, y int) (float32, float32) {
+	return float32(float64(x)*u.sc + u.ox), float32(float64(y)*u.sc + u.oy)
+}
+
+// faceAt is f at the current scale.
+func (u *ui) faceAt(f text.Face) text.Face {
+	if u.scaledAt != u.sc {
+		u.scaled, u.scaledAt = map[text.Face]text.Face{}, u.sc
+	}
+	if sf, ok := u.scaled[f]; ok {
+		return sf
+	}
+	sf := f
+	if g, ok := f.(*text.GoTextFace); ok {
+		sf = &text.GoTextFace{Source: g.Source, Size: g.Size * u.sc}
+	}
+	u.scaled[f] = sf
+	return sf
 }
 
 // begin reads the input for a frame and clears the drawing.
 func (u *ui) begin() {
 	u.ops = u.ops[:0]
-	u.mx, u.my = ebiten.CursorPosition()
+	cx, cy := ebiten.CursorPosition()
+	u.mx = int((float64(cx) - u.ox) / u.sc)
+	u.my = int((float64(cy) - u.oy) / u.sc)
 	u.clicked = inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 	u.rclicked = inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	u.double = false
@@ -113,10 +158,22 @@ func (u *ui) hit(x, y, w, h int) bool { return u.mx >= x && u.mx < x+w && u.my >
 // ---- Drawing ----
 
 func (u *ui) fill(x, y, w, h int, c color.Color) {
+	// Edges on whole pixels, so 1-unit bevels stay crisp at any scale.
+	x0, y0 := u.at(x, y)
+	x1, y1 := u.at(x+w, y+h)
+	x0, y0, x1, y1 = round32(x0), round32(y0), round32(x1), round32(y1)
+	if x1 == x0 && w > 0 {
+		x1++
+	}
+	if y1 == y0 && h > 0 {
+		y1++
+	}
 	u.ops = append(u.ops, func(dst *ebiten.Image) {
-		vector.FillRect(dst, float32(x), float32(y), float32(w), float32(h), c, false)
+		vector.FillRect(dst, x0, y0, x1-x0, y1-y0, c, false)
 	})
 }
+
+func round32(v float32) float32 { return float32(math.Round(float64(v))) }
 
 // bevel draws a box edge: raised (light top-left) or recessed.
 func (u *ui) bevel(x, y, w, h int, raised bool) {
@@ -133,11 +190,13 @@ func (u *ui) bevel(x, y, w, h int, raised bool) {
 func (u *ui) text(x, y int, s string, c color.Color) { u.textFace(x, y, s, c, u.face) }
 
 func (u *ui) textFace(x, y int, s string, c color.Color, f text.Face) {
+	sx, sy := u.at(x, y)
+	sf := u.faceAt(f)
 	u.ops = append(u.ops, func(dst *ebiten.Image) {
 		op := &text.DrawOptions{}
-		op.GeoM.Translate(float64(x), float64(y))
+		op.GeoM.Translate(float64(sx), float64(sy))
 		op.ColorScale.ScaleWithColor(c)
-		text.Draw(dst, s, f, op)
+		text.Draw(dst, s, sf, op)
 	})
 }
 
@@ -196,13 +255,14 @@ func (u *ui) cycle(x, y, w int, opts []string, cur int) int {
 	}
 	u.bevel(x, y, w, h, true)
 	// The cycle glyph: a ring with an arrowhead.
+	cx, cy := u.at(x+13, y+h/2)
+	k := float32(u.sc)
 	u.ops = append(u.ops, func(dst *ebiten.Image) {
-		cx, cy := float32(x+13), float32(y+h/2)
-		vector.StrokeCircle(dst, cx, cy, 5, 1.5, uiBlack, true)
+		vector.StrokeCircle(dst, cx, cy, 5*k, 1.5*k, uiBlack, true)
 		var p vector.Path
-		p.MoveTo(cx+2, cy-8)
-		p.LineTo(cx+7, cy-5)
-		p.LineTo(cx+2, cy-2)
+		p.MoveTo(cx+2*k, cy-8*k)
+		p.LineTo(cx+7*k, cy-5*k)
+		p.LineTo(cx+2*k, cy-2*k)
 		p.Close()
 		vs, is := p.AppendVerticesAndIndicesForFilling(nil, nil)
 		for i := range vs {
@@ -227,9 +287,13 @@ func (u *ui) checkbox(x, y int, label string, v *bool) bool {
 	}
 	u.bevel(x, y, s+4, s, true)
 	if *v {
+		ax, ay := u.at(x+5, y+9)
+		bx, by := u.at(x+9, y+14)
+		cx, cy := u.at(x+17, y+4)
+		k := float32(u.sc)
 		u.ops = append(u.ops, func(dst *ebiten.Image) {
-			vector.StrokeLine(dst, float32(x+5), float32(y+9), float32(x+9), float32(y+14), 2.5, uiBlack, true)
-			vector.StrokeLine(dst, float32(x+9), float32(y+14), float32(x+17), float32(y+4), 2.5, uiBlack, true)
+			vector.StrokeLine(dst, ax, ay, bx, by, 2.5*k, uiBlack, true)
+			vector.StrokeLine(dst, bx, by, cx, cy, 2.5*k, uiBlack, true)
 		})
 	}
 	u.text(x+s+12, y+1, label, uiBlack)

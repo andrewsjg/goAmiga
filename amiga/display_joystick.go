@@ -3,6 +3,8 @@
 package amiga
 
 import (
+	"strings"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
@@ -90,14 +92,15 @@ func (d *Display) pollJoystick() {
 	}
 }
 
-// joystickTitle describes the joystick sources for the title bar.
-func (d *Display) joystickTitle() string {
-	s := "Ctrl+F12 joystick keys"
+// joystickNote describes the joystick's state for the help overlay: the
+// keyboard joystick if it's on, and the gamepad if one is connected.
+func (d *Display) joystickNote() string {
+	var notes []string
 	if d.JoyKeys {
-		s = "joystick: arrows+RCtrl (Ctrl+F12 off)"
+		notes = append(notes, "the arrow keys are the joystick")
 	}
 	if len(d.gamepads) > 0 {
-		s += ", gamepad: " + ebiten.GamepadName(d.gamepads[0])
+		notes = append(notes, "gamepad: "+ebiten.GamepadName(d.gamepads[0]))
 	}
-	return s
+	return strings.Join(notes, " · ")
 }

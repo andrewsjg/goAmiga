@@ -322,6 +322,8 @@ func (d *Display) renderStatus(w, y int, scale float64) {
 			note = append(note, '…')
 		}
 		drawText(string(note), x+4, statusNote)
+	} else if hint := "Cmd+/ help"; right-12-statusTextWidth(hint) > x+4 {
+		drawText(hint, right-12-statusTextWidth(hint), statusDim)
 	}
 
 }

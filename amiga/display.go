@@ -5,8 +5,6 @@ package amiga
 import (
 	"fmt"
 	"math"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -21,6 +19,11 @@ const (
 
 // Display implements ebiten.Game to show the Amiga's video output.
 type Display struct {
+	helpShown bool // the help overlay (Cmd+/)
+
+	// Name is the machine's name for the title bar: the configuration's.
+	Name string
+
 	// outsideW and outsideH are the window's size, from Layout.
 	outsideW, outsideH int
 
@@ -117,7 +120,9 @@ func NewDisplay(a *Amiga) *Display {
 
 // Update runs one frame worth of CPU cycles (PAL or NTSC, see FrameRate).
 func (d *Display) Update() error {
-	d.pollHostKeys()
+	if !d.pollHelpKeys() {
+		d.pollHostKeys()
+	}
 	d.pollMouseGrab()
 	d.pollDiskKeys()
 	d.pollDrops()
@@ -218,32 +223,18 @@ func (d *Display) applyGrab(grab bool) {
 // pollDiskKeys handles the disk keys: F11 swaps DF0: to the next disk in
 // its list, Alt+F11 DF1:, Ctrl+F11 DF2:, Ctrl+Alt+F11 DF3:; holding Shift
 // ejects instead.
-// updateTitle shows each connected drive's disk and the mouse state in the
-// title bar.
+// updateTitle shows the machine's name and how to take or release the
+// mouse. (The disks are in the status bar, the keys in the help overlay.)
 func (d *Display) updateTitle() {
-	mouse := "F12 or click to trap mouse"
+	title := "goAmiga"
+	if d.Name != "" {
+		title += " — " + d.Name
+	}
 	if d.mouseGrabbed {
-		mouse = "mouse trapped (Esc / F12 release)"
+		title += " — Esc releases the mouse"
+	} else {
+		title += " — click to use the mouse"
 	}
-	var drives []string
-	for n := 0; n < 4; n++ {
-		dr := d.amiga.Disk.DF(n)
-		if dr == nil {
-			continue
-		}
-		name := "empty"
-		i := d.DiskIndex[n]
-		switch {
-		case dr.Swapping() && i >= 0:
-			name = "inserting " + filepath.Base(d.Disks[n][i])
-		case dr.Inserted() && i >= 0:
-			name = filepath.Base(d.Disks[n][i])
-		case dr.Inserted():
-			name = "disk"
-		}
-		drives = append(drives, fmt.Sprintf("DF%d: %s", n, name))
-	}
-	title := fmt.Sprintf("goAmiga — %s — %s — %s", strings.Join(drives, " | "), mouse, d.joystickTitle())
 	if title != d.lastTitle {
 		ebiten.SetWindowTitle(title)
 		d.lastTitle = title
@@ -438,6 +429,10 @@ func (d *Display) Draw(screen *ebiten.Image) {
 	sh := float64(picH) / float64(v.Height)
 	op.GeoM.Scale(sw, sh)
 	screen.DrawImage(d.screen, op)
+	if d.helpShown {
+		b := screen.Bounds()
+		d.renderHelp(b.Dx(), picH, d.finalScale(b.Dx(), b.Dy()))
+	}
 	if d.StatusBar {
 		// The bar itself is drawn at the window's resolution
 		// (DrawFinalScreen); its place here is just its background.
@@ -459,6 +454,9 @@ func (d *Display) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.I
 	ebiten.DefaultDrawFinalScreen(screen, offscreen, geoM)
 	if d.StatusBar {
 		defer placeStatus(screen, geoM, offscreen.Bounds().Dy()-statusHeight)
+	}
+	if d.helpShown {
+		defer placeHelp(screen, geoM) // over the picture (the bar is below it)
 	}
 	v := d.amiga.Video
 	if v == nil || d.screen == nil {
