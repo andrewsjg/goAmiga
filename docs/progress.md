@@ -30,10 +30,12 @@ verified. Longer investigations get their own write-up in `docs/`.
 
 **Not yet implemented / known gaps** (roughly in planned order):
 
-1. **Timing (remaining).** The CPU's bus cycles are counted per
-   instruction rather than placed within it. The Copper's bus use is
-   predicted from its list rather than taken cycle by cycle. IPF tracks'
-   variable cell timing isn't modelled.
+1. **Timing (remaining).** The 68000's chip accesses are placed in time
+   (ExactBus), but faster CPUs still have theirs charged against a
+   forecast afterwards. The blitter advances by the slots each stretch
+   leaves it rather than slot by slot. IPF tracks' variable cell timing
+   isn't modelled (it needs IPF images of Copylock/Speedlock titles to
+   check against).
 2. **Display.** A resolution change (hires bit) partway through a line
    isn't shown: the line keeps the resolution its fetch started with.
 3. **Paula (other).** The pot counters have no paddles, only an
@@ -55,6 +57,57 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-21 — Exact chip bus timing for the 68000
+
+Two of the timing gaps came from one design. An instruction ran whole,
+and only then were its chip accesses charged against a forecast of the
+slots DMA would take, the Copper's read ahead from its list
+(`Copper.busyWords`). Then the beam, Copper and blitter caught up. So all
+of an instruction's accesses happened at its first cycle, and a Copper
+waking from a WAIT during an instruction took no slots from it.
+
+With `ExactBus` (now the default; `--exact-bus=false` for the forecast),
+the CPU's accesses come through `cpuBus`, between the CPU core and the
+Mapper (`amiga/cpubus.go`). Emulator code reads through the Mapper
+directly, so only the CPU's own accesses are timed. Each bus cycle of an
+instruction starts 4 cycles after the last. Before a chip access (chip
+RAM, slow RAM, the custom chips), everything else is run up to that
+moment (`advance`, split out of `Step`). The access then waits for an
+even colour clock that neither the bitplanes nor the Copper take, and
+happens there. The Copper records the beam position of each word it
+fetches, so a Copper that wakes mid-instruction takes the CPU's slots as
+it would on the real bus. The nasty-blitter and "every fourth slot"
+rules apply per access as before. What is left of the instruction runs
+after it.
+
+It covers a 68000 at its own speed, where cycle timing matters (OCS and
+ECS games and demos). The 68020 and up keep the forecast, since their
+buses and caches need their own model.
+
+One consequence is real and visible. The 68000 starts its bus cycles on
+even colour clocks only, so after an instruction with a spare two cycles
+(BRA.S takes 10) the next fetch waits 2. The forecast applied this only
+when DMA was active. A tight ADDQ/BRA loop from chip RAM now takes 20
+cycles a pass instead of 18, so CPU-bound code on a 68000 runs about 10%
+slower than it did, as on an A500.
+
+**Verified:**
+- `TestExactBusReadTakesItsPlace`: MOVE.W $DFF006,$4000 started at H 0
+  reads VHPOSR at H 6, after its three fetches; the forecast says H 0.
+- `TestExactBusCopperBurstStallsCPU`: a Copper burst of 80 words stalls
+  a CPU loop for at least 160 colour clocks.
+- `TestExactBusEvenSlotAlignment`: the loop above runs at 20 cycles a
+  pass.
+- The full suite passes both ways (`GOAMIGA_EXACTBUS=0` for the forecast)
+  and takes 639 s instead of 581.
+- In the game sweep, every title gets as far as before. Some are behind
+  at the fixed snapshot frames (SDI's cracktro, Alien Breed TA on the
+  A500, Bubble Bobble) and reach the same screens with more frames.
+
+`TestCIAReadSyncsToEClock` now takes the fetch's slot wait out of its
+measure. Its program is in chip RAM, and that wait moves the phase the
+CIA access starts at.
 
 ## 2026-10-21 — Collisions on lines that aren't drawn
 

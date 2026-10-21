@@ -27,7 +27,9 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
   III, with 8-, 15/16- and 24/32-bit screens up to 2048×2048.
 
 **Chipset:**
-- Copper and blitter, with cycle-based DMA contention.
+- Copper and blitter, with cycle-based DMA contention. A 68000's chip
+  accesses are timed one by one against the Copper and the bitplanes, as
+  on the real bus (`--exact-bus=false` for a faster, rougher forecast).
 - Bitplanes up to AGA's 8 planes, HAM6 and HAM8, sprites.
 - Paula's four sound channels with the A500's filters.
 - Disk DMA, with bit-level reads for copy protection.

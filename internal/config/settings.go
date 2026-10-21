@@ -51,6 +51,8 @@ type Settings struct {
 	JoyKeys   bool
 	JoyAnalog bool
 
+	ExactBus bool // the 68000's chip accesses timed one by one (cpubus.go)
+
 	Mute          bool
 	Overscan      bool
 	Scale         int
@@ -64,7 +66,7 @@ type Settings struct {
 // RAM and 2 MB of fast RAM.
 func Defaults() Settings {
 	return Settings{CPU: "68000", FPU: "auto", Motherboard: "none", MBRAM: 16384, Video: "pal", Gayle: "auto", FastRAM: 2048, Scale: 2, StatusBar: true, Clock: true, A2065Fwd: "2323:23",
-		ScreenshotDir: ".", StateDir: "."}
+		ScreenshotDir: ".", StateDir: ".", ExactBus: true}
 }
 
 // List is a setting that may be given more than once (df0, hdf).
@@ -118,6 +120,7 @@ func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.IntVar(&s.CPUSlotRAM, "cpuslotram", s.CPUSlotRAM, "Fast RAM on a CPU-slot (accelerator) card with --motherboard, in MB: 0 to 128, at $08000000; Kickstart finds it itself")
 	fs.IntVar(&s.Z3RAM, "z3ram", s.Z3RAM, "Zorro III fast RAM with --motherboard, in MB: 0 or a power of two from 16 to 1024")
 	fs.IntVar(&s.RTG, "rtg", s.RTG, "Fit the uaegfx RTG graphics card for Picasso96 (install it with its uaegfx driver), with this much video memory in MB: 1, 2 or 4 on Zorro II, or 16 to 1024 (a power of two) on Zorro III with --motherboard")
+	fs.BoolVar(&s.ExactBus, "exact-bus", s.ExactBus, "Time a 68000's chip RAM and custom chip accesses one by one against the Copper and other DMA, as the real bus does; --exact-bus=false uses the faster, rougher forecast")
 	fs.BoolVar(&s.Overscan, "overscan", s.Overscan, "Show the overscan area (720x284) instead of the standard 640x256 window")
 	fs.IntVar(&s.Scale, "scale", s.Scale, "Window size multiplier (the emulated resolution is unchanged); reduced if it doesn't fit the screen")
 	fs.BoolVar(&s.StatusBar, "statusbar", s.StatusBar, "Show the activity lights (power, drives, hard disk) and warp speed below the picture")

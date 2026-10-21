@@ -27,6 +27,11 @@ type Copper struct {
 	waitVM  uint16 // Wait vertical mask
 	waitHM  uint16 // Wait horizontal mask
 
+	// The beam position of the Copper's last word fetch, for the CPU's
+	// slot (ExactBus).
+	fetched        bool
+	fetchV, fetchH int
+
 	amiga  *Amiga
 	logger io.Writer
 	buf    [4]byte
@@ -137,6 +142,7 @@ func (c *Copper) Step(hpos, vpos int) {
 	if _, err := c.amiga.ChipRAM.Read(int(c.pc), c.buf[:2]); err != nil {
 		return
 	}
+	c.fetched, c.fetchV, c.fetchH = true, vpos, hpos
 	c.pc += 2
 	w := binary.BigEndian.Uint16(c.buf[0:2])
 	if !c.second {

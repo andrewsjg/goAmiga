@@ -177,7 +177,12 @@ type Amiga struct {
 	// contention charge (see chipBusWait). DMAWaitCycles totals the CPU
 	// cycles lost to DMA.
 	cpuChipAccesses int
-	DMAWaitCycles   uint64
+
+	// ExactBus places the 68000's chip accesses in time within each
+	// instruction, against the Copper and the other DMA (cpubus.go).
+	ExactBus      bool
+	instr         instrTiming
+	DMAWaitCycles uint64
 
 	// cpuCIAAccesses counts CPU CIA accesses in the current step;
 	// CIAWaitCycles totals the extra cycles spent syncing to the E clock.
@@ -200,6 +205,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 		debugWriter: os.Stderr,
 		lof:         true,
 		lineCycles:  CPUClocksPerLine,
+		ExactBus:    defaultExactBus,
 	}
 
 	// Create memory devices
@@ -284,7 +290,7 @@ func New(romData []byte, logger io.Writer) (*Amiga, error) {
 	a.wireMemoryMap(true)
 
 	// Create CPU
-	decoder := m68kmem.NewDecoder(a.Mapper)
+	decoder := m68kmem.NewDecoder(&cpuBus{a})
 	a.CPU = &m68k.Processor{
 		M: decoder,
 		// Copy protection relies on the 68000's prefetch (the 68020 path
@@ -383,7 +389,7 @@ func (a *Amiga) wireMemoryMap(overlay bool) {
 	// Update CPU decoder if it exists, keeping the MMU's translation.
 	if a.CPU != nil && a.CPU.M != nil {
 		tr := a.CPU.M.Translate
-		a.CPU.M = m68kmem.NewDecoder(a.Mapper)
+		a.CPU.M = m68kmem.NewDecoder(&cpuBus{a})
 		a.CPU.M.Translate = tr
 	}
 }
@@ -530,7 +536,9 @@ func (a *Amiga) Step() error {
 		a.FastIdleSkips += uint64(skip)
 		a.FastIdleCount++
 	} else {
+		a.instr = instrTiming{on: a.exactBus()}
 		err = a.CPU.Step()
+		a.instr.on = false
 		// Detect transition into stopped state (STOP instruction just executed).
 		if a.CPU.RunState() == m68k.RunStateStopped {
 			a.cpuStopped = true
@@ -577,6 +585,16 @@ func (a *Amiga) Step() error {
 		elapsed = minCycles
 	}
 
+	// Under ExactBus the instruction's chip accesses have waited for their
+	// slots as they happened, and the machine has run to the last of
+	// them: what is left of the instruction runs now.
+	if in := &a.instr; in.synced > 0 || in.waits > 0 || in.chip > 0 {
+		elapsed = max(0, elapsed+in.waits-in.synced)
+		a.DMAWaitCycles += uint64(in.waits)
+		a.cpuChipAccesses = max(0, a.cpuChipAccesses-in.chip)
+		*in = instrTiming{}
+	}
+
 	// Wait for chip bus slots held by DMA. Accesses made while servicing an
 	// interrupt after the previous Step are charged here too.
 	if wait := a.chipBusWait(a.cpuChipAccesses); wait > 0 {
@@ -593,6 +611,39 @@ func (a *Amiga) Step() error {
 		a.cpuCIAAccesses = 0
 	}
 
+	a.advance(elapsed)
+
+	// If the CPU was stopped, check whether a newly-raised interrupt is
+	// strong enough to wake it (pendingIPL > current IPL mask in SR).
+	if a.cpuStopped && a.CPU.PendingIPL() > a.CPU.IPL() {
+		a.cpuStopped = false
+		// Service the interrupt — this vectors through the autovector table
+		// and clears the pending flag inside CheckInterrupts().
+		if iErr := a.CPU.CheckInterrupts(); iErr != nil {
+			return iErr
+		}
+	}
+
+	// Check if CIA-A OVL bit was cleared (disable overlay)
+	if a.overlay && !a.CIAA.OVL() {
+		a.wireMemoryMap(false)
+		if a.logger != nil {
+			fmt.Fprintf(a.logger, "ROM OVERLAY DISABLED\n")
+		}
+	}
+
+	return err
+}
+
+// defaultExactBus is ExactBus for new machines (GOAMIGA_EXACTBUS=0 turns
+// it off for the tests, to compare with the forecast).
+var defaultExactBus = true
+
+// advance runs everything but the CPU for elapsed CPU cycles: the
+// blitter (on the slots other DMA leaves it), disk, Paula, the serial
+// port and the other devices, then the beam with the Copper, the CIAs and
+// the display.
+func (a *Amiga) advance(elapsed int) {
 	// Tick blitter / disk completion timers (deferred interrupts after data
 	// transfer). The blitter only advances on slots other DMA leaves free.
 	if a.Blitter != nil {
@@ -636,27 +687,6 @@ func (a *Amiga) Step() error {
 	} else {
 		a.advanceBeamPerCycle(elapsed)
 	}
-
-	// If the CPU was stopped, check whether a newly-raised interrupt is
-	// strong enough to wake it (pendingIPL > current IPL mask in SR).
-	if a.cpuStopped && a.CPU.PendingIPL() > a.CPU.IPL() {
-		a.cpuStopped = false
-		// Service the interrupt — this vectors through the autovector table
-		// and clears the pending flag inside CheckInterrupts().
-		if iErr := a.CPU.CheckInterrupts(); iErr != nil {
-			return iErr
-		}
-	}
-
-	// Check if CIA-A OVL bit was cleared (disable overlay)
-	if a.overlay && !a.CIAA.OVL() {
-		a.wireMemoryMap(false)
-		if a.logger != nil {
-			fmt.Fprintf(a.logger, "ROM OVERLAY DISABLED\n")
-		}
-	}
-
-	return err
 }
 
 // RunFrame advances the machine until the next VBLANK (vpos wraps to 0),

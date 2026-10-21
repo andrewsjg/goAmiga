@@ -41,11 +41,14 @@ func TestCIAReadSyncsToEClock(t *testing.T) {
 		a.CPU.PC = 0x1000
 		a.cpuStopped = false
 		a.eClockCounter = phase
-		start := a.cycles
+		start, dmaWait := a.cycles, a.DMAWaitCycles
 		if err := a.Step(); err != nil {
 			t.Fatal(err)
 		}
-		extra := int(a.cycles-start) - a.CPU.LastCycles
+		// Less any wait for a chip bus slot for the fetch (the program is
+		// in chip RAM; with ExactBus the 68000 waits for an even colour
+		// clock).
+		extra := int(a.cycles-start) - a.CPU.LastCycles - int(a.DMAWaitCycles-dmaWait)
 		if a.eClockCounter != 0 {
 			t.Errorf("phase %d: access ended %d cycles into an E cycle", phase, a.eClockCounter)
 		}
@@ -54,7 +57,9 @@ func TestCIAReadSyncsToEClock(t *testing.T) {
 		}
 		seen[extra] = true
 	}
-	if len(seen) != eClockCycles {
+	// (With ExactBus the fetch's wait for an even colour clock moves the
+	// phase the CIA access starts at, so phases can share a wait.)
+	if !a.ExactBus && len(seen) != eClockCycles {
 		t.Errorf("extra cycles took %d distinct values over 10 phases, want 10", len(seen))
 	}
 	if a.CIAWaitCycles == 0 {
