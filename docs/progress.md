@@ -58,6 +58,32 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-21 — RTG: a hardware pointer
+
+Picasso96 drew the pointer into the screen itself. On every move it
+restored what was under the pointer, saved the new spot and drew the
+pointer again, all through the emulated CPU. uaegfx.card has no sprite
+calls, but rtg.library uses a card's sprite when BoardInfo's Flags has
+BIF_HARDWARESPRITE (bit 0, tested as `btst #0,$bd`). It then calls the
+routines at SetSprite $206, SetSpritePosition $20A, SetSpriteImage $20E
+and SetSpriteColor $212. The offsets and arguments come from
+rtg.library's own code:
+- SetSprite: D0 = on or off.
+- SetSpritePosition: D0/D1 = position, from MouseX/MouseY at $566/$568.
+- SetSpriteImage: the image is MouseImage ($56E), in Amiga sprite form,
+  MouseWidth × MouseHeight.
+- SetSpriteColor: D0 = index 0–2, D1/D2/D3 = R/G/B, from CLUT 17–19.
+
+InitCard (`amiga/rtg_sprite.go`) puts four small routines in the trap
+area there, each calling the emulator as the card's own do, and sets the
+flag. The pointer is drawn over the picture when it is rendered, and save
+states keep it.
+
+**Verified** (`TestRTGPointer`): with the pointer at the same place, the
+picture with the hardware pointer is identical, pixel for pixel, to the
+one with Picasso96's software pointer (`RTGBoard.SoftPointer`), in CLUT
+and ARGB.
+
 ## 2026-10-21 — RTG: the card's blitter
 
 uaegfx.card passes each drawing call to the emulator first and draws in
@@ -144,8 +170,8 @@ on an A1200 (Zorro II) and A8R8G8B8 on the A4000 (Zorro III) and checks
 the picture; `TestRTGStateAndReset` round-trips a save state and resets.
 They need `Picasso96/Picasso96.lha` (Aminet) and `lha`.
 
-**Not yet:** the blitter calls (done the next day) and a hardware sprite
-for the pointer; running Picasso96's installer and Picasso96Mode by hand
+**Not yet:** the blitter calls and a hardware sprite for the pointer
+(both done the next day); running Picasso96's installer and Picasso96Mode by hand
 is still to be checked.
 
 ## 2026-10-19 — The pot counters; an analogue joystick

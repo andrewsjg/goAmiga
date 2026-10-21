@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,6 +142,7 @@ func bootRTG(t *testing.T, a4000 bool, mode uint32, w, h, depth int) *Amiga {
 		a.RTG.Trace = logWriter{t}
 	}
 	a.RTG.Verify = os.Getenv("RTG_VERIFY") != ""
+	a.RTG.SoftPointer = os.Getenv("RTG_SOFTPOINTER") != ""
 	if err := a.AttachDirectory(dir, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -469,4 +472,77 @@ func TestRTGBlitterSpeed(t *testing.T) {
 			t.Errorf("%s with the blitter took more than a quarter of the software's time", what)
 		}
 	}
+}
+
+// The card's pointer is a hardware sprite drawn over the picture, and
+// looks just as Picasso96's own software pointer drawn into the screen
+// does: same place, same image, same colours.
+func TestRTGPointer(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		mode  uint32
+		depth int
+	}{
+		{"clut", 0x50011000, 8},
+		{"argb", 0x50011300, 24},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var pics [2]*image.RGBA
+			for i, soft := range []bool{true, false} {
+				if soft {
+					t.Setenv("RTG_SOFTPOINTER", "1")
+				} else {
+					t.Setenv("RTG_SOFTPOINTER", "")
+				}
+				a := bootRTG(t, false, c.mode, 640, 480, c.depth)
+				d := newRTGDesk(t, a)
+				d.moveTo(300, 200)
+				d.frames(10)
+				pics[i] = a.PictureImage()
+				if !soft && !a.RTG.sprite.on {
+					t.Fatal("the hardware pointer is off")
+				}
+				grey := pics[i].RGBAAt(400, 300)
+				n := 0
+				for y := 195; y < 220; y++ {
+					for x := 295; x < 320; x++ {
+						if pics[i].RGBAAt(x, y) != grey {
+							n++
+						}
+					}
+				}
+				t.Logf("soft %v: %d pointer pixels by 300,200", soft, n)
+				if n < 20 {
+					t.Fatal("no pointer at 300,200")
+				}
+			}
+			diff, first := 0, image.Point{}
+			for y := 0; y < 480; y++ {
+				for x := 0; x < 640; x++ {
+					if pics[0].RGBAAt(x, y) != pics[1].RGBAAt(x, y) {
+						if diff == 0 {
+							first = image.Pt(x, y)
+						}
+						diff++
+					}
+				}
+			}
+			if diff > 0 {
+				savePNG2(t, pics[0], "/tmp/rtg_pointer_soft.png")
+				savePNG2(t, pics[1], "/tmp/rtg_pointer_hard.png")
+				t.Errorf("%d pixels differ from the software pointer's picture, the first at %v: %v, want %v",
+					diff, first, pics[1].RGBAAt(first.X, first.Y), pics[0].RGBAAt(first.X, first.Y))
+			}
+		})
+	}
+}
+
+func savePNG2(t *testing.T, img image.Image, path string) {
+	f, err := os.Create(path)
+	if err != nil {
+		t.Log(err)
+		return
+	}
+	defer f.Close()
+	png.Encode(f, img)
 }

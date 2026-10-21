@@ -64,6 +64,7 @@ func (r *rtgBoard) render() {
 		r.convertRow(out[:n*4], row[:n*bpp])
 		clear(out[n*4:])
 	}
+	r.drawSprite()
 }
 
 // convertRow converts one row of pixels in the card's format to RGBA.

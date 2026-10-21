@@ -136,6 +136,9 @@ type rtgBoard struct {
 	pending              []*rtgCheck
 	Calls                [64]int // calls by function number
 
+	SoftPointer bool // leave the pointer to Picasso96 (comparisons)
+	sprite      rtgSprite
+
 	Trace io.Writer
 }
 
@@ -206,10 +209,12 @@ func (r *rtgBoard) reset() {
 	r.on, r.display = false, false
 	r.width, r.height, r.format, r.fb, r.rowPixels, r.xoff, r.yoff = 0, 0, 0, 0, 0, 0, 0
 	r.boardInfo = 0
+	r.sprite = rtgSprite{}
 }
 
 // state saves or loads the card: its configuration, the mode and
-// framebuffer the calls set, the palette and the video memory.
+// framebuffer the calls set, the palette, the video memory and the
+// pointer.
 func (r *rtgBoard) state(s *stateCodec) {
 	r.autoconfigState.state(s)
 	s.bool(&r.on)
@@ -223,6 +228,22 @@ func (r *rtgBoard) state(s *stateCodec) {
 		s.fixed(r.palette[i][:])
 	}
 	s.fixed(r.vram.b)
+	sp := &r.sprite
+	s.bool(&sp.on)
+	for _, p := range []*int{&sp.x, &sp.y, &sp.w, &sp.h} {
+		num(s, p)
+	}
+	if s.load {
+		if sp.w < 0 || sp.w > 64 || sp.h < 0 || sp.h > 255 {
+			s.err = cmpErr(s.err, fmt.Errorf("RTG pointer %dx%d in the state", sp.w, sp.h))
+			return
+		}
+		sp.img = make([]byte, sp.w*sp.h)
+	}
+	s.fixed(sp.img)
+	for i := range sp.colors {
+		s.fixed(sp.colors[i][:])
+	}
 }
 
 // rtArea is UAE's boot ROM area at $F00000, as uaegfx.card expects it:
@@ -342,6 +363,9 @@ func (r *rtgBoard) call() {
 			res = 1
 		}
 		r.display = c.D[0]&0xFFFF != 0
+	case rtgSetSprite, rtgSetSpritePosition, rtgSetSpriteImage, rtgSetSpriteColor:
+		r.spriteCall(fn, bi)
+		res = 1
 	case rtgWaitVerticalSync:
 		// The frame comes when it comes: nothing to wait for here.
 	default:
@@ -380,6 +404,9 @@ func (r *rtgBoard) initCard(bi uint32) {
 	a.poke32(bi+biMaxMemorySize, uint32(len(r.vram.b)))
 	a.poke32(bi+biMaxChunkSize, uint32(len(r.vram.b)))
 	a.poke32(bi+biMemoryClock, 100000000)
+	if !r.SoftPointer {
+		r.installSprite(bi)
+	}
 	r.tracef("InitCard: formats $%04X", formats)
 }
 
