@@ -100,7 +100,7 @@ const (
 // cycles) during the current line.
 func (se *SpriteEngine) note(sprite, reg int, val uint16, hpos int) {
 	v := se.amiga.Video
-	if v == nil || !v.DisplayActive || sprite < 0 || sprite >= 8 {
+	if v == nil || !v.recording() || sprite < 0 || sprite >= 8 {
 		return
 	}
 	lores := 2*(hpos/CPUCyclesPerColorClock) + writeColumnOffset

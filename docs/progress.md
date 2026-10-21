@@ -36,8 +36,7 @@ verified. Longer investigations get their own write-up in `docs/`.
    variable cell timing isn't modelled.
 2. **Display.** A resolution change (hires bit) partway through a line
    isn't shown, and neither are sprite data rewrites while a sprite is
-   being shifted out. Collisions are only detected on lines that are drawn
-   (not in headless mode).
+   being shifted out.
 3. **Paula (other).** The pot counters have no paddles, only an
    analogue joystick.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
@@ -57,6 +56,27 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-21 — Collisions on lines that aren't drawn
+
+Denise's collision bits (CLXDAT) were worked out while drawing a line, so
+lines that weren't drawn had none. Those were every line with the display
+off (warp mode runs most frames so, and the headless tests), and lines in
+the display window but outside the picture (an overscan game's top and
+bottom). A game reading CLXDAT then saw fewer collisions in warp than at
+normal speed.
+
+Decoding every undrawn line would cost warp mode its speed. Instead, a
+CLXDAT read starts a watch of `clxWatch` (100) frames. While it runs, an
+undrawn line inside the display window gets the same decode as a drawn
+one (`drawLine`, into a scratch row), and mid-line register and sprite
+writes are noted for it as for drawing. Software that never reads CLXDAT
+pays nothing.
+
+**Verified:** `TestCLXDATUndrawnLines`. With the display off, nothing is
+decoded until CLXDAT is read; then a sprite over the playfield sets its
+bit. A line above the picture in an opened-up window collides, and the
+watch ends 100 frames after the last read.
 
 ## 2026-10-21 — Audio DMA slots follow Paula's requests
 

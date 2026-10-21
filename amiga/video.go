@@ -84,7 +84,22 @@ type Video struct {
 	// Set to true when a display window is open. When false, rendering is
 	// skipped for performance (headless/test mode).
 	DisplayActive bool
+
+	// clxFrames counts down the frames after software last read CLXDAT.
+	// While it runs, lines that aren't drawn (the display is off, as in
+	// warp, or they are outside the picture) still get a collision-only
+	// pass, into clxRow, so the game sees its collisions.
+	clxFrames int
+	clxRow    []byte
 }
+
+// clxWatch is how many frames collision checking stays on for undrawn
+// lines after a CLXDAT read.
+const clxWatch = 100
+
+// recording reports whether mid-line register writes are noted: for
+// drawing, or for collisions.
+func (v *Video) recording() bool { return v.DisplayActive || v.clxFrames > 0 }
 
 const (
 	PALVisibleLines = 256
@@ -226,6 +241,9 @@ func (v *Video) GetBplPt(p int) uint32 {
 // rows when BPLCON0 LACE changes.
 func (v *Video) StartFrame() {
 	v.SnapshotBitplanePointers()
+	if v.clxFrames > 0 {
+		v.clxFrames--
+	}
 	laced := v.amiga.Custom.ReadReg16(0x100)&0x0004 != 0
 	cs := 1
 	if v.sawShres {
@@ -408,7 +426,10 @@ func (v *Video) RenderLine(vpos int) {
 	if draw && fetch && v.shres {
 		v.sawShres = true
 	}
-	if fetch && draw {
+	// Not drawn, but software is watching for collisions: decode the line
+	// for them alone.
+	collide := !draw && v.clxFrames > 0 && v.lineInWindow(vpos)
+	if fetch && (draw || collide) {
 		for p := 0; p < numPlanes; p++ {
 			v.amiga.ChipRAM.Read(int(v.bplpt[p]), v.planeBuf[p][:2*words])
 		}
@@ -437,13 +458,27 @@ func (v *Video) RenderLine(vpos int) {
 		}
 	}
 	defer func() { v.changes = v.changes[:0] }()
-	if !draw {
+	if !draw && !collide {
 		return
 	}
 	if !fetch {
 		numPlanes = 0
 	}
-	v.drawLine(vpos, numPlanes, hires, int(ddfstrt&0xFC), words)
+	row := v.clxRow
+	if draw {
+		row = v.Pixels[v.outputRow(vpos)*v.Width*4:]
+	} else if len(row) < v.Width*4 {
+		v.clxRow = make([]byte, v.Width*4)
+		row = v.clxRow
+	}
+	v.drawLine(vpos, numPlanes, hires, int(ddfstrt&0xFC), words, row)
+}
+
+// lineInWindow reports whether line vpos is inside the display window,
+// where playfield and sprites can collide.
+func (v *Video) lineInWindow(vpos int) bool {
+	w := v.window()
+	return vpos >= w.vstart && vpos < w.vstop
 }
 
 // regChange is a write to a Denise register during the current line.
@@ -472,7 +507,7 @@ const writeColumnOffset = 1
 // cycles) so drawLine can apply it from the right column.
 // noteColor records a write to palette entry idx (24-bit values).
 func (v *Video) noteColor(idx int, old, new uint32, hpos int) {
-	if !v.DisplayActive || old == new {
+	if !v.recording() || old == new {
 		return
 	}
 	cck := hpos / CPUCyclesPerColorClock
@@ -481,7 +516,7 @@ func (v *Video) noteColor(idx int, old, new uint32, hpos int) {
 }
 
 func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
-	if !v.DisplayActive || old == new {
+	if !v.recording() || old == new {
 		return
 	}
 	cck := hpos / CPUCyclesPerColorClock
@@ -489,7 +524,7 @@ func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
 	v.changes = append(v.changes, regChange{col: 2 * v.cs * (lores - v.left), cck: cck, reg: reg, old: old, new: new})
 }
 
-// drawLine composes one output row the way Denise does: playfield pixels
+// drawLine composes one output row (into row) the way Denise does: playfield pixels
 // placed by DDFSTRT and BPLCON1, colour modes (dual playfield, EHB, HAM),
 // sprites by BPLCON2 priority, collisions, and COLOR00 outside the display
 // window. BPLCON0 (planes shown and colour mode), BPLCON1, BPLCON2 and
@@ -498,7 +533,7 @@ func (v *Video) noteWrite(reg int, old, new uint16, hpos int) {
 //
 // Horizontal positions are in hires pixels: output column X is beam
 // position 2*v.left+X, and lores pixels are two columns wide.
-func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
+func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int, row []byte) {
 	c := v.amiga.Custom
 	aga := v.amiga.AGA
 	bplcon0 := c.ReadReg16(0x100)
@@ -633,7 +668,6 @@ func (v *Video) drawLine(vpos, numPlanes int, hires bool, ddfstrt, words int) {
 	if aga {
 		xor = int(bplcon4 >> 8)
 	}
-	row := v.Pixels[v.outputRow(vpos)*v.Width*4:]
 	hold := lp[0] // HAM hold register
 	next := 0
 	nextCol := v.Width // column of the next pending change
@@ -885,6 +919,7 @@ func collisions(clxcon uint16, idx int, present byte) uint16 {
 func (v *Video) ReadCLXDAT() uint16 {
 	val := v.clxdat | 0x8000
 	v.clxdat = 0
+	v.clxFrames = clxWatch
 	return val
 }
 

@@ -528,3 +528,45 @@ func TestSpriteDMABeforeCopperWrites(t *testing.T) {
 		t.Errorf("sprite pixel = %v, want the Copper-written data (red)", got)
 	}
 }
+
+// Collisions are seen on lines that aren't drawn, once software reads
+// CLXDAT: with the display off (warp mode) and above the picture.
+func TestCLXDATUndrawnLines(t *testing.T) {
+	a := deniseAmiga(t, 0x1200, []byte{0xFF})
+	a.Custom.WriteReg16(0x098, 0x0041) // plane 1 must be 1
+	read := func() uint16 {
+		b := make([]byte, 2)
+		a.Custom.Read(0x00E, b)
+		return uint16(b[0])<<8 | uint16(b[1])
+	}
+	setSprite(a, 0, 2, 0x8000, 0, false) // over playfield pixel 2
+	a.Video.DisplayActive = false
+	a.Video.RenderLine(DisplayTop)
+	if got := read(); got&(1<<1) != 0 {
+		t.Errorf("display off, nobody watching: CLXDAT $%04X; the line shouldn't be decoded", got)
+	}
+	// That read starts the watch.
+	a.Video.bplpt[0] = 0x1000
+	a.Video.RenderLine(DisplayTop)
+	if got := read(); got&(1<<1) == 0 {
+		t.Errorf("display off: CLXDAT $%04X, want bit 1", got)
+	}
+
+	// A display window opening above the picture (line $1C): line 30 isn't
+	// drawn, but it collides.
+	a.Video.DisplayActive = true
+	a.Custom.WriteReg16(0x08E, 0x1C81)
+	a.Video.bplpt[0] = 0x1000
+	a.Video.RenderLine(30)
+	if got := read(); got&(1<<1) == 0 {
+		t.Errorf("line 30, above the picture: CLXDAT $%04X, want bit 1", got)
+	}
+	for range clxWatch {
+		a.Video.StartFrame()
+	}
+	a.Video.bplpt[0] = 0x1000
+	a.Video.RenderLine(30)
+	if got := read(); got&(1<<1) != 0 {
+		t.Errorf("after %d frames without a read: CLXDAT $%04X; the watch should have ended", clxWatch, got)
+	}
+}
