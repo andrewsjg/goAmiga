@@ -95,6 +95,9 @@ type Amiga struct {
 	// MotherboardRAM its 32-bit fast RAM (EnableMotherboard), or nil.
 	Motherboard    *motherboard
 	MotherboardRAM *ram
+	// CPUSlotRAM is fast RAM on a CPU-slot card from $08000000
+	// (EnableCPUSlotRAM), or nil.
+	CPUSlotRAM *ram
 	// Z3RAM is a Zorro III fast RAM board (EnableZorro3RAM), or nil.
 	Z3RAM *zorro3RAM
 	// RTG is the uaegfx graphics card for Picasso96 (EnableRTG), or nil.

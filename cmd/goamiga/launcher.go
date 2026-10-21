@@ -339,27 +339,27 @@ var presets = []struct {
 	apply func(s *config.Settings)
 }{
 	{"A500", func(s *config.Settings) {
-		s.RTG = 0
+		s.RTG, s.CPUSlotRAM = 0, 0
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ocs", 512, 512, 0
 		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "off", false, "none", 0
 	}},
 	{"A500+", func(s *config.Settings) {
-		s.RTG = 0
+		s.RTG, s.CPUSlotRAM = 0, 0
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
 		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "off", false, "none", 0
 	}},
 	{"A600", func(s *config.Settings) {
-		s.RTG = 0
+		s.RTG, s.CPUSlotRAM = 0, 0
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
 		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
 	}},
 	{"A1200", func(s *config.Settings) {
-		s.RTG = 0
+		s.RTG, s.CPUSlotRAM = 0, 0
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "auto", "aga", 2048, 0, 0
 		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
 	}},
 	{"A1200 + fast", func(s *config.Settings) {
-		s.RTG = 0
+		s.RTG, s.CPUSlotRAM = 0, 0
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "68882", "aga", 2048, 0, 8192
 		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
 	}},
@@ -367,7 +367,7 @@ var presets = []struct {
 	// goes on the A2091 at SCSI ID 6). The real machine's built-in SCSI
 	// and 32-bit memory aren't emulated.
 	{"A3000", func(s *config.Settings) {
-		s.RTG = 0
+		s.RTG, s.CPUSlotRAM = 0, 0
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68030", 0, "68882", "ecs", 1024, 0, 8192
 		s.Gayle, s.Motherboard, s.Z3RAM = "off", "none", 0
 		s.Clock, s.ClockY2K = true, true // AMIX's date wants a year before 2000
@@ -375,7 +375,7 @@ var presets = []struct {
 	// The A4000/040: its motherboard (Ramsey, 16 MB of 32-bit RAM, the
 	// IDE interface) and Zorro III. It needs the A4000 Kickstart.
 	{"A4000", func(s *config.Settings) {
-		s.RTG = 0
+		s.RTG, s.CPUSlotRAM = 0, 0
 		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68040", 0, "auto", "aga", 2048, 0, 0
 		s.Gayle, s.Motherboard, s.MBRAM, s.Z3RAM = "auto", "a4000", 16384, 0
 		s.Clock, s.ClockY2K = true, false
@@ -475,6 +475,10 @@ func (l *launcher) memoryTab(x, y int) {
 		u.label(x-10, y, "Motherboard RAM")
 		cycleOf(u, x, y, 220, []string{"None", "1 MB", "2 MB", "4 MB", "8 MB", "16 MB"},
 			[]int{0, 1024, 2048, 4096, 8192, 16384}, &l.s.MBRAM)
+		y += 34
+		u.label(x-10, y, "CPU-slot RAM")
+		cycleOf(u, x, y, 220, []string{"None", "16 MB", "32 MB", "64 MB", "128 MB"},
+			[]int{0, 16, 32, 64, 128}, &l.s.CPUSlotRAM)
 		y += 34
 		u.label(x-10, y, "Zorro III RAM")
 		cycleOf(u, x, y, 220, []string{"None", "16 MB", "32 MB", "64 MB", "128 MB", "256 MB"},

@@ -197,6 +197,8 @@ screen even when other flags are given.
     drives go on;
   - Zorro III: `--z3ram MB` adds a Zorro III RAM board (16 MB to 1 GB),
     which expansion.library puts at $40000000.
+  - `--cpuslotram MB` (up to 128) adds the fast RAM an accelerator card
+    in the CPU slot carries, at $08000000; Kickstart finds it itself.
 
   It needs the A4000 Kickstart (3.1 or 3.2 for the A4000). Other
   Kickstarts ignore the motherboard's RAM.

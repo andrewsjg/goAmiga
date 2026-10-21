@@ -82,9 +82,15 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 				if s.Z3RAM != 0 {
 					return fmt.Errorf("--z3ram needs --motherboard a3000 or a4000")
 				}
+				if s.CPUSlotRAM != 0 {
+					return fmt.Errorf("--cpuslotram needs --motherboard a3000 or a4000")
+				}
 				return nil
 			}
 			if err := a.EnableMotherboard(s.Motherboard, s.MBRAM); err != nil {
+				return err
+			}
+			if err := a.EnableCPUSlotRAM(s.CPUSlotRAM); err != nil {
 				return err
 			}
 			return a.EnableZorro3RAM(s.Z3RAM)
@@ -99,6 +105,9 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 		chipRAM, s.SlowRAM, s.FastRAM, a.Chipset(), strings.ToUpper(a.VideoStandard()), a.CPU.Model, a.CPUSpeed)
 	if a.Motherboard != nil {
 		fmt.Fprintf(out, "Motherboard: %s with %d KB of motherboard RAM", strings.ToUpper(s.Motherboard), s.MBRAM)
+		if s.CPUSlotRAM > 0 {
+			fmt.Fprintf(out, ", %d MB of CPU-slot RAM", s.CPUSlotRAM)
+		}
 		if s.Z3RAM > 0 {
 			fmt.Fprintf(out, ", %d MB of Zorro III RAM", s.Z3RAM)
 		}

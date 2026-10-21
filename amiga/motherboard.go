@@ -35,6 +35,7 @@ const (
 	motherboardBase = 0xDE0000
 	motherboardEnd  = 0xDE0FFF
 	mbRAMTop        = 0x08000000
+	cpuSlotRAMBase  = 0x08000000 // CPU-slot fast RAM, upwards
 )
 
 type motherboard struct {
@@ -150,6 +151,29 @@ func (a *Amiga) EnableMotherboard(model string, mbRAM int) error {
 	return nil
 }
 
+// EnableCPUSlotRAM fits mb megabytes of fast RAM on a CPU-slot card, as
+// accelerator cards for the A3000 and A4000 carry it: from $08000000 up,
+// above the motherboard RAM, in the CPU slot's space (to $0FFFFFFF, so
+// at most 128 MB). Kickstart finds it by probing, as it does the
+// motherboard RAM. It needs the motherboard (EnableMotherboard first);
+// 0 removes it. Call it before Reset.
+func (a *Amiga) EnableCPUSlotRAM(mb int) error {
+	if mb == 0 {
+		a.CPUSlotRAM = nil
+		a.wireMemoryMap(a.overlay)
+		return nil
+	}
+	if a.Motherboard == nil {
+		return fmt.Errorf("CPU-slot RAM needs the A3000 or A4000 motherboard")
+	}
+	if mb < 0 || mb > 128 {
+		return fmt.Errorf("CPU-slot RAM must be 0 to 128 MB, not %d", mb)
+	}
+	a.CPUSlotRAM = &ram{b: make([]byte, mb<<20)}
+	a.wireMemoryMap(a.overlay)
+	return nil
+}
+
 // boardDescription names the A3000/A4000 parts fitted, for save states:
 // "" for neither.
 func (a *Amiga) boardDescription() string {
@@ -159,6 +183,9 @@ func (a *Amiga) boardDescription() string {
 	}
 	if a.Gayle != nil && a.Gayle.a4000 {
 		d += ", A4000 IDE"
+	}
+	if a.CPUSlotRAM != nil {
+		d += fmt.Sprintf(", %d MB CPU-slot RAM", len(a.CPUSlotRAM.b)>>20)
 	}
 	if a.Z3RAM != nil {
 		d += fmt.Sprintf(", %d MB Zorro III RAM", len(a.Z3RAM.mem.b)>>20)
@@ -178,5 +205,8 @@ func (a *Amiga) mapMotherboard() {
 	a.Mapper.Map(a.Motherboard, motherboardBase, motherboardEnd)
 	if r := a.MotherboardRAM; r != nil {
 		a.Mapper.Map(r, mbRAMTop-len(r.b), mbRAMTop-1)
+	}
+	if r := a.CPUSlotRAM; r != nil {
+		a.Mapper.Map(r, cpuSlotRAMBase, cpuSlotRAMBase+len(r.b)-1)
 	}
 }

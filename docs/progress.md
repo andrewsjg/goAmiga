@@ -49,14 +49,30 @@ verified. Longer investigations get their own write-up in `docs/`.
    blanking registers (HSSTRT, VBSTRT ...) are only stored, and the A2024
    isn't emulated. A plain hardfile (no RDB) can only use Kickstart's
    own filesystems.
-   There is no 68060, no Zorro III I/O boards (only RAM), and no
-   CPU-slot RAM at $08000000 (see `docs/a4000-68040-plan.md`). The caches aren't emulated
+   There is no 68060 and no Zorro III I/O boards other than the RTG
+   card (see `docs/a4000-68040-plan.md`). The caches aren't emulated
    (CACR is stored).
 6. **AMIX.** The arrow keys don't work under X Windows (the X server's
    keymap); they work everywhere else.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-21 — CPU-slot RAM on the A3000/A4000
+
+Accelerator cards for the A3000 and A4000 carry fast RAM in the CPU
+slot's space, from $08000000 up, just above the motherboard RAM.
+`--cpuslotram MB` (`EnableCPUSlotRAM`, up to 128 MB, the slot's space
+to $0FFFFFFF) maps it there. Nothing else is needed. The A4000 Kickstart
+probes upwards from $08000000, as it probes down from there for the
+motherboard RAM, and adds what it finds as fast RAM (attributes $505, as
+the motherboard's). Probed with 64 MB up to 1 GB, it found all of it. The
+limit keeps the RAM out of Zorro III space, where expansion.library puts
+boards from $40000000. Save states and the machine description include
+it. Configuration screen: Memory, with a motherboard.
+
+**Verified:** `TestA4000CPUSlotRAM` boots Workbench 3.2 on the A4000
+with 64 MB and finds the region at $08000000 in exec's memory list.
 
 ## 2026-10-21 — RTG: a hardware pointer
 

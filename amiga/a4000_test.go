@@ -251,3 +251,28 @@ func TestA4000Zorro3RAM(t *testing.T) {
 		t.Errorf("Zorro III RAM reads $%08X", v)
 	}
 }
+
+// CPU-slot RAM from $08000000 (an accelerator card's): the A4000
+// Kickstart finds it by itself and adds it as fast RAM.
+func TestA4000CPUSlotRAM(t *testing.T) {
+	a := newA4000(t)
+	if err := a.EnableCPUSlotRAM(64); err != nil {
+		t.Fatal(err)
+	}
+	adf, err := os.ReadFile("../Workbench/Install3.2.adf")
+	if err != nil {
+		t.Skip(err)
+	}
+	a.Disk.InsertDisk(adf)
+	a.Reset()
+	if !waitWorkbench(t, a) {
+		t.Fatal("Workbench did not start")
+	}
+	r, ok := memRegions(a)[0x08000020]
+	if !ok {
+		t.Fatalf("no MemList region at $08000000: %v", memRegions(a))
+	}
+	if r[1]&4 == 0 || r[0] < 63<<20 {
+		t.Errorf("CPU-slot region: %d bytes free, attributes $%X; want fast RAM, about 64 MB", r[0], r[1])
+	}
+}

@@ -337,6 +337,9 @@ func (a *Amiga) state(s *stateCodec) {
 	if a.MotherboardRAM != nil {
 		s.fixed(a.MotherboardRAM.b)
 	}
+	if a.CPUSlotRAM != nil {
+		s.fixed(a.CPUSlotRAM.b)
+	}
 	if a.Z3RAM != nil {
 		a.Z3RAM.autoconfigState.state(s)
 		s.fixed(a.Z3RAM.mem.b)
