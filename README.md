@@ -223,6 +223,17 @@ screen even when other flags are given.
   to…"), then save. The uaegfx modes ("uaegfx:640x480 8bit" and so on)
   then appear in ScreenMode.
 
+  If the card is found but no uaegfx modes appear, `SYS:Devs/Picasso96Settings`
+  is probably missing (the installer can skip it) or not attached to
+  uaegfx. `diag/p96settings.py` makes one from a supplied preset:
+
+  ```bash
+  python3 diag/p96settings.py Picasso96Install/Devs/Picasso96Settings.31 Picasso96Settings
+  ```
+
+  Copy the result to `SYS:Devs/` on the Amiga (a `--dir` folder is an easy
+  way across) and reboot.
+
   ```bash
   goamiga --rom ROMS/kick32a1200.rom --cpu 68020 --chipset aga \
           --fastram 4096 --rtg 4 --ide wb.hdf
