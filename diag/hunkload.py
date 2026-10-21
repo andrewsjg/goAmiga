@@ -56,6 +56,23 @@ def load(path, base=0x100000):
                     o = addrs[h] - base + L()
                     v = struct.unpack(">L", img[o:o + 4])[0] + addrs[target]
                     img[o:o + 4] = struct.pack(">L", v & 0xFFFFFFFF)
+        elif t in (0x3F7, 0x3FC):  # reloc32short: word counts and offsets
+            def W():
+                nonlocal p
+                v = struct.unpack(">H", d[p:p + 2])[0]
+                p += 2
+                return v
+            start = p
+            while True:
+                c = W()
+                if c == 0:
+                    break
+                target = W()
+                for _ in range(c):
+                    o = addrs[h] - base + W()
+                    v = struct.unpack(">L", img[o:o + 4])[0] + addrs[target]
+                    img[o:o + 4] = struct.pack(">L", v & 0xFFFFFFFF)
+            p += (p - start) & 2  # longword aligned
         elif t == 0x3F0:  # symbols
             while True:
                 c = L()

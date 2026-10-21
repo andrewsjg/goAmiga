@@ -239,8 +239,8 @@ screen even when other flags are given.
           --fastram 4096 --rtg 4 --ide wb.hdf
   ```
 
-  Picasso96 draws in software (the card's blitter calls aren't
-  accelerated yet).
+  The card's blitter calls (fills, copies, text, icons) are done by the
+  emulator, so drawing costs the emulated CPU next to nothing.
 
 ### Floppy disks
 

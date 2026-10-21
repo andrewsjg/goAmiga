@@ -17,7 +17,8 @@ import (
 // "uaelib" entry in UAE's boot ROM area. Here that is a small ROM at
 // $F00000 whose routine writes the trap register, so Go handles the call
 // (rtgCall) with the CPU's registers in hand and returns its answer in
-// D0. The blitter calls answer 0, and Picasso96 then draws in software.
+// D0. The blitter calls draw on the card's memory (rtg_blit.go); any
+// they can't do answer 0, and Picasso96 then draws in software.
 //
 // The board is the card's video memory: on Zorro III with the A3000 or
 // A4000 motherboard, else on Zorro II (4 MB, which leaves no room for
@@ -127,6 +128,14 @@ type rtgBoard struct {
 	boardInfo uint32 // rtg.library's BoardInfo for the card (FindCard)
 	area      *rtArea
 
+	// Verify checks the blitter against Picasso96's own drawing (tests):
+	// Verified calls, and Mismatches among them.
+	Verify               bool
+	NoBlitter            bool // leave all drawing to Picasso96 (comparisons)
+	Verified, Mismatches int
+	pending              []*rtgCheck
+	Calls                [64]int // calls by function number
+
 	Trace io.Writer
 }
 
@@ -228,6 +237,21 @@ type rtArea struct {
 // rtAreaCode is the routine at $F0FF60: MOVE.W #1,$F0FF00; RTS.
 var rtAreaCode = []byte{0x33, 0xFC, 0x00, 0x01, 0x00, 0xF0, 0xFF, 0x00, 0x4E, 0x75}
 
+// rtAreaVerify is where a verified call's software drawing returns
+// (Verify): MOVE.W #1,$F0FF02; MOVE.L $F0FF80,-(SP); RTS, the longword at
+// $F0FF80 being the caller's return address.
+const (
+	rtAreaVerify     = 0xFF70
+	rtAreaVerifyTrap = 0xFF02
+	rtAreaVerifyRet  = 0xFF80
+)
+
+var rtAreaVerifyCode = []byte{
+	0x33, 0xFC, 0x00, 0x01, 0x00, 0xF0, 0xFF, 0x02,
+	0x2F, 0x39, 0x00, 0xF0, 0xFF, 0x80,
+	0x4E, 0x75,
+}
+
 // The RAM for the card's structures.
 const (
 	rtAreaRAM    = 0x0100
@@ -237,6 +261,7 @@ const (
 func newRTArea(a *Amiga) *rtArea {
 	m := &rtArea{a: a}
 	copy(m.mem[rtAreaLib:], rtAreaCode)
+	copy(m.mem[rtAreaVerify:], rtAreaVerifyCode)
 	return m
 }
 
@@ -249,6 +274,10 @@ func (m *rtArea) Write(addr int, p []byte) (int, error) {
 	case addr == rtAreaTrap:
 		if m.a.RTG != nil {
 			m.a.RTG.call()
+		}
+	case addr == rtAreaVerifyTrap:
+		if m.a.RTG != nil {
+			m.a.RTG.checkPending()
 		}
 	case addr >= rtAreaRAM && addr+len(p) <= rtAreaRAMEnd:
 		copy(m.mem[addr:], p)
@@ -266,6 +295,9 @@ func (r *rtgBoard) call() {
 	fn := a.peek32(c.A[7] + 4)
 	bi := c.A[0]
 	var res uint32
+	if fn < uint32(len(r.Calls)) {
+		r.Calls[fn]++
+	}
 	switch fn {
 	case rtgFindCard:
 		r.boardInfo = bi
@@ -313,8 +345,14 @@ func (r *rtgBoard) call() {
 	case rtgWaitVerticalSync:
 		// The frame comes when it comes: nothing to wait for here.
 	default:
-		// The blitter calls: 0 sends Picasso96 to its own routines.
-		res = 0
+		// The blitter calls; 0 sends Picasso96 to its own routines.
+		switch {
+		case r.NoBlitter:
+		case r.Verify:
+			r.verifyCall(fn)
+		case r.blit(fn):
+			res = 1
+		}
 	}
 	c.D[0] = res
 }

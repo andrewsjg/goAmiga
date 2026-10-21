@@ -3,6 +3,7 @@ package amiga
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,6 +139,7 @@ func bootRTG(t *testing.T, a4000 bool, mode uint32, w, h, depth int) *Amiga {
 	if os.Getenv("RTG_TRACE") != "" {
 		a.RTG.Trace = logWriter{t}
 	}
+	a.RTG.Verify = os.Getenv("RTG_VERIFY") != ""
 	if err := a.AttachDirectory(dir, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -287,5 +289,184 @@ func TestRTGStateAndReset(t *testing.T) {
 	}
 	if w, h := a.PictureSize(); w == 640 && h == 480 {
 		t.Errorf("picture %dx%d after reset: still the card's", w, h)
+	}
+}
+
+// rtgDesk drives Workbench on the card with the mouse, through the
+// front screen's own pointer position (Screen.MouseX/Y), for tests.
+type rtgDesk struct {
+	t  *testing.T
+	a  *Amiga
+	ib uint32
+}
+
+func newRTGDesk(t *testing.T, a *Amiga) *rtgDesk {
+	return &rtgDesk{t, a, findLibrary(a, "intuition.library")}
+}
+
+func (d *rtgDesk) frames(n int) {
+	for range n {
+		d.a.RunFrame()
+	}
+}
+
+func (d *rtgDesk) screen() uint32 { return d.a.peek32(d.ib + 0x3C) }
+
+// moveTo moves the pointer to x, y on the front screen.
+func (d *rtgDesk) moveTo(x, y int) {
+	s := d.screen()
+	for range 200 {
+		my, mx := int(int16(d.a.peek16(s+16))), int(int16(d.a.peek16(s+18)))
+		dx, dy := x-mx, y-my
+		if dx == 0 && dy == 0 {
+			return
+		}
+		step := func(v int) int { return max(-20, min(20, v)) }
+		d.a.Mouse.Move(step(dx), step(dy))
+		d.frames(1)
+	}
+	d.t.Logf("pointer didn't reach %d,%d: at %d,%d", x, y, int16(d.a.peek16(s+18)), int16(d.a.peek16(s+16)))
+}
+
+func (d *rtgDesk) button(right, down bool) {
+	if right {
+		d.a.Mouse.RightButton = down
+	} else {
+		d.a.Mouse.LeftButton = down
+	}
+	d.frames(3)
+}
+
+func (d *rtgDesk) click(x, y int) {
+	d.moveTo(x, y)
+	d.button(false, true)
+	d.button(false, false)
+}
+
+func (d *rtgDesk) doubleClick(x, y int) {
+	d.click(x, y)
+	d.button(false, true)
+	d.button(false, false)
+	d.frames(150)
+}
+
+// drag holds a button from one place to another.
+func (d *rtgDesk) drag(right bool, x0, y0, x1, y1 int) {
+	d.moveTo(x0, y0)
+	d.button(right, true)
+	d.moveTo(x1, y1)
+	d.frames(5)
+	d.button(right, false)
+	d.frames(20)
+}
+
+// window finds the front screen's window whose title starts with this
+// (a drawer's title goes on with how full it is): its left, top, width
+// and height.
+func (d *rtgDesk) window(title string) (x, y, w, h int, ok bool) {
+	a := d.a
+	for win := a.peek32(d.screen() + 4); win != 0; win = a.peek32(win) {
+		if strings.HasPrefix(readCStrMem(a, a.peek32(win+32), 40), title) {
+			return int(int16(a.peek16(win + 4))), int(int16(a.peek16(win + 6))),
+				int(int16(a.peek16(win + 8))), int(int16(a.peek16(win + 10))), true
+		}
+	}
+	return
+}
+
+// The card's blitter draws what Picasso96 would: Workbench is driven on
+// the card (a drawer opened, moved, resized and closed, an icon selected,
+// the menus) in each kind of format, with every call checked against
+// Picasso96's own drawing (Verify). All twelve formats were checked so;
+// RTG_ALLFORMATS checks them again.
+func TestRTGBlitterMatchesSoftware(t *testing.T) {
+	if os.Getenv("RTG_NOVERIFY") == "" {
+		t.Setenv("RTG_VERIFY", "1")
+	}
+	for _, c := range []struct {
+		name  string
+		mode  uint32
+		depth int
+	}{
+		{"clut", 0x50011000, 8},
+		{"r5g6b5pc", 0x50011100, 16},
+		{"r5g5b5pc", 0x50011101, 15},
+		{"rgb24", 0x50011200, 24},
+		{"argb", 0x50011300, 24},
+		{"bgra", 0x50011303, 24},
+		// The rest, with RTG_ALLFORMATS set.
+		{"rgba", 0x50011302, 24},
+		{"bgr24", 0x50011201, 24},
+		{"r5g6b5", 0x50011102, 16},
+		{"b5g6r5pc", 0x50011202, 16},
+		{"r5g5b5", 0x50011103, 15},
+		{"b5g5r5pc", 0x50011203, 15},
+	}[:map[bool]int{false: 6, true: 12}[os.Getenv("RTG_ALLFORMATS") != ""]] {
+		t.Run(c.name, func(t *testing.T) {
+			a := bootRTG(t, false, c.mode, 640, 480, c.depth)
+			d := newRTGDesk(t, a)
+			d.doubleClick(50, 70) // open Boot
+			x, y, w, h, ok := d.window("Boot")
+			if !ok {
+				savePNG(t, a, "/tmp/rtg_blit_fail.png")
+				s := d.screen()
+				t.Logf("screen $%08X %q mouse %d,%d", s, readCStrMem(a, a.peek32(s+26), 40), int16(a.peek16(s+18)), int16(a.peek16(s+16)))
+				for win := a.peek32(s + 4); win != 0; win = a.peek32(win) {
+					t.Logf("window %q", readCStrMem(a, a.peek32(win+32), 40))
+				}
+				t.Fatal("the Boot window didn't open")
+			}
+			d.drag(false, x+60, y+5, x+160, y+85) // move it
+			x, y, _, _, _ = d.window("Boot")
+			d.drag(false, x+w-5, y+h-5, x+w+80, y+h+60) // resize it
+			d.click(45, 112)                            // select Ram Disk
+			d.drag(true, 20, 5, 30, 60)                 // a menu, let go off it
+			d.drag(true, 120, 5, 120, 4)
+			x, y, _, _, _ = d.window("Boot")
+			d.click(x+5, y+5) // close
+			d.frames(50)
+			savePNG(t, a, "/tmp/rtg_blit_"+c.name+".png")
+			r := a.RTG
+			var calls []string
+			for fn, n := range r.Calls {
+				if n > 0 && fn != rtgSetColorArray {
+					calls = append(calls, fmt.Sprintf("%d:%d", fn, n))
+				}
+			}
+			t.Logf("verified %d calls, %d mismatches; calls by number %v", r.Verified, r.Mismatches, calls)
+			if r.Mismatches > 0 {
+				t.Errorf("%d of %d calls drew differently from Picasso96", r.Mismatches, r.Verified)
+			}
+		})
+	}
+}
+
+// The card's blitter takes the drawing off the CPU: graphics.library's
+// RectFill and ScrollRaster on Workbench's screen take a fraction of the
+// emulated time they do drawn by Picasso96 in software.
+func TestRTGBlitterSpeed(t *testing.T) {
+	cost := map[bool][2]uint64{}
+	for _, off := range []bool{true, false} {
+		a := bootRTG(t, false, 0x50011300, 640, 480, 24)
+		a.RTG.NoBlitter = off
+		gfx := findLibrary(a, "graphics.library")
+		ib := findLibrary(a, "intuition.library")
+		rp := a.peek32(ib+0x3C) + 84 // the front screen's RastPort
+		start := a.cycles
+		for i := range 50 {
+			callLibRegs(t, a, gfx, -306, []uint32{uint32(i), uint32(i), 600, 440}, []uint32{0, rp}) // RectFill
+		}
+		mid := a.cycles
+		for range 50 {
+			callLibRegs(t, a, gfx, -396, []uint32{0, 4, 0, 20, 639, 460}, []uint32{0, rp}) // ScrollRaster
+		}
+		cost[off] = [2]uint64{mid - start, a.cycles - mid}
+	}
+	t.Logf("RectFill: %d cycles in software, %d with the blitter; ScrollRaster: %d, %d",
+		cost[true][0], cost[false][0], cost[true][1], cost[false][1])
+	for i, what := range []string{"RectFill", "ScrollRaster"} {
+		if cost[false][i]*4 > cost[true][i] {
+			t.Errorf("%s with the blitter took more than a quarter of the software's time", what)
+		}
 	}
 }

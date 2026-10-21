@@ -58,6 +58,42 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-21 — RTG: the card's blitter
+
+uaegfx.card passes each drawing call to the emulator first and draws in
+software only if the answer isn't 1. `amiga/rtg_blit.go` now does them
+all on the card's memory: FillRect, InvertRect, BlitRect,
+BlitRectNoMaskComplete, BlitTemplate (text), BlitPattern,
+BlitPlanar2Chunky and BlitPlanar2Direct (icons). Anything outside the
+card's memory still goes to Picasso96.
+
+**Checked against Picasso96 itself.** Disassembling uaegfx.card
+(`diag/hunkload.py`, which now handles the short relocation hunks)
+showed that its stubs keep every register. With `RTGBoard.Verify`, each
+call is worked out on the side and answered 0. The software routine then
+draws the real thing and returns through a small routine in the trap area,
+which compares the two. A first try compared at the next call, which was
+too late because the CPU had drawn over the area by then. Picasso96's
+routines call the card again from inside (its BlitRect goes through
+BlitRectNoMaskComplete), so the checks nest. Workbench was driven on the
+card in all 12 pixel formats: a drawer opened, moved, resized and closed,
+an icon selected, menus shown. That came to about 900 calls a format,
+and the differences found were:
+
+- the minterm comes as Picasso96's 4-bit opcode ($C copy), not an Amiga
+  minterm byte;
+- a 24-bit pen is stored low byte first, though 16- and 32-bit pens are
+  high byte first;
+- InvertRect leaves a 32-bit pixel's alpha byte and a 15-bit pixel's spare
+  top bit alone.
+
+With those fixed there are no differences (`TestRTGBlitterMatchesSoftware`;
+`RTG_ALLFORMATS=1` for all 12).
+
+**Speed** (`TestRTGBlitterSpeed`, A8R8G8B8 640×480, emulated CPU cycles):
+50 RectFills take 0.85M cycles instead of 99.3M, and 50 ScrollRasters
+0.30M instead of 144.8M.
+
 ## 2026-10-20 — RTG: the uaegfx card for Picasso96
 
 `--rtg MB` fits the graphics card UAE gives Picasso96, driven by
@@ -108,9 +144,9 @@ on an A1200 (Zorro II) and A8R8G8B8 on the A4000 (Zorro III) and checks
 the picture; `TestRTGStateAndReset` round-trips a save state and resets.
 They need `Picasso96/Picasso96.lha` (Aminet) and `lha`.
 
-**Not yet:** the blitter calls (FillRect, BlitRect…) and a hardware
-sprite for the pointer, which would speed Picasso96 up; running
-Picasso96's installer and Picasso96Mode by hand is still to be checked.
+**Not yet:** the blitter calls (done the next day) and a hardware sprite
+for the pointer; running Picasso96's installer and Picasso96Mode by hand
+is still to be checked.
 
 ## 2026-10-19 — The pot counters; an analogue joystick
 
