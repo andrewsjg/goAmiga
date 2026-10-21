@@ -35,8 +35,7 @@ verified. Longer investigations get their own write-up in `docs/`.
    predicted from its list rather than taken cycle by cycle. IPF tracks'
    variable cell timing isn't modelled.
 2. **Display.** A resolution change (hires bit) partway through a line
-   isn't shown, and neither are sprite data rewrites while a sprite is
-   being shifted out.
+   isn't shown: the line keeps the resolution its fetch started with.
 3. **Paula (other).** The pot counters have no paddles, only an
    analogue joystick.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and

@@ -570,3 +570,25 @@ func TestCLXDATUndrawnLines(t *testing.T) {
 		t.Errorf("after %d frames without a read: CLXDAT $%04X; the watch should have ended", clxWatch, got)
 	}
 }
+
+// Denise loads a sprite's shift register when the beam reaches its
+// position: data written while it is being shifted out changes nothing on
+// screen until the sprite next starts (here, not on this line).
+func TestSpriteDataWrittenWhileShifting(t *testing.T) {
+	a := newTestAmigaSprites()
+	a.Custom.WriteReg16(0x180, 0x0000)
+	a.Custom.WriteReg16(0x1A2, 0x0F00)    // COLOR17
+	setSprite(a, 0, 20, 0xFFFF, 0, false) // lores 20-35: columns 40-71
+	a.Sprites.startLine()
+	cck := (OutputLeft + 28 - writeColumnOffset) / 2 // lores pixel 28: mid-sprite
+	copperWrite(a, 0x144, 0x0000, cck)               // SPR0DATA
+	a.Video.RenderLine(DisplayTop)
+	for _, x := range []int{40, 56, 70} {
+		if got := pixelAt(a, x); got != [3]byte{255, 0, 0} {
+			t.Errorf("column %d = %v, want the sprite (red): the shift register was already loaded", x, got)
+		}
+	}
+	if got := pixelAt(a, 72); got != [3]byte{0, 0, 0} {
+		t.Errorf("column 72 = %v, want background", got)
+	}
+}
