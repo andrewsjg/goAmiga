@@ -15,11 +15,11 @@ import (
 // takes an even slot it wants. Accesses to ROM, CIAs and unmapped space do
 // not use the chip bus and never wait.
 //
-// Modelled: bitplane DMA against CPU and blitter; fixed refresh and sprite
-// slots against the blitter; blitter against CPU (nasty mode, and the
-// "CPU gets every 4th cycle" rule when the blit uses every slot).
-// Not modelled: Copper DMA (it mostly sits in WAIT), audio and disk slots.
-// CIA accesses are timed separately (ciaAccessWait).
+// Modelled: bitplane and Copper DMA against CPU and blitter; the fixed
+// slots (refresh, disk, audio when Paula asks for a word, sprites) against
+// the blitter; blitter against CPU (nasty mode, and the "CPU gets every
+// 4th cycle" rule when the blit uses every slot). CIA accesses are timed
+// separately (ciaAccessWait).
 
 // busCounter counts the CPU's accesses (one per word) to a device. It sits
 // between the CPU's Mapper and chip RAM, the custom registers and the CIAs;
@@ -158,30 +158,43 @@ func (f bitplaneFetch) uses(cck int) bool {
 // fixedDMA says which fixed DMA channels are running: they take odd slots
 // near the start of each line (HRM "DMA time slot allocation"), so they
 // only affect the blitter, never the CPU.
+//
+// An audio channel takes its slot only when Paula has asked for a word:
+// after every two samples it plays (one, when it modulates another
+// channel), so at most once a line and usually less. audioDue is how many
+// colour clocks from now its next request comes (-1: no DMA), audioEvery
+// the time between requests.
 type fixedDMA struct {
-	disk   bool
-	audio  [4]bool
-	sprite bool
+	disk       bool
+	audioDue   [4]int
+	audioEvery [4]int
+	sprite     bool
 }
 
 func (a *Amiga) fixedDMAState() fixedDMA {
 	dmacon := a.Custom.ReadReg16(0x096)
 	var f fixedDMA
+	for i := range f.audioDue {
+		f.audioDue[i] = -1
+	}
 	if dmacon&0x0200 == 0 {
 		return f
 	}
 	f.disk = dmacon&0x0010 != 0 && a.Disk != nil && a.Disk.xfer != nil
-	for i := range f.audio {
-		f.audio[i] = dmacon&(1<<i) != 0
+	for i := range f.audioDue {
+		if dmacon&(1<<i) != 0 {
+			f.audioDue[i], f.audioEvery[i] = a.Paula.nextRequest(i)
+		}
 	}
 	f.sprite = dmacon&0x0020 != 0
 	return f
 }
 
 // fixedSlot reports whether refresh, disk, audio or sprite DMA takes
-// colour clock cck: refresh $01-$07, disk $09-$0D, audio $0F-$15 (one per
-// channel), sprites $17-$35 (two words each for eight sprites).
-func fixedSlot(cck int, f fixedDMA) bool {
+// colour clock cck, elapsed colour clocks from now: refresh $01-$07, disk
+// $09-$0D, audio $0F-$15 (one per channel, when its request is due),
+// sprites $17-$35 (two words each for eight sprites).
+func fixedSlot(cck, elapsed int, f *fixedDMA) bool {
 	if cck&1 == 0 {
 		return false
 	}
@@ -191,7 +204,12 @@ func fixedSlot(cck int, f fixedDMA) bool {
 	case cck <= 0x0D:
 		return f.disk
 	case cck <= 0x15:
-		return f.audio[(cck-0x0F)/2]
+		n := (cck - 0x0F) / 2
+		if f.audioDue[n] < 0 || elapsed < f.audioDue[n] {
+			return false
+		}
+		f.audioDue[n] = max(f.audioDue[n]+f.audioEvery[n], elapsed+1)
+		return true
 	case cck <= 0x35:
 		return f.sprite
 	}
@@ -276,7 +294,7 @@ func (a *Amiga) blitterSlots(cpuCycles int) int {
 			}
 			f = a.bitplaneDMA(vpos)
 		}
-		if !f.uses(cck) && !fixedSlot(cck, fixed) {
+		if !f.uses(cck) && !fixedSlot(cck, i, &fixed) {
 			if cck&1 == 0 && copperWords > 0 {
 				copperWords-- // the Copper outranks the blitter
 			} else {

@@ -155,6 +155,26 @@ func (p *Paula) modulates(n int) (vol, per bool) {
 	return adk>>n&1 != 0, adk>>(n+4)&1 != 0
 }
 
+// nextRequest is when channel n next asks Agnus for a DMA word, in colour
+// clocks from now, and how often it asks: when the low byte of the
+// current word has played (a modulating channel uses one word a period).
+// A channel DMACON has just started asks at once.
+func (p *Paula) nextRequest(n int) (due, every int) {
+	c := &p.ch[n]
+	every = 2 * c.period()
+	if mv, mp := p.modulates(n); mv || mp {
+		every = c.period()
+	}
+	if !c.dma {
+		return 0, every
+	}
+	due = c.periodLeft
+	if !c.lowByte {
+		due += c.period()
+	}
+	return max(due, 0), every
+}
+
 // fetch loads the next DMA word for channel n, reloading pointer and length
 // (and raising the interrupt) when the buffer is used up.
 func (p *Paula) fetch(n int) {

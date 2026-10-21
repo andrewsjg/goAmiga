@@ -199,3 +199,24 @@ func TestAudioDMATakesBlitterSlots(t *testing.T) {
 		t.Errorf("blitter slots %d with audio DMA, %d without: want 4 fewer", with, without)
 	}
 }
+
+// A playing channel takes its slot only when Paula asks for a word, every
+// two samples: at period 428, about once every 856 colour clocks, not on
+// every line.
+func TestAudioDMASlotsFollowRequests(t *testing.T) {
+	a := createTestAmiga(t)
+	a.vpos, a.hpos = 100, 0
+	writeCustom16(a, 0x096, 0x8200) // DMAEN
+	lines := 20
+	without := a.blitterSlots(lines * CPUClocksPerLine)
+	writeCustom16(a, 0x0A6, 428) // AUD0PER
+	writeCustom16(a, 0x0A4, 100) // AUD0LEN
+	writeCustom16(a, 0x096, 0x8001)
+	a.Paula.Tick(2) // starts the channel
+	with := a.blitterSlots(lines * CPUClocksPerLine)
+	took := without - with
+	want := lines * 227 / 856 // 5
+	if took < want || took > want+1 {
+		t.Errorf("audio channel 0 took %d slots in %d lines, want %d or %d", took, lines, want, want+1)
+	}
+}

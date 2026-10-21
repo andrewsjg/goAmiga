@@ -38,8 +38,8 @@ verified. Longer investigations get their own write-up in `docs/`.
    isn't shown, and neither are sprite data rewrites while a sprite is
    being shifted out. Collisions are only detected on lines that are drawn
    (not in headless mode).
-3. **Paula (other).** Audio DMA slots are not charged against the
-   blitter. The pot counters have no paddles, only an analogue joystick.
+3. **Paula (other).** The pot counters have no paddles, only an
+   analogue joystick.
 4. **Machine.** 512 KB, 1 MB or (AGA) 2 MB chip RAM, optional slow and
    Zorro II fast RAM. OCS, ECS or AGA (`--chipset`). Gayle's IDE
    interface is emulated, but not its PCMCIA slot (Kickstart only has
@@ -57,6 +57,22 @@ verified. Longer investigations get their own write-up in `docs/`.
 5. **Safety nets.** CPU access violations are dropped rather than raised
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
+
+## 2026-10-21 — Audio DMA slots follow Paula's requests
+
+The known-gaps list said audio DMA slots weren't charged against the
+blitter. They were (`fixedSlot`, since the DMA slot work), but on every
+line while a channel's DMA was on. Agnus only uses a channel's slot when
+Paula has asked for a word: after the two samples of the last one (one
+sample when it modulates another channel). At period 428 that is once
+every 856 colour clocks, about every fourth line. `Paula.nextRequest`
+gives the time to a channel's next request and the time between them, and
+`blitterSlots` takes the slot only when one is due. A channel DMACON has
+just started asks at once.
+
+**Verified:** `TestAudioDMASlotsFollowRequests`. At period 428 over 20
+lines the channel takes 5 slots, not 20. `TestAudioDMATakesBlitterSlots`
+(four channels starting take four slots) still passes.
 
 ## 2026-10-21 — CPU-slot RAM on the A3000/A4000
 
