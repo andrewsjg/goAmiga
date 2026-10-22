@@ -23,6 +23,7 @@ type Settings struct {
 	IDE          List   // IDE drives on Gayle: the master, then the slave
 	SCSI         List   // SCSI disks on an A2091: ID:PATH
 	Tape         string // a SCSI tape drive on the A2091: ID:DIR
+	WHDLoad      string // a WHDLoad game to boot: an .lha, a folder or a .slave
 	Gayle        string // auto (with AGA, as in the A1200), on or off
 	HDFCreate    int
 	WriteProtect bool
@@ -86,6 +87,7 @@ func (l *List) Values() []string { return *l }
 // their defaults.
 func (s *Settings) Register(fs *flag.FlagSet) {
 	fs.StringVar(&s.ROM, "rom", s.ROM, "Path to Kickstart ROM file")
+	fs.StringVar(&s.WHDLoad, "whdload", s.WHDLoad, "Boot straight into a WHDLoad game: its .lha archive (unpacked once into ~/.config/goamiga/whdload/games, where its saves stay), its folder or its .slave. Needs Kickstart 2.0 or later; WHDLoad is downloaded from whdload.de the first time. Kickstart images in the ROM's folder are given to games that need them")
 	fs.Var(&s.Drives[0], "df0", "ADF for DF0:; repeat to list more disks (Cmd+F11 swaps to the next, F11 chooses a file)")
 	fs.Var(&s.Drives[0], "disk", "same as --df0")
 	fs.Var(&s.Drives[1], "df1", "ADF for DF1: (connects the drive); repeat for more")

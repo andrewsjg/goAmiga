@@ -103,6 +103,9 @@ type Display struct {
 	// off and on again.
 	ConfigRequested bool
 	PowerRequested  bool
+	// WHDLoadRequested is a WHDLoad game (an .lha or a .slave) dropped on
+	// the window: whoever runs the display restarts the machine into it.
+	WHDLoadRequested string
 
 	confirm      string    // a status bar button waiting for its second click
 	confirmUntil time.Time //

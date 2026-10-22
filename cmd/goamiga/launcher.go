@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/andrewsjg/goamiga/amiga"
 	"github.com/andrewsjg/goamiga/internal/config"
+	"github.com/andrewsjg/goamiga/internal/whdload"
 )
 
 // The configuration screen: the saved configurations on the left, the
@@ -25,15 +27,18 @@ const (
 	launcherH = 560
 )
 
-var launcherTabs = []string{"Machine", "Memory", "Floppies", "Hard disks", "Ports", "Display"}
+var launcherTabs = []string{"Machine", "Memory", "Floppies", "Hard disks", "WHDLoad", "Ports", "Display"}
 
 type launcher struct {
-	ui    *ui
-	s     config.Settings
-	name  string // the configuration's name, for saving
-	saved []string
-	sel   int // selected saved configuration, or -1
-	tab   int
+	ui *ui
+
+	kicksFor string   // the ROM kicks was found for (WHDLoad tab)
+	kicks    []string // WHDLoad's names for the Kickstart images beside it
+	s        config.Settings
+	name     string // the configuration's name, for saving
+	saved    []string
+	sel      int // selected saved configuration, or -1
+	tab      int
 
 	status    string
 	statusErr bool
@@ -290,6 +295,8 @@ func (l *launcher) tabs() {
 		l.hardDiskTab(cx, cy)
 	case "Ports":
 		l.portsTab(cx, cy)
+	case "WHDLoad":
+		l.whdloadTab(cx, cy)
 	case "Display":
 		l.displayTab(cx, cy)
 	}
@@ -636,6 +643,66 @@ func (l *launcher) hardDiskTab(x, y int) {
 	}
 }
 
+var whdloadFilter = zenity.FileFilters{{Name: "WHDLoad games", Patterns: []string{"*.lha", "*.lzh", "*.slave"}, CaseFold: true}, {Name: "All files", Patterns: []string{"*"}}}
+
+// whdloadTab sets a WHDLoad game to boot straight into.
+func (l *launcher) whdloadTab(x, y int) {
+	u := l.ui
+	u.label(x-10, y, "Game")
+	u.fill(x, y, 300, 22, uiDarker)
+	u.bevel(x, y, 300, 22, false)
+	shown := l.s.WHDLoad
+	if shown == "" {
+		shown = "(none: the machine boots as usual)"
+	}
+	u.text(x+6, y+3, u.fit(shown, 288), uiBlack)
+	y += 28
+	if u.button(x, y, 100, 22, "Archive…") {
+		l.choose("whdload", l.s.WHDLoad, whdloadFilter, false)
+	}
+	if u.button(x+106, y, 100, 22, "Folder…") {
+		l.choose("whdloaddir", l.s.WHDLoad, nil, true)
+	}
+	if u.buttonOn(x+212, y, 70, 22, "Clear", l.s.WHDLoad != "") {
+		l.s.WHDLoad = ""
+	}
+	y += 38
+
+	// What the machine has for WHDLoad.
+	if r, err := l.rom(); err == nil && l.s.ROM != "" && r.Version < 37 {
+		u.text(x-130, y, u.fit("WHDLoad needs Kickstart 2.0 or later: this ROM is "+r.String()+".", 520), uiRed)
+	} else if err == nil && l.s.ROM != "" {
+		u.text(x-130, y, u.fit("Kickstart: "+r.String()+", which WHDLoad runs on.", 520), uiBlack)
+	}
+	y += 22
+	if l.kicksFor != l.s.ROM { // read the ROM folder once, not every frame
+		l.kicksFor = l.s.ROM
+		l.kicks = slices.Sorted(maps.Keys(whdload.KickImages(whdload.ROMsBeside(l.s.ROM))))
+	}
+	names := l.kicks
+	if len(names) > 0 {
+		u.text(x-130, y, u.fit("Kickstart images for games that need one: "+strings.Join(names, ", "), 520), uiBlack)
+	} else {
+		u.text(x-130, y, u.fit("No Kickstart 1.3 or 3.1 images beside the ROM: games that emulate one won't start.", 520), uiDim)
+	}
+	y += 22
+	home := filepath.Join(config.Dir(), "whdload")
+	if whdload.Installed(home) {
+		u.text(x-130, y, u.fit("WHDLoad: in "+home, 520), uiBlack)
+	} else {
+		u.text(x-130, y, u.fit("WHDLoad: downloaded from whdload.de the first time a game starts.", 520), uiBlack)
+	}
+	y += 36
+	for _, ln := range u.wrap("A WHDLoad game boots straight in, with no Workbench needed: its .lha "+
+		"archive (unpacked once into "+filepath.Join(home, "games")+", where its saves and high "+
+		"scores stay), its folder or its .slave. Dropping an .lha on the running Amiga starts it too. "+
+		"F10 quits the game. Most games want fast RAM and many AGA: the A1200 + fast preset suits "+
+		"them, with a Kickstart 3.x ROM.", 520) {
+		u.text(x-130, y, ln, uiDim)
+		y += 18
+	}
+}
+
 func (l *launcher) portsTab(x, y int) {
 	u := l.ui
 	mode, addr := "", ""
@@ -730,7 +797,8 @@ func (l *launcher) choose(target, current string, filters zenity.FileFilters, di
 			"scsi": "Choose a hardfile for the SCSI disk",
 			"tape": "Choose the folder holding the tape's files",
 			"ide0": "Hardfile for the IDE master", "ide1": "Hardfile for the IDE slave",
-			"shots": "Folder for screenshots", "states": "Folder for save states"}[target]
+			"shots": "Folder for screenshots", "states": "Folder for save states",
+			"whdload": "Choose a WHDLoad game (.lha or .slave)", "whdloaddir": "Choose a WHDLoad game's folder"}[target]
 		if strings.HasPrefix(target, "df") {
 			title = "Disk for " + strings.ToUpper(target) + ":"
 		}
@@ -787,6 +855,8 @@ func (l *launcher) pollChooser() {
 		l.s.ScreenshotDir = c.path
 	case c.target == "states":
 		l.s.StateDir = c.path
+	case c.target == "whdload", c.target == "whdloaddir":
+		l.s.WHDLoad = c.path
 	}
 }
 

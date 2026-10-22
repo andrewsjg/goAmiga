@@ -58,6 +58,82 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-22 — WHDLoad
+
+**WHDLoad works.** WHDLoad 20.1 was tested on an A1200 (68020, AGA, 8 MB
+fast) booting Install 3.2 from a host folder (`amiga/whdload_test.go`). Games were
+installed from their original disks as WHDLoad's own install scripts do
+it:
+- **Bubble Bobble** (SPS 1342): its files are copied from the IPF
+  original, read through trackdisk as an AmigaDOS volume.
+- **SDI** (SPS 720): a kickemu slave, running on WHDLoad's Kickstart 1.3
+  emulation. It needs `DEVS:Kickstarts/kick34005.A500` (the user's 1.3
+  ROM) and the matching `.RTB` from Aminet's `skick346.lha`.
+
+Both games run, and F10 returns to AmigaDOS with return code 0.
+
+Along the way:
+- **Lemmings** from `Lemmings_1.adf` can't be imaged ("sector missing on
+  track 2"). That ADF is a 1992 crack: a trackloader in DOS-format
+  sectors with no filesystem. WHDLoad's imagers expect the original
+  Psygnosis format, which an ADF can't hold. This isn't an emulator
+  problem.
+- **The installers' Start button** is clicked with the pointer helper
+  from the RTG tests. In this test RawDIC reads the disk through
+  trackdisk.
+
+**Booting a game directly** (`--whdload`, `internal/whdload`):
+- **The game:** an `.lha` is unpacked once into
+  `~/.config/goamiga/whdload/games/NAME` and kept, with its saves. A
+  folder or a `.slave` is used where it is.
+- **The slave and options** come from the game's icon. `ToolTypes` reads
+  a DiskObject's tooltypes, skipping its images. Options pass to WHDLoad
+  as CLI arguments; comments, NewIcon image data (`IM1=`) and notes are
+  left out.
+- **The boot folder** holds `C/WHDLoad`, `Devs/Kickstarts` and an
+  `S/Startup-Sequence` of `CD "Game:dir"` and `C:WHDLoad SLAVE=…`.
+  Kickstart 2.0's shell has CD and Echo built in, so no Workbench files
+  are needed.
+- **Kickstart images:** the user's ROMs beside the configured one are
+  recognised by CRC-32 and named as WHDLoad wants (`kick34005.A500`,
+  `kick40068.A1200` …). The RTBs come from skick346.
+- **Boot order:** the boot folder is mounted read-only at boot priority
+  10, ahead of hardfiles and a bootable floppy in DF0: (5). Host folders
+  now have a settable `BootPri`. The game's folder is mounted as Game:.
+- **Downloads:** WHDLoad (whdload.de) and skick346 (Aminet) are
+  downloaded the first time, with a 60 s timeout.
+- **The window and the configuration screen:** dropping an `.lha` or
+  `.slave` on the window restarts the machine into the game
+  (`Display.WHDLoadRequested`). The configuration screen has a WHDLoad
+  tab: the game, whether the ROM can run WHDLoad, the Kickstart images
+  found, where WHDLoad is.
+
+**LhA in Go** (`internal/lha`), since macOS has no `lha` command:
+- It reads header levels 0, 1 and 2 and the methods -lh0-, -lh5-, -lh6-,
+  -lh7- and -lhd-, checking each file's CRC-16. Amiga ISO-8859-1 names
+  become UTF-8, and entries with no name are skipped, as lha skips them.
+- It unpacks WHDLoad, skick346, eight game installs and the Picasso96
+  archives to the same bytes as lha (`TestMatchesLha`).
+- Level 2 is checked with hand-built headers. That test found that the
+  file CRC straddles the first 22 bytes read, which would have panicked
+  on any real level-2 archive.
+
+**Verified:**
+- `TestWHDLoadBooter`: Bubble Bobble's folder, with its icon, boots
+  straight to the game's title, with a bootable Workbench floppy in DF0:
+  as well.
+- `TestPrepareDownloads`: the first run downloads WHDLoad and the RTBs,
+  from a local server, then reads the slave and options from the icon,
+  names the 1.3 ROM, and writes the Startup-Sequence. A second run
+  downloads nothing.
+- `TestPrepareArchive`: an archive is unpacked once, and a saved file
+  survives the next run.
+
+**Not verified:** the live downloads. On this machine new Go binaries
+can't open network connections (curl can), so the download code was
+tested against a local server only. The WHDLoad tab's layout was checked
+by arithmetic, as the screen was locked.
+
 ## 2026-10-21 — Exact chip bus timing for the 68000
 
 Two of the timing gaps came from one design. An instruction ran whole,

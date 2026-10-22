@@ -44,6 +44,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
   Filesystems stored in the RDB (PFS3, SFS, FFS for Kickstart 1.3) are
   loaded at boot.
 - Folders on your computer as Amiga drives, bootable or not.
+- WHDLoad games straight from their archives (see
+  [WHDLoad games](#whdload-games)).
 
 **Connections:**
 - The serial port over telnet or TCP.
@@ -361,6 +363,39 @@ Some details:
   won't expect it to change underneath it.
 - **Free space** is the host disk's, capped at 2 GB because older Amiga
   programs can't count higher.
+
+### WHDLoad games
+
+[WHDLoad](https://whdload.de) runs floppy games from a hard disk. goAmiga
+can boot straight into a WHDLoad game, with no Workbench installation:
+
+```bash
+goamiga --rom ROMS/kick31a1200.rom --cpu 68020 --chipset aga --fastram 8192 \
+        --whdload "Games/Turrican.lha"
+```
+
+- **The game** can be its `.lha` archive, its folder or its `.slave`. An
+  archive is unpacked once into `~/.config/goamiga/whdload/games/NAME`,
+  and its saves and high scores are kept there. The slave and its options
+  come from the game's icon tooltypes (`SLAVE=`, `PRELOAD`, `CUSTOM1=` …),
+  as WHDLoad packs set them.
+- **WHDLoad** itself is downloaded from whdload.de the first time, along
+  with the Kickstart relocation tables (Aminet `util/boot/skick346.lha`).
+  Both go in `~/.config/goamiga/whdload`.
+- **Kickstart:** WHDLoad needs Kickstart 2.0 or later. Games that emulate
+  a Kickstart ("kickemu" slaves) also need that Kickstart's image. goAmiga
+  finds images in the ROM's folder by their checksums, for example a 1.3
+  A500 ROM for `kick34005.A500` or a 3.1 A1200 ROM for `kick40068.A1200`,
+  and hands them over under the names WHDLoad expects.
+- Most games want fast RAM and many want AGA, so the "A1200 + fast" preset
+  suits them.
+- **F10** quits the game; Cmd+R starts it again. **Dropping an `.lha` or
+  `.slave` on the window** restarts the machine into that game. On the
+  configuration screen the game is set on the WHDLoad tab, and a saved
+  configuration keeps it.
+
+WHDLoad also works the usual way: install it and your games on a hardfile
+or a host folder, and run them from Workbench.
 
 ### Settings files
 

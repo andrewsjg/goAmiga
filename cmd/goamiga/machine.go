@@ -5,10 +5,13 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/andrewsjg/goamiga/amiga"
 	"github.com/andrewsjg/goamiga/internal/config"
+	"github.com/andrewsjg/goamiga/internal/whdload"
 )
 
 // machine is an Amiga built from settings, with what it holds open.
@@ -219,6 +222,11 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 		}
 		fmt.Fprintf(out, "A2091 SCSI ID %c: %s (and a goamiga.device unit, for AmigaOS)\n", v[0], v[2:])
 	}
+	if s.WHDLoad != "" {
+		if err := m.bootWHDLoad(s, romInfo, out); err != nil {
+			return fail(fmt.Errorf("WHDLoad: %w", err))
+		}
+	}
 	for _, v := range s.Dirs {
 		vol, p := config.SplitDir(v)
 		if err := a.AttachDirectory(p, vol, s.WriteProtect); err != nil {
@@ -341,4 +349,35 @@ func parseForwards(v string) (map[int]int, error) {
 		fw[hp] = gp
 	}
 	return fw, nil
+}
+
+// bootWHDLoad sets the machine up to boot into a WHDLoad game: a boot
+// folder (WHDLoad, kickstart images, a Startup-Sequence that starts the
+// game) ahead of every other drive, and the game's folder as Game:.
+func (m *machine) bootWHDLoad(s *config.Settings, rom amiga.ROMInfo, out io.Writer) error {
+	if rom.Version < 37 {
+		return fmt.Errorf("WHDLoad needs Kickstart 2.0 or later; %s is %s", filepath.Base(s.ROM), rom)
+	}
+	// The ROMs beside the chosen one, for games that emulate a Kickstart.
+	roms := whdload.ROMsBeside(s.ROM)
+	logf := func(f string, args ...any) { fmt.Fprintf(out, f+"\n", args...) }
+	g, err := whdload.Prepare(filepath.Join(config.Dir(), "whdload"), s.WHDLoad, roms, logf)
+	if err != nil {
+		return err
+	}
+	if err := m.a.AttachDirectory(g.Boot, "WHDBoot", true); err != nil {
+		return err
+	}
+	dirs := m.a.HardDisk.Dirs
+	dirs[len(dirs)-1].BootPri = 10 // ahead of hard disks and a floppy in DF0:
+	if err := m.a.AttachDirectory(g.Dir, "Game", s.WriteProtect); err != nil {
+		return err
+	}
+	kicks := "none"
+	if len(g.Kicks) > 0 {
+		kicks = strings.Join(g.Kicks, ", ")
+	}
+	fmt.Fprintf(out, "WHDLoad: %s from %s (options %s); kickstart images: %s\n",
+		path.Join(g.Path, g.Slave), g.Dir, strings.Join(g.Args, " "), kicks)
+	return nil
 }

@@ -42,6 +42,7 @@ type HostDir struct {
 	Device   string // the DOS device name, e.g. "DH1"; set when the ROM is built
 	ReadOnly bool
 	Bootable bool // it has S/Startup-Sequence
+	BootPri  int  // its boot priority (AttachDirectory: -10, after hardfiles)
 
 	devNode uint32 // the DeviceNode, from MakeDosNode
 	port    uint32 // the handler's message port, once started
@@ -102,7 +103,7 @@ func (a *Amiga) AttachDirectory(dir, volume string, readOnly bool) error {
 	if a.HardDisk == nil {
 		a.HardDisk = &hdBoard{amiga: a}
 	}
-	d := &HostDir{Path: dir, Volume: volume, ReadOnly: readOnly}
+	d := &HostDir{Path: dir, Volume: volume, ReadOnly: readOnly, BootPri: -10}
 	if _, err := d.find("S/Startup-Sequence"); err == nil {
 		d.Bootable = true
 	}
@@ -123,7 +124,7 @@ func (d *HostDir) partition() *Partition {
 	env[deBufMemType] = 1
 	env[deMaxTransfer] = 0x7FFFFFFF
 	env[deMask] = 0xFFFFFFFE
-	env[deBootPri] = uint32(0xFFFFFFF6) // -10: after hardfiles
+	env[deBootPri] = uint32(int32(d.BootPri))
 	env[deDosType] = 0x444F5300
 	return &Partition{Name: d.Device, Env: env, Bootable: d.Bootable}
 }

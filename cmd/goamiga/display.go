@@ -106,6 +106,10 @@ func (g *app) Update() error {
 			g.powerCycle()
 			return nil
 		}
+		if p := g.disp.WHDLoadRequested; p != "" {
+			g.startWHDLoad(p)
+			return nil
+		}
 		if g.disp.ConfigRequested {
 			s, name := g.s, g.name
 			g.stopMachine()
@@ -165,6 +169,24 @@ func (g *app) powerCycle() {
 		return
 	}
 	fmt.Println("Power cycled")
+	g.startMachine(m, &s, name)
+}
+
+// startWHDLoad restarts the machine into a WHDLoad game dropped on the
+// window: the same settings, booting the game.
+func (g *app) startWHDLoad(path string) {
+	s, name := g.s, g.name
+	s.WHDLoad = path
+	g.stopMachine()
+	fmt.Printf("Starting the WHDLoad game %s\n", path)
+	m, err := buildMachine(&s, "", nil, os.Stdout)
+	if err != nil {
+		l := newLauncher(s, name)
+		l.tab = slices.Index(launcherTabs, "WHDLoad")
+		l.say(true, "Can't start %s: %v", filepath.Base(path), err)
+		g.showLauncher(l)
+		return
+	}
 	g.startMachine(m, &s, name)
 }
 

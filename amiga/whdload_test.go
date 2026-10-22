@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andrewsjg/goamiga/internal/whdload"
 )
 
 // WHDLoad (whdload.de, free) and game installs (whdload.de/games, each a
@@ -200,5 +202,64 @@ func TestWHDLoadSDI(t *testing.T) {
 	savePNG(t, m.a, "/tmp/whd_sdi.png")
 	for _, l := range []string{"copy.log", "list.log", "whdload.log"} {
 		t.Logf("%s:\n%s", l, m.log(l))
+	}
+}
+
+// The WHDLoad booter (internal/whdload): a game's folder, with its icon,
+// boots straight into the game on a machine with no Workbench at all,
+// from a boot folder with WHDLoad and a Startup-Sequence for the slave the
+// icon names.
+func TestWHDLoadBooter(t *testing.T) {
+	// The game's folder, installed from its original as before.
+	inst := newWHDMachine(t, "BubbleBobble", "../ADF/Bubble Bobble (1988)(Taito)(US)[1342].zip", []string{
+		`Copy "Bubble Bobble:~(c|s|Trashcan|.#?|#?.info)" SYS:Game/data ALL QUIET`,
+		"Echo done >SYS:done.log",
+	})
+	for i := 0; i < 60 && inst.log("done.log") == ""; i++ {
+		inst.frames(100)
+	}
+	game := filepath.Join(inst.boot, "Game")
+	icon, _ := os.ReadFile(filepath.Join(game, "BubbleBobble.newicon"))
+	os.WriteFile(filepath.Join(game, "BubbleBobble.info"), icon, 0o644)
+
+	// WHDLoad's home, as the booter leaves it after its downloads.
+	home := t.TempDir()
+	usr := unlha(t, filepath.Join(whdDir, "WHDLoad_usr.lha"))
+	copyTree(t, filepath.Join(usr, "WHDLoad", "C"), filepath.Join(home, "c"))
+	os.Rename(filepath.Join(home, "c", "WHDLoad"), filepath.Join(home, "WHDLoad"))
+	if _, err := os.Stat(filepath.Join(whdDir, "skick346.lha")); err == nil {
+		copyTree(t, filepath.Join(unlha(t, filepath.Join(whdDir, "skick346.lha")), "Kickstarts"), filepath.Join(home, "Kickstarts"))
+	}
+
+	g, err := whdload.Prepare(home, game, []string{"../ROMS/Kick13.rom"}, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ss, _ := os.ReadFile(filepath.Join(g.Boot, "S", "Startup-Sequence"))
+	t.Logf("slave %s %v, kickstarts %v, Startup-Sequence:\n%s", g.Slave, g.Args, g.Kicks, ss)
+	if g.Slave != "BubbleBobble.slave" || len(g.Kicks) != 1 {
+		t.Fatalf("slave %q, kickstarts %v", g.Slave, g.Kicks)
+	}
+
+	rom, _ := LoadROM("../ROMS/kick32a1200.rom")
+	a, _ := New(rom, nil)
+	a.SetCPU("68020", 0)
+	a.SetChipset("aga")
+	a.SetChipRAM(2048)
+	a.ConfigureMemory(0, 8192)
+	a.AttachDirectory(g.Boot, "WHDBoot", true)
+	a.HardDisk.Dirs[0].BootPri = 10
+	a.AttachDirectory(g.Dir, "Game", false)
+	// A bootable floppy in DF0: doesn't get in the way.
+	if img, err := ReadDiskImage("../Workbench/Install3.2.adf"); err == nil {
+		a.Disk.DF(0).InsertImage(img)
+	}
+	a.Video.DisplayActive = true
+	a.Reset()
+	m := &whdMachine{a: a}
+	m.frames(1500)
+	savePNG(t, a, "/tmp/whd_booter.png")
+	if a.CPU.PC>>16 == 0xF8 && a.cpuStopped {
+		t.Error("the machine is idle in the ROM: the game didn't start")
 	}
 }

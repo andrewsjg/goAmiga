@@ -168,7 +168,9 @@ var diskImageExt = map[string]bool{".adf": true, ".adz": true, ".ipf": true, ".z
 
 // pollDrops inserts disk images dropped on the window: in the drive whose
 // light they're dropped on, else DF0:. Several at once (or a zip of
-// several) become that drive's list, the first going in.
+// several) become that drive's list, the first going in. A WHDLoad game's
+// .lha or .slave asks for the machine to restart into it
+// (WHDLoadRequested).
 func (d *Display) pollDrops() {
 	files := ebiten.DroppedFiles()
 	if files == nil {
@@ -187,6 +189,11 @@ func (d *Display) pollDrops() {
 	var paths, skipped []string
 	for _, e := range entries {
 		ap, ok := e.(ebiten.AbsPather)
+		// A WHDLoad game (its archive or slave): the machine restarts into it.
+		if ext := strings.ToLower(filepath.Ext(e.Name())); ok && !e.IsDir() && (ext == ".lha" || ext == ".lzh" || ext == ".slave") {
+			d.WHDLoadRequested = ap.AbsPath()
+			return
+		}
 		if !ok || e.IsDir() || !diskImageExt[strings.ToLower(filepath.Ext(e.Name()))] {
 			skipped = append(skipped, e.Name())
 			continue
