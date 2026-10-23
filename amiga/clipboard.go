@@ -112,6 +112,7 @@ const (
 	clipProcUpdate
 	clipProcWriteID
 	clipProcDead // couldn't get memory: does nothing
+	clipProcWait // waiting to try opening clipboard.device again
 )
 
 // clipState is the helper's progress.
@@ -213,6 +214,45 @@ func (h *hdBoard) dosStarted() bool {
 	return false
 }
 
+// dosHasName reports whether DOS knows a device, volume or assign by
+// this name (dos.library's DosList: RootNode, DosInfo, then DosList
+// entries, each with its name as a BCPL string at 40).
+func (h *hdBoard) dosHasName(name string) bool {
+	a := h.amiga
+	eb := a.peek32(4)
+	var dos uint32
+	for n, i := a.peek32(eb+0x17A), 0; n != 0 && a.peek32(n) != 0 && i < 128; n, i = a.peek32(n), i+1 {
+		if a.peekString(a.peek32(n+10), 16) == "dos.library" {
+			dos = n
+			break
+		}
+	}
+	if dos == 0 {
+		return false
+	}
+	root := a.peek32(dos + 34)
+	if root == 0 {
+		return false
+	}
+	info := a.peek32(root+24) << 2
+	if info == 0 {
+		return false
+	}
+	for e, i := a.peek32(info+4)<<2, 0; e != 0 && i < 512; e, i = a.peek32(e)<<2, i+1 {
+		bstr := a.peek32(e+40) << 2
+		if bstr == 0 {
+			continue
+		}
+		n := int(a.peek8(bstr))
+		b := make([]byte, n)
+		a.peekBytes(bstr+1, b)
+		if strings.EqualFold(string(b), name) {
+			return true
+		}
+	}
+	return false
+}
+
 // clipTaskCall sets up the task's next call.
 func (h *hdBoard) clipTaskCall() {
 	a := h.amiga
@@ -300,6 +340,15 @@ func (h *hdBoard) clipProcCall() {
 		cpu.D[0] = clipBufSize
 		cpu.D[1] = 1 // MEMF_PUBLIC
 	case clipProcOpen:
+		// clipboard.device keeps clips in CLIPS:, which the
+		// Startup-Sequence assigns: before then it would wait for the
+		// volume (a floppy boot gets there slowly).
+		if !h.dosHasName("CLIPS") {
+			c.procStep = clipProcWait
+			h.clipCall(c.dosBase, lvoDelay)
+			cpu.D[1] = 100 // 2 s
+			return
+		}
 		a.pokeString(h.base+clipNames+48, "clipboard.device")
 		h.clipCall(eb, lvoOpenDevice)
 		cpu.A[0] = h.base + clipNames + 48
@@ -310,7 +359,7 @@ func (h *hdBoard) clipProcCall() {
 		// Not there yet (or no clipboard.device in DEVS:): try again later,
 		// less and less often.
 		c.retry = min(max(c.retry*2, 5), 60)
-		c.procStep = clipProcOpen
+		c.procStep = clipProcWait
 		h.clipCall(c.dosBase, lvoDelay)
 		cpu.D[1] = uint32(c.retry * 50)
 	case clipProcIdle, clipProcDelay:
@@ -411,6 +460,8 @@ func (h *hdBoard) clipProcRet() {
 		}
 		c.lastID = 0xFFFFFFFF
 		c.procStep = clipProcIdle
+	case clipProcWait: // a Delay before trying to open the device again
+		c.procStep = clipProcOpen
 	case clipProcDelay:
 		// The next call polls (clipProcCall sees clipProcDelay).
 	case clipProcCheckID:

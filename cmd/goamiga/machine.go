@@ -240,8 +240,11 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 		}
 	}
 	// goAmiga's own files for the Amiga (the AHI driver ...), as a
-	// read-only volume beside the drives the board already carries.
-	if a.HardDisk != nil {
+	// read-only volume beside the drives the board carries. With no
+	// drives it brings the board itself, for clipboard sharing (and AHI)
+	// on Kickstart 2.0 or later; it has no Startup-Sequence, so the floppy
+	// still boots.
+	if a.HardDisk != nil || s.Clipboard && romInfo.Version >= 36 {
 		if dir, err := writeAmigaFiles(); err == nil {
 			a.AttachDirectory(dir, "goAmiga", true)
 		} else {

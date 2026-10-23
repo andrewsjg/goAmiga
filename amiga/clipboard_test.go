@@ -155,3 +155,61 @@ func TestClipboardShellCopy(t *testing.T) {
 		t.Errorf("the pasted command didn't run: %q, %v", b, err)
 	}
 }
+
+// With no hard disk or folder of its own, a Workbench floppy still gets
+// clipboard sharing: goAmiga's volume alone carries the board the helper
+// lives on, and the floppy still boots.
+func TestClipboardFloppyWorkbench(t *testing.T) {
+	rom, err := LoadROM("../ROMS/kick32a1200.rom")
+	if err != nil {
+		t.Skip(err)
+	}
+	// The Workbench disk, made bootable with the Install disk's standard
+	// bootblock (this copy has none).
+	wb := readDisk(t, "../Workbench/Workbench3.2.adf")
+	copy(wb[:1024], readDisk(t, "../Workbench/Install3.2.adf")[:1024])
+	img, err := diskImageFrom(wb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vol := filepath.Join(t.TempDir(), "goAmiga")
+	for name, b := range AmigaFiles() {
+		p := filepath.Join(vol, filepath.FromSlash(name))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, b, 0o644)
+	}
+	host := &fakeClipboard{}
+	a, _ := New(rom, nil)
+	a.SetCPU("68020", 0)
+	a.SetChipset("aga")
+	a.SetChipRAM(2048)
+	a.HostClipboard = host
+	a.AttachDirectory(vol, "goAmiga", true)
+	a.Disk.DF(0).InsertImage(img)
+	a.Video.DisplayActive = true
+	a.Reset()
+	m := &whdMachine{a: a}
+	m.frames(1500) // a floppy boot takes a while
+	c := &a.HardDisk.clip
+	if c.procStep < clipProcDelay || c.procStep == clipProcDead { // past opening the device
+		savePNG(t, a, "/tmp/clip_floppy.png")
+		t.Fatalf("the helper isn't running: step %d/%d", c.step, c.procStep)
+	}
+	host.copy("from the host")
+	for i := 0; i < 20 && c.lastText != "from the host"; i++ {
+		m.frames(25)
+	}
+	if c.lastText != "from the host" {
+		savePNG(t, a, "/tmp/clip_floppy.png")
+		t.Fatalf("the helper didn't take the host's text (step %d)", c.procStep)
+	}
+	m.frames(50)
+	c.lastID, c.lastText = 0xFFFFFFFF, ""
+	host.text, host.has = "", false
+	for i := 0; i < 20 && host.text == ""; i++ {
+		m.frames(25)
+	}
+	if host.text != "from the host" {
+		t.Errorf("round trip through the floppy Workbench's clipboard.device gave %q", host.text)
+	}
+}

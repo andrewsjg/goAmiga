@@ -58,6 +58,36 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-23 — Clipboard and AHI without drives
+
+The clipboard helper and the AHI driver live on goAmiga's hard disk
+board, which was only fitted for a hardfile or shared folder. A Workbench
+booted from floppy got neither.
+
+Now the read-only goAmiga volume (with the AHI driver) is mounted, and
+the board fitted with it, when there are no drives as long as clipboard
+sharing is on and Kickstart is 2.0 or later. The volume has no
+Startup-Sequence, so the floppy still boots.
+
+**A bug it found.** The helper opened clipboard.device as soon as DOS
+started, and on a floppy boot that is long before the Startup-Sequence
+assigns CLIPS:. Two problems followed:
+- **Opening too early.** The device's first request then waited for
+  CLIPS: for good. The helper now waits until DOS knows CLIPS:
+  (`dosHasName` walks dos.library's DosList for it).
+- **A Delay taken for success.** Both that wait and the retry after a
+  failed OpenDevice set the step back to "open" before calling `Delay`.
+  `Delay`'s 0 was then read as OpenDevice succeeding. Waiting now has its
+  own step.
+
+On a hard disk boot the device happened to open first time, which is
+why neither showed before.
+
+**Verified** (`TestClipboardFloppyWorkbench`): the Workbench 3.2 disk
+(given the Install disk's bootblock, as this copy has none) boots on an
+A1200 with only goAmiga's volume attached. The helper waits for CLIPS:
+(frame ~1000), opens the device, and host text makes the round trip.
+
 ## 2026-10-23 — AHI sound
 
 `goamiga.audio` is an AHI driver that plays on the host (`amiga/ahi.go`).
