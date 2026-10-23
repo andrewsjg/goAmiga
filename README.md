@@ -48,6 +48,7 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
   [WHDLoad games](#whdload-games)).
 - A clipboard shared with the Mac: copy on either side, paste on the
   other.
+- AHI sound (16-bit, mixed by AHI) through goAmiga's own AHI driver.
 
 **Connections:**
 - The serial port over telnet or TCP.
@@ -423,6 +424,25 @@ It works through a small helper that goAmiga runs on the Amiga, the
 
 Text is converted between the Mac's UTF-8 and the Amiga's ISO-8859-1;
 characters the Amiga can't show become `?`.
+
+### AHI sound
+
+AHI is the Amiga's standard for sound beyond Paula's four 8-bit
+channels: MP3 and module players, games and Workbench programs use it.
+goAmiga has an AHI driver, `goamiga.audio`. AHI mixes on the Amiga as
+usual, and the driver plays the result on the Mac, alongside Paula.
+
+1. Install AHI from Aminet (`driver/audio/m68k-amigaos-ahiusr.lha`).
+2. In a Shell, run `Execute goAmiga:Install-AHI-Driver`. When goAmiga's
+   hard disk support is in use (any hardfile or shared folder), a
+   read-only **goAmiga** volume appears with the driver on it.
+3. In Prefs/AHI, choose a GOAMIGA mode for each unit, for example
+   "GOAMIGA:16 bit stereo++" or "GOAMIGA:HiFi 32 bit stereo++", and a
+   mixing frequency.
+
+AHI does the mixing on the emulated CPU, so a fast one (a 68040, or a
+68020 at more than 100%) handles high frequencies and many channels
+best.
 
 ### Settings files
 

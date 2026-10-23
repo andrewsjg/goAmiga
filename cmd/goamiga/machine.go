@@ -239,6 +239,15 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 			return fail(fmt.Errorf("folder %v", err))
 		}
 	}
+	// goAmiga's own files for the Amiga (the AHI driver ...), as a
+	// read-only volume beside the drives the board already carries.
+	if a.HardDisk != nil {
+		if dir, err := writeAmigaFiles(); err == nil {
+			a.AttachDirectory(dir, "goAmiga", true)
+		} else {
+			fmt.Fprintf(out, "goAmiga volume: %v\n", err)
+		}
+	}
 	gayle := false
 	switch s.Gayle {
 	case "on":
@@ -386,4 +395,20 @@ func (m *machine) bootWHDLoad(s *config.Settings, rom amiga.ROMInfo, out io.Writ
 	fmt.Fprintf(out, "WHDLoad: %s from %s (options %s); kickstart images: %s\n",
 		path.Join(g.Path, g.Slave), g.Dir, strings.Join(g.Args, " "), kicks)
 	return nil
+}
+
+// writeAmigaFiles writes goAmiga's files for the Amiga (amiga.AmigaFiles)
+// into a folder for the goAmiga volume, and returns it.
+func writeAmigaFiles() (string, error) {
+	dir := filepath.Join(config.Dir(), "amiga")
+	for name, b := range amiga.AmigaFiles() {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
 }

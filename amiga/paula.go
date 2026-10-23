@@ -92,6 +92,10 @@ type Paula struct {
 	// Output filters (see filter).
 	fixedL, fixedR onePole
 	ledL, ledR     biquad
+
+	// ahi is sound from AHI's goamiga.audio driver (ahi.go), added to
+	// the output after the filters, as a sound card's would be.
+	ahi ahiOut
 }
 
 // NewPaula creates the audio side of Paula.
@@ -348,7 +352,8 @@ func (p *Paula) emit() {
 	if p.ledFilter() {
 		l, r = p.ledL.step(l), p.ledR.step(r)
 	}
-	p.Output.Write(float32(l), float32(r))
+	al, ar := p.ahi.next()
+	p.Output.Write(float32(l+al), float32(r+ar))
 }
 
 // PowerLEDBright reports whether the power LED is bright: CIA-A PRA bit 1

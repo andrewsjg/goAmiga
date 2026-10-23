@@ -58,6 +58,76 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-23 — AHI sound
+
+`goamiga.audio` is an AHI driver that plays on the host (`amiga/ahi.go`).
+AHI mixes on the Amiga as it always does: the driver's job is to run
+AHI's mixer at the right times and hand the result over. It follows AHI's
+own example driver, Void, from the AHI 6 developer kit on Aminet.
+
+**The library.** `AHIDriver` generates `DEVS:AHI/goamiga.audio`, a hunk
+executable with relocations, with the board's small assembler:
+- A RomTag (RTF_AUTOINIT); its init finds goAmiga's board with
+  expansion.library's FindConfigDev(2011, 2) and keeps the address.
+- Each AHIsub function pushes its number and goes to `ahiEntry` in the
+  board's ROM. That saves the registers and runs the same Go-driven loop
+  as the clipboard helper (trap, `jsr (a5)`, trap), in the caller's
+  context.
+
+**The driver functions:**
+- **AllocAudio** answers MIXING | TIMING | KNOWSTEREO | KNOWHIFI, so AHI
+  mixes.
+- **Start** allocates the mixing buffer and a signal, creates the
+  "goAmiga AHI" process (priority 10), waits for its hello, then adds a
+  vertical blank server.
+- **Stop** reverses that: removes the server, sends the process CTRL-C,
+  waits for its goodbye, then frees the signal and the buffer.
+- **Disable and Enable** are Forbid and Permit.
+- **GetAttr** gives seven mixing frequencies, 16 bits, real time, one
+  output ("Host"), and the strings.
+- **The Set and Load functions** answer AHIS_UNKNOWN, which leaves them to
+  AHI's mixer.
+
+**Mixing.** The server counts player calls due at `ahiac_PlayerFreq`, in
+emulated time, and signals the process. For each call due, the process
+calls AHI's PlayerFunc hook, then its MixerFunc hook into the buffer. Go
+converts the `ahiac_BuffSamples` frames (M16S, S16S, M32S or S32S),
+resamples them linearly to 48 kHz and queues them. Paula's output adds
+the queue after its filters, as a sound card's would be. It starts once
+two mixes are queued, so the bursts come out evenly.
+
+**Getting it onto the Amiga.** With the hard disk board present, goAmiga
+mounts a read-only **goAmiga** volume (`~/.config/goamiga/amiga`). It
+holds the driver, `DEVS:AudioModes/GOAMIGA` (an AHIM file with four
+modes: 16 bit and HiFi, stereo and mono, IDs $0072000x), an
+`Install-AHI-Driver` script and a ReadMe.
+
+Problems found on the way:
+- **Branches in the driver.** The last function stub's short branch
+  landed right after itself, a displacement of 0, which the 68000 reads
+  as a word branch. With the shared code moved first, the far stubs were
+  out of range. The stubs now `JMP` to it, relocated.
+- **Mounting AUDIO:.** `Mount AUDIO: FROM DEVS:DOSDrivers/AUDIO` fails:
+  DOSDrivers entries name no device and are mounted by file name.
+- **The default mode.** With no AHI preferences, AHI picked
+  device.audio's modes. The test installs only GOAMIGA's.
+- **The level.** AHI scales by its channel count (8 by default) so that
+  a full mix can't clip. A tone at 0.37 comes out at 0.046, as it
+  should.
+
+**Verified** (`amiga/ahi_test.go`): Install 3.2 boots on an A1200 with
+AHI 6's user files. The goAmiga volume's script installs the driver, and
+a 3-second 440 Hz tone is copied to `AUDIO:B/16/C/1/F/22050/T/SIGNED`.
+- AHI loads the driver, allocates and starts it at 10 kHz, 32-bit
+  stereo.
+- The host gets the tone at 440.0 Hz, at 47,924 samples a second: the
+  PAL frame rate times 960, so in step with emulated time.
+- `TestAHISaveStateWhilePlaying`: a state saved during playback carries
+  on playing when loaded. The state version is now 21.
+
+**Not verified:** how it sounds on the real output. That path (Paula's
+`emit`) isn't run headless.
+
 ## 2026-10-23 — Sharing the clipboard
 
 Text copied on either side can be pasted on the other (`--clipboard`, on

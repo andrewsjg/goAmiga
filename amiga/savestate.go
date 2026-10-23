@@ -32,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 20 // 20: the RTG pointer, the clipboard helper
+	stateVersion = 21 // 20: the RTG pointer, the clipboard helper; 21: AHI
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -461,6 +461,64 @@ func (h *hdBoard) state(s *stateCodec) {
 		d.state(s)
 	}
 	h.clip.state(s)
+	h.ahi.state(s)
+	if s.load && h.amiga.Paula != nil {
+		h.amiga.Paula.ahi.reset()
+	}
+}
+
+// state saves or loads the AHI driver: its AudioCtrls, the calls under
+// way in each task, and the mixing processes. (Sound already queued for
+// the host isn't kept: it starts again from the next mix.)
+func (st *ahiState) state(s *stateCodec) {
+	num(s, &st.dosBase)
+	num(s, &st.pending)
+	if s.load {
+		st.ctrls, st.calls, st.slaves = map[uint32]*ahiCtrl{}, map[uint32]*ahiCall{}, map[uint32]uint32{}
+	}
+	keys := sortedKeys(st.ctrls)
+	count(s, &keys, ahiMaxCtrls)
+	for _, k := range keys {
+		c := st.ctrls[k]
+		if s.load {
+			c = &ahiCtrl{}
+			st.ctrls[k] = c
+		}
+		for _, p := range []*int{&c.slot, &c.masterSig, &c.slaveSig, &c.slaveStep, &c.pending} {
+			num(s, p)
+		}
+		s.bool(&c.running)
+		for _, p := range []*uint32{&c.mixBuf, &c.bufSize, &c.masterTask, &c.slaveTask} {
+			num(s, p)
+		}
+		s.f64(&c.due)
+		num(s, &c.lastVBL)
+	}
+	keys = sortedKeys(st.calls)
+	count(s, &keys, 64)
+	for _, k := range keys {
+		c := st.calls[k]
+		if s.load {
+			c = &ahiCall{}
+			st.calls[k] = c
+		}
+		num(s, &c.fn)
+		num(s, &c.step)
+		num(s, &c.ac)
+		num(s, &c.result)
+		for i := range c.d {
+			num(s, &c.d[i])
+		}
+	}
+	keys = sortedKeys(st.slaves)
+	count(s, &keys, 64)
+	for _, k := range keys {
+		v := st.slaves[k]
+		num(s, &v)
+		if s.load {
+			st.slaves[k] = v
+		}
+	}
 }
 
 // state saves or loads the clipboard helper's progress (the Amiga side

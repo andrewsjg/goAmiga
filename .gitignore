@@ -24,3 +24,4 @@ goamiga.conf
 *.hdf
 /goAmiga.app/
 /WHDLoad/
+/AHI/

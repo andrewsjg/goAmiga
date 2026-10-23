@@ -94,6 +94,14 @@ type hdBoard struct {
 	clipTaskCode, clipVBLCode, clipSeg uint32
 	clip                               clipState
 
+	// The AHI driver (ahi.go): its code's addresses and strings, and its
+	// state.
+	ahiEntry                         uint32 // offset in the board
+	ahiVBLCode, ahiSeg, ahiSlaveName uint32
+	dosNameAddr                      uint32
+	ahiStr                           map[string]uint32
+	ahi                              ahiState
+
 	// Trace, if set, logs driver activity.
 	Trace io.Writer
 
@@ -471,6 +479,8 @@ func (h *hdBoard) buildROM(base uint32) {
 	s.jsrLVO(lvoPutMsg)
 	s.branch(bra, "dirLoop")
 
+	buildAHIROM(s, base)
+
 	// The clipboard process, created by the task: a segment.
 	s.align(4)
 	s.l(16)
@@ -493,6 +503,13 @@ func (h *hdBoard) buildROM(base uint32) {
 	h.devNameAddr = s.labels["devName"]
 	h.dirSeg = s.labels["dirSeg"]
 	h.clipTaskCode, h.clipVBLCode, h.clipSeg = s.labels["clipTask"], s.labels["clipVBL"], s.labels["clipSeg"]
+	h.ahiEntry = s.labels["ahiEntry"] - base
+	h.ahiVBLCode, h.ahiSeg = s.labels["ahiVBL"], s.labels["ahiSeg"]
+	h.ahiSlaveName, h.dosNameAddr = s.labels["ahiSlaveName"], s.labels["dosName"]
+	h.ahiStr = map[string]uint32{}
+	for _, str := range ahiStrings {
+		h.ahiStr[str.label] = s.labels[str.label]
+	}
 
 	// Device base: jump table below it, Library above.
 	for i, fn := range []string{"devOpen", "devClose", "devNull", "devNull", "devBeginIO", "devNull"} {
@@ -563,6 +580,7 @@ func (h *hdBoard) trap(n int) {
 		h.tracef("DiagPoint: copy at $%06X, ConfigDev $%06X", copyAddr, h.configDev)
 
 	case hdTrapInit:
+		h.ahiReset()
 		h.nextPart = 0
 		h.mounts, h.pending = map[uint32]fsMount{}, nil
 		h.newPorts = map[uint32]uint32{}
@@ -648,6 +666,16 @@ func (h *hdBoard) trap(n int) {
 		h.clipProcCall()
 	case hdTrapClipProcRet:
 		h.clipProcRet()
+	case hdTrapAHICall:
+		h.ahiCallTrap()
+	case hdTrapAHIRet:
+		h.ahiRetTrap()
+	case hdTrapAHISlave:
+		h.ahiSlaveTrap()
+	case hdTrapAHISlaveRet:
+		h.ahiSlaveRetTrap()
+	case hdTrapAHIVBL:
+		h.ahiVBL()
 	}
 }
 
