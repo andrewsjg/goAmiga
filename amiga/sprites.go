@@ -422,15 +422,18 @@ func (se *SpriteEngine) paint(i int, bits *[MaxOutputWidth]byte, left, width int
 			return
 		}
 		// Columns are measured in super-hires pixels times cs/2. On AGA
-		// with the programmable beam, sprite positions are 256 lores
-		// pixels (H8) ahead of the display window's: graphics.library puts
-		// a pointer at the left edge of a Productivity or DblPAL screen
-		// whose window starts at H $53 at H $152, where on a PAL screen
-		// starting at $81 it uses $80. On ECS it uses the PAL relation in
-		// Productivity too ($3F for a window at $40).
+		// with the programmable beam, a mode whose display window lies
+		// below lores position 256 takes sprite positions modulo 256 (H8
+		// ignored): graphics.library puts the pointer at the left edge of
+		// a Productivity screen (window $53-$F3) at H $152, of a DblPAL one
+		// ($5B-$FB) at $15A, past the end of their lines (244 and 260
+		// pixels). A wider window needs H8, and keeps it: AGS's 1024x384
+		// (window $42-$142, a 322-pixel line) has its pointer at the right
+		// edge at $140. On ECS the PAL relation holds in Productivity too
+		// ($3F for a window at $40).
 		h := s.hstartShres(aga)
-		if aga && se.amiga.beamVariable() {
-			h = (h - 4*256) & 0x7FF
+		if aga && se.amiga.beamVariable() && se.amiga.Video.window().hstop <= 256 {
+			h &= 4*256 - 1
 		}
 		sx := h - 4*left
 		x0 := sx * cs / 2

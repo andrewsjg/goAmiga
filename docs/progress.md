@@ -58,6 +58,21 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-24 — The AGS Workbench pointer
+
+In AGS's AGA Workbench mode (1024x384, programmable beam, HTOTAL $A0) the
+mouse pointer was invisible. Sprite positions on AGA with a programmable
+beam were always moved 256 lores pixels left (H8 taken off), which
+Productivity and DblPAL need: graphics.library puts their left-edge pointer
+at H $152/$15A, past the end of their 244- and 260-pixel lines. AGS's
+display window runs to H $142, so its positions are already on the line
+and the shift threw the pointer off-screen.
+
+The shift now applies only when the display window ends at or before lores
+256, where H8 cannot be a real on-screen position. Checked with a temporary
+test that boots the AGS configuration (hdf clones) to Workbench and moves
+the pointer, and with `TestWorkbench31kHzModes`.
+
 ## 2026-10-24 — Twice as fast: trace text, defers, the memory map
 
 The AGS configuration (A4000, 68040 at 1000%, MMU on, 11 hardfiles, RTG)
