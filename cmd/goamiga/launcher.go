@@ -438,6 +438,15 @@ func (l *launcher) machineTab(x, y int) {
 	u.label(x-10, y, "CPU speed")
 	cycleOf(u, x, y, 200, []string{"Model's own", "100% (7 MHz)", "150%", "200%", "250% (A1200)", "300%", "400%", "800%", "1000% (A4000)", "1600%"},
 		[]int{0, 100, 150, 200, 250, 300, 400, 800, 1000, 1600}, &l.s.CPUSpeed)
+	// Exact chip bus timing (--exact-bus): only a 68000 at its own speed
+	// uses it.
+	if u.checkbox(x+214, y+3, "Exact bus (68000)", &l.s.ExactBus) {
+		if l.s.ExactBus {
+			l.say(false, "Exact bus timing: a 68000 at 7 MHz has its chip accesses timed one by one against the Copper and DMA")
+		} else {
+			l.say(false, "Bus timing forecast: faster, but a 68000's accesses are timed roughly")
+		}
+	}
 	y += 34
 	u.label(x-10, y, "FPU")
 	cycleOf(u, x, y, 200, []string{"Auto", "None", "68881", "68882"}, []string{"auto", "none", "68881", "68882"}, &l.s.FPU)
