@@ -471,7 +471,7 @@ func (l *launcher) machineTab(x, y int) {
 	cycleOf(u, x, y, 260, []string{"None", "A3000 (Ramsey, 32-bit RAM)", "A4000 (with its IDE)"},
 		[]string{"none", "a3000", "a4000"}, &l.s.Motherboard)
 	if l.s.Motherboard != "none" && l.s.Motherboard != "" && (l.s.CPU == "68000" || l.s.CPU == "68020") {
-		u.text(x+270, y+3, "needs a 68030 or 68040", uiRed)
+		u.text(x+270, y+3, "needs a 68030/040", uiRed)
 	}
 }
 
@@ -754,14 +754,19 @@ func (l *launcher) portsTab(x, y int) {
 	y += 26
 	u.checkbox(x, y, "A2065 Ethernet (Amiga Unix)", &l.s.A2065)
 	y += 22
-	u.text(x, y, "10.0.2.15, through this computer; telnet to localhost 2323 reaches it.", uiDim)
-	y += 36
+	for _, ln := range u.wrap("10.0.2.15, through this computer; telnet to localhost 2323 reaches it.", 400) {
+		u.text(x, y, ln, uiDim)
+		y += 18
+	}
+	y += 18
 	u.label(x-10, y, "Joystick")
 	u.checkbox(x, y, "Arrow keys and Right Ctrl/Alt (Ctrl+F12 toggles)", &l.s.JoyKeys)
 	y += 22
 	u.text(x, y, "A gamepad, if connected, is always the joystick.", uiDim)
 	y += 26
-	u.checkbox(x, y, "Gamepad as an analogue joystick (proportional, for the few games that read one)", &l.s.JoyAnalog)
+	u.checkbox(x, y, "Gamepad as an analogue joystick", &l.s.JoyAnalog)
+	y += 22
+	u.text(x, y, "Proportional, for the few games that read one.", uiDim)
 }
 
 func (l *launcher) displayTab(x, y int) {

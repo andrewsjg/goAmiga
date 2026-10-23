@@ -69,6 +69,10 @@ type ui struct {
 	lastClickX int
 	lastClickY int
 
+	// texts, when not nil, records where each piece of text went (tests
+	// check the layout with it).
+	texts *[]placedText
+
 	focus  string // the text field being edited
 	typed  []rune
 	back   bool // Backspace
@@ -189,7 +193,17 @@ func (u *ui) bevel(x, y, w, h int, raised bool) {
 
 func (u *ui) text(x, y int, s string, c color.Color) { u.textFace(x, y, s, c, u.face) }
 
+// placedText is a piece of text and its box, in design units.
+type placedText struct {
+	x, y, w int
+	s       string
+}
+
 func (u *ui) textFace(x, y int, s string, c color.Color, f text.Face) {
+	if u.texts != nil {
+		w, _ := text.Measure(s, f, 0)
+		*u.texts = append(*u.texts, placedText{x, y, int(w), s})
+	}
 	sx, sy := u.at(x, y)
 	sf := u.faceAt(f)
 	u.ops = append(u.ops, func(dst *ebiten.Image) {
