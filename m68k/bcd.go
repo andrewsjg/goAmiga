@@ -1,7 +1,5 @@
 package m68k
 
-import "fmt"
-
 // Packed BCD arithmetic (ABCD, SBCD, NBCD).
 //
 // The formulas are flamewing's, measured on real 68000s (and used by MAME and
@@ -63,12 +61,12 @@ func (c *Processor) bcdOperands(t *stepTrace) (src, dst uint8, store func(uint8)
 	rx := (c.op >> 9) & 7
 	ry := c.op & 7
 	if c.op&0x08 == 0 {
-		t.src, t.dst = fmt.Sprintf("D%d", ry), fmt.Sprintf("D%d", rx)
+		t.src, t.dst = c.sprintf("D%d", ry), c.sprintf("D%d", rx)
 		return uint8(c.D[ry]), uint8(c.D[rx]), func(v uint8) {
 			c.D[rx] = c.D[rx]&0xFFFFFF00 | uint32(v)
 		}
 	}
-	t.src, t.dst = fmt.Sprintf("-(A%d)", ry), fmt.Sprintf("-(A%d)", rx)
+	t.src, t.dst = c.sprintf("-(A%d)", ry), c.sprintf("-(A%d)", rx)
 	src, _ = c.M.Byte(int(c.predecByte(ry)))
 	addr := c.predecByte(rx)
 	dst, _ = c.M.Byte(int(addr))

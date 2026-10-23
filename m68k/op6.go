@@ -63,7 +63,9 @@ func opBcc(c *Processor) (t stepTrace) {
 	if t.err != nil {
 		return
 	}
-	t.src = fmt.Sprintf("($%X,PC)", disp)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("($%X,PC)", disp)
+	}
 
 	// BSR: push return address, then always branch
 	if cc == 1 {

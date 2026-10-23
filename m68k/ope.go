@@ -20,15 +20,12 @@ func opShiftReg(c *Processor) (t stepTrace) {
 	typ := (c.op & 0x0018) >> 3 // 00=AS, 01=LS, 10=ROX, 11=RO
 	reg := c.op & 0x07
 
-	names := []string{"as", "ls", "rox", "ro"}
-	dirChar := []string{"r", "l"}
-
 	t = stepTrace{
 		addr: c.PC,
 		n:    1,
-		op:   fmt.Sprintf("%s%s", names[typ], dirChar[dr]),
+		op:   shiftOps[typ][dr],
 		sz:   sz,
-		dst:  fmt.Sprintf("D%d", reg),
+		dst:  c.sprintf("D%d", reg),
 	}
 	c.PC += 2
 
@@ -40,10 +37,14 @@ func opShiftReg(c *Processor) (t stepTrace) {
 		if count == 0 {
 			count = 8
 		}
-		t.src = fmt.Sprintf("#%d", count)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("#%d", count)
+		}
 	} else {
 		count = c.D[cr] % 64
-		t.src = fmt.Sprintf("D%d", cr)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", cr)
+		}
 	}
 
 	val := c.D[reg] & sizeFilter[sz]
@@ -72,13 +73,10 @@ func opShiftMem(c *Processor) (t stepTrace) {
 	dr := (c.op & 0x0100) >> 8
 	typ := (c.op & 0x0600) >> 9
 
-	names := []string{"as", "ls", "rox", "ro"}
-	dirChar := []string{"r", "l"}
-
 	t = stepTrace{
 		addr: c.PC,
 		n:    1,
-		op:   fmt.Sprintf("%s%s", names[typ], dirChar[dr]),
+		op:   shiftOps[typ][dr],
 		sz:   SizeWord,
 	}
 	c.PC += 2
@@ -327,3 +325,7 @@ func doRO(c *Processor, val, count uint32, sz int, dr uint16) uint32 {
 	}
 	return result
 }
+
+// shiftOps are the shift and rotate mnemonics, by type (AS, LS, ROX, RO)
+// and direction (right, left): tables, so tracing nothing costs nothing.
+var shiftOps = [4][2]string{{"asr", "asl"}, {"lsr", "lsl"}, {"roxr", "roxl"}, {"ror", "rol"}}

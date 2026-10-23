@@ -17,7 +17,9 @@ func opAddq(c *Processor) (t stepTrace) {
 	if data == 0 {
 		data = 8
 	}
-	t.src = fmt.Sprintf("#%d", data)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("#%d", data)
+	}
 
 	ea := decodeEA(c.op)
 	mod := ea & 0x38 >> 3
@@ -26,7 +28,9 @@ func opAddq(c *Processor) (t stepTrace) {
 	if mod == 0x01 {
 		reg := ea & 0x07
 		c.A[reg] += data
-		t.dst = fmt.Sprintf("A%d", reg)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("A%d", reg)
+		}
 		return
 	}
 
@@ -66,7 +70,9 @@ func opSubq(c *Processor) (t stepTrace) {
 	if data == 0 {
 		data = 8
 	}
-	t.src = fmt.Sprintf("#%d", data)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("#%d", data)
+	}
 
 	ea := decodeEA(c.op)
 	mod := ea & 0x38 >> 3
@@ -75,7 +81,9 @@ func opSubq(c *Processor) (t stepTrace) {
 	if mod == 0x01 {
 		reg := ea & 0x07
 		c.A[reg] -= data
-		t.dst = fmt.Sprintf("A%d", reg)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("A%d", reg)
+		}
 		return
 	}
 
@@ -108,8 +116,8 @@ func opDBcc(c *Processor) (t stepTrace) {
 	t = stepTrace{
 		addr: c.PC,
 		n:    1,
-		op:   fmt.Sprintf("db%s", conditionStrings[cc]),
-		src:  fmt.Sprintf("D%d", reg),
+		op:   dbccOps[cc],
+		src:  c.sprintf("D%d", reg),
 		sz:   noSize,
 	}
 	c.PC += 2
@@ -121,7 +129,9 @@ func opDBcc(c *Processor) (t stepTrace) {
 		return
 	}
 	disp := wordToInt32(dw)
-	t.dst = fmt.Sprintf("($%X,PC)", disp)
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("($%X,PC)", disp)
+	}
 
 	// test condition and return if true
 	if testCond(c, cc) {

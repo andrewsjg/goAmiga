@@ -12,7 +12,7 @@ func opLea(c *Processor) (t stepTrace) {
 		addr: c.PC,
 		op:   "lea",
 		sz:   noSize,
-		dst:  fmt.Sprintf("A%d", an),
+		dst:  c.sprintf("A%d", an),
 	}
 	c.PC += 2
 
@@ -26,7 +26,9 @@ func opLea(c *Processor) (t stepTrace) {
 
 	case 0x02: // memory address
 		c.A[an] = c.A[reg]
-		t.src = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x05: // (d16,An)
 		var d int16
@@ -36,10 +38,12 @@ func opLea(c *Processor) (t stepTrace) {
 		}
 		c.PC += 2
 		c.A[an] = uint32(int32(c.A[reg]) + int32(d))
-		t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // (d8,An,Xn)
-		c.A[an], t.src, t.err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		c.A[an], t.src, t.err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 
 	case 0x07: // other
 		switch reg {
@@ -51,20 +55,26 @@ func opLea(c *Processor) (t stepTrace) {
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			c.A[an] = uint32(wordToInt32(n))
-			t.src = fmt.Sprintf("$%X", int32(n))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", int32(n))
+			}
 
 		case 0x01: // absolute long
 			var n uint32
 			n, _, t.err = c.readImmLong()
 			c.A[an] = n
-			t.src = fmt.Sprintf("$%X", int32(n))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", int32(n))
+			}
 
 		case 0x02: // program counter with displacement
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			disp := wordToInt32(n)
 			c.A[an] = uint32(int32(c.PC) + disp - 2)
-			t.src = fmt.Sprintf("($%X,PC)", disp)
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("($%X,PC)", disp)
+			}
 
 		case 0x03: // program counter with index
 			c.A[an], t.src, t.err = c.decodeBriefExt(c.PC, "PC")
@@ -166,7 +176,9 @@ func opMovem(c *Processor) (t stepTrace) {
 	case 3, 4:
 		addr = c.A[reg]
 		if mode == 3 {
-			t.src = fmt.Sprintf("(A%d)+", reg)
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("(A%d)+", reg)
+			}
 			// A fault on the first transfer leaves An advanced by 2.
 			defer func() {
 				if r := recover(); r != nil {
@@ -175,7 +187,9 @@ func opMovem(c *Processor) (t stepTrace) {
 				}
 			}()
 		} else {
-			t.dst = fmt.Sprintf("-(A%d)", reg)
+			if c.TraceWriter != nil {
+				t.dst = fmt.Sprintf("-(A%d)", reg)
+			}
 		}
 	default:
 		var opr string
@@ -189,8 +203,12 @@ func opMovem(c *Processor) (t stepTrace) {
 		}
 	}
 	if !toRegs {
-		t.src = fmt.Sprintf("$%X", regl)
-		regs := append(c.D[:8:8], c.A[:]...) // values before the transfer
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("$%X", regl)
+		}
+		var regs [16]uint32 // values before the transfer (an array: no allocation)
+		copy(regs[:8], c.D[:])
+		copy(regs[8:], c.A[:])
 		for i := uint16(0); i < 16; i++ {
 			if regl&(1<<i) == 0 {
 				continue
@@ -223,7 +241,9 @@ func opMovem(c *Processor) (t stepTrace) {
 		return
 	}
 
-	t.dst = fmt.Sprintf("$%X", regl)
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("$%X", regl)
+	}
 	for i := uint16(0); i < 16; i++ {
 		if regl&(1<<i) == 0 {
 			continue
@@ -259,7 +279,7 @@ func opTrap(c *Processor) (t stepTrace) {
 		n:    1,
 		op:   "trap",
 		sz:   noSize,
-		src:  fmt.Sprintf("#%d", v),
+		src:  c.sprintf("#%d", v),
 	}
 	c.PC += 2
 	v += 32
@@ -292,10 +312,10 @@ func opMoveUsp(c *Processor) (t stepTrace) {
 	c.PC += 2
 	dir := c.op & 0x08 >> 3
 	if dir == 0 { // An to USP
-		t.src, t.dst = fmt.Sprintf("A%d", reg), "USP"
+		t.src, t.dst = c.sprintf("A%d", reg), "USP"
 		c.USP = c.A[reg]
 	} else { // USP to An
-		t.src, t.dst = "USP", fmt.Sprintf("A%d", reg)
+		t.src, t.dst = "USP", c.sprintf("A%d", reg)
 		c.A[reg] = c.USP
 	}
 	return
@@ -323,7 +343,9 @@ func opStop(c *Processor) (t stepTrace) {
 		return
 	}
 	c.PC += 2
-	t.dst = fmt.Sprintf("#$%X", n)
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("#$%X", n)
+	}
 	c.setSR(uint32(n) & StatusMask)
 	t.err = c.Stop()
 	return
@@ -368,7 +390,9 @@ func opJsr(c *Processor) (t stepTrace) {
 
 	case 0x02: // address register indirect
 		jmp = c.A[reg]
-		t.src = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x05: // (d16,An)
 		var d int16
@@ -378,10 +402,12 @@ func opJsr(c *Processor) (t stepTrace) {
 		}
 		c.PC += 2
 		jmp = uint32(int32(c.A[reg]) + int32(d))
-		t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // (d8,An,Xn)
-		jmp, t.src, t.err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		jmp, t.src, t.err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if t.err != nil {
 			return
 		}
@@ -396,20 +422,26 @@ func opJsr(c *Processor) (t stepTrace) {
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			jmp = uint32(wordToInt32(n))
-			t.src = fmt.Sprintf("$%X", int32(n))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", int32(n))
+			}
 
 		case 0x01: // absolute long
 			var n uint32
 			n, _, t.err = c.readImmLong()
 			jmp = n
-			t.src = fmt.Sprintf("$%X", int32(n))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", int32(n))
+			}
 
 		case 0x02: // program counter with displacement
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			disp := wordToInt32(n)
 			jmp = uint32(int32(c.PC) + disp - 2)
-			t.src = fmt.Sprintf("($%X,PC)", disp)
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("($%X,PC)", disp)
+			}
 
 		case 0x03: // program counter with index
 			jmp, t.src, t.err = c.decodeBriefExt(c.PC, "PC")
@@ -491,7 +523,9 @@ func opJmp(c *Processor) (t stepTrace) {
 
 	case 0x02: // address register indirect
 		c.PC = c.A[reg]
-		t.src = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x05: // address register indirect with displacement
 		var d int16
@@ -500,11 +534,13 @@ func opJmp(c *Processor) (t stepTrace) {
 			return
 		}
 		c.PC = uint32(int32(c.A[reg]) + int32(d))
-		t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, t.src, t.err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, t.src, t.err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if t.err != nil {
 			return
 		}
@@ -520,20 +556,26 @@ func opJmp(c *Processor) (t stepTrace) {
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			c.PC = uint32(wordToInt32(n))
-			t.src = fmt.Sprintf("$%X", wordToInt32(n))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", wordToInt32(n))
+			}
 
 		case 0x01: // absolute long
 			var n uint32
 			n, _, t.err = c.readImmLong()
 			c.PC = n
-			t.src = fmt.Sprintf("$%X", int32(n))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", int32(n))
+			}
 
 		case 0x02: // program counter with displacement
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			disp := wordToInt32(n)
 			c.PC = uint32(int32(c.PC) + disp - 2)
-			t.src = fmt.Sprintf("($%X,PC)", disp)
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("($%X,PC)", disp)
+			}
 
 		case 0x03: // program counter with index
 			var addr uint32
@@ -568,7 +610,9 @@ func opPea(c *Processor) (t stepTrace) {
 
 	case 0x02: // (An)
 		addr = c.A[reg]
-		t.src = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x05: // (d16,An)
 		var d int16
@@ -578,10 +622,12 @@ func opPea(c *Processor) (t stepTrace) {
 		}
 		c.PC += 2
 		addr = uint32(int32(c.A[reg]) + int32(d))
-		t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // (d8,An,Xn)
-		addr, t.src, t.err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, t.src, t.err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if t.err != nil {
 			return
 		}
@@ -595,16 +641,22 @@ func opPea(c *Processor) (t stepTrace) {
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			addr = uint32(wordToInt32(n))
-			t.src = fmt.Sprintf("$%X", wordToInt32(n))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", wordToInt32(n))
+			}
 		case 0x01:
 			addr, _, t.err = c.readImmLong()
-			t.src = fmt.Sprintf("$%X", int32(addr))
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("$%X", int32(addr))
+			}
 		case 0x02:
 			var n uint16
 			n, _, t.err = c.readImmWord()
 			disp := wordToInt32(n)
 			addr = uint32(int32(c.PC) + disp - 2)
-			t.src = fmt.Sprintf("($%X,PC)", disp)
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("($%X,PC)", disp)
+			}
 		case 0x03:
 			addr, t.src, t.err = c.decodeBriefExt(c.PC, "PC")
 		}
@@ -662,7 +714,7 @@ func opLink(c *Processor) (t stepTrace) {
 		op:   "link",
 		sz:   noSize,
 		n:    1,
-		src:  fmt.Sprintf("A%d", reg),
+		src:  c.sprintf("A%d", reg),
 	}
 	c.PC += 2
 
@@ -671,7 +723,9 @@ func opLink(c *Processor) (t stepTrace) {
 	if t.err != nil {
 		return
 	}
-	t.dst = fmt.Sprintf("#$%X", wordToInt32(disp))
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("#$%X", wordToInt32(disp))
+	}
 
 	// push An onto stack
 	c.A[7] -= 4
@@ -697,7 +751,7 @@ func opUnlk(c *Processor) (t stepTrace) {
 		op:   "unlk",
 		sz:   noSize,
 		n:    1,
-		src:  fmt.Sprintf("A%d", reg),
+		src:  c.sprintf("A%d", reg),
 	}
 	c.PC += 2
 
@@ -877,7 +931,7 @@ func opExt(c *Processor) (t stepTrace) {
 		addr: c.PC,
 		op:   "ext",
 		n:    1,
-		dst:  fmt.Sprintf("D%d", reg),
+		dst:  c.sprintf("D%d", reg),
 	}
 	c.PC += 2
 
@@ -921,7 +975,7 @@ func opSwap(c *Processor) (t stepTrace) {
 		op:   "swap",
 		n:    1,
 		sz:   SizeWord,
-		dst:  fmt.Sprintf("D%d", reg),
+		dst:  c.sprintf("D%d", reg),
 	}
 	c.PC += 2
 
@@ -942,7 +996,7 @@ func opScc(c *Processor) (t stepTrace) {
 	cc := (c.op & 0x0F00) >> 8
 	t = stepTrace{
 		addr: c.PC,
-		op:   fmt.Sprintf("s%s", conditionStrings[cc]),
+		op:   sccOps[cc],
 		n:    1,
 		sz:   SizeByte,
 	}
@@ -1039,7 +1093,7 @@ func opTas(c *Processor) (t stepTrace) {
 // Dn < 0 and cleared if Dn > <ea>.
 func opChk(c *Processor) (t stepTrace) {
 	reg := (c.op >> 9) & 7
-	t = stepTrace{addr: c.PC, op: "chk", sz: SizeWord, n: 1, dst: fmt.Sprintf("D%d", reg)}
+	t = stepTrace{addr: c.PC, op: "chk", sz: SizeWord, n: 1, dst: c.sprintf("D%d", reg)}
 	c.PC += 2
 	var bound uint16
 	bound, t.src, t.err = c.readWord(c.op)

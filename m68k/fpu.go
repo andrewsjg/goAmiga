@@ -283,7 +283,7 @@ func (c *Processor) fpRead(ea uint16, f int) (float64, string, error) {
 	switch {
 	case mode == 0: // Dn: byte, word, long, single only
 		d := c.D[reg]
-		opr := fmt.Sprintf("D%d", reg)
+		opr := c.sprintf("D%d", reg)
 		switch f {
 		case fmtByte:
 			return float64(int8(d)), opr, nil
@@ -379,7 +379,7 @@ func (c *Processor) fpWrite(ea uint16, f int, v float64) (string, error) {
 		default:
 			return "", errBadAddress
 		}
-		return fmt.Sprintf("D%d", reg), nil
+		return c.sprintf("D%d", reg), nil
 	}
 	if mode == 1 || mode == 7 && reg >= 2 {
 		return "", errBadAddress
@@ -450,11 +450,13 @@ func (c *Processor) fpGeneral(t stepTrace) stepTrace {
 		var src float64
 		if class == 0 {
 			src = c.FP[cmd>>10&7]
-			t.src = fmt.Sprintf("FP%d", cmd>>10&7)
+			if c.TraceWriter != nil {
+				t.src = fmt.Sprintf("FP%d", cmd>>10&7)
+			}
 		} else if cmd>>10&7 == 7 { // FMOVECR #offset,FPn
 			c.FP[dst] = fpConstants[cmd&0x7F]
 			c.setFPCC(c.FP[dst])
-			t.op, t.src, t.dst = "fmovecr", fmt.Sprintf("#$%X", cmd&0x7F), fmt.Sprintf("FP%d", dst)
+			t.op, t.src, t.dst = "fmovecr", c.sprintf("#$%X", cmd&0x7F), c.sprintf("FP%d", dst)
 			c.tim.fixed = 29
 			return t
 		} else {
@@ -462,7 +464,9 @@ func (c *Processor) fpGeneral(t stepTrace) stepTrace {
 				return t
 			}
 		}
-		t.dst = fmt.Sprintf("FP%d", dst)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("FP%d", dst)
+		}
 		t.op = c.fpOperate(cmd&0x7F, src, dst, cmd&7)
 		return t
 	case 3: // FMOVE FPn,<ea>
@@ -471,7 +475,7 @@ func (c *Processor) fpGeneral(t stepTrace) stepTrace {
 			f = fmtPacked
 		}
 		src := cmd >> 7 & 7
-		t.op, t.src = "fmove", fmt.Sprintf("FP%d", src)
+		t.op, t.src = "fmove", c.sprintf("FP%d", src)
 		t.dst, t.err = c.fpWrite(ea, f, c.FP[src])
 		c.tim.fixed = 33
 		return t

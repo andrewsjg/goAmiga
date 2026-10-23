@@ -34,7 +34,9 @@ func opOr(c *Processor) (t stepTrace) {
 			return
 		}
 		result := NewInt(a.Long()|b.Long(), int(t.sz))
-		t.dst = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d", reg)
+		}
 
 		switch t.sz {
 		case SizeByte:
@@ -53,7 +55,9 @@ func opOr(c *Processor) (t stepTrace) {
 			c.SR |= StatusNegative
 		}
 	} else { // Dn OR <ea> -> <ea>
-		t.src = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", reg)
+		}
 		s := c.saveRMW(ea)
 		var b Int
 		b, t.dst, t.err = c.readInt(ea, t.sz)
@@ -84,7 +88,7 @@ func opDivu(c *Processor) (t stepTrace) {
 		n:    1,
 		op:   "divu",
 		sz:   SizeWord,
-		dst:  fmt.Sprintf("D%d", reg),
+		dst:  c.sprintf("D%d", reg),
 	}
 	c.PC += 2
 
@@ -132,7 +136,7 @@ func opDivs(c *Processor) (t stepTrace) {
 		n:    1,
 		op:   "divs",
 		sz:   SizeWord,
-		dst:  fmt.Sprintf("D%d", reg),
+		dst:  c.sprintf("D%d", reg),
 	}
 	c.PC += 2
 

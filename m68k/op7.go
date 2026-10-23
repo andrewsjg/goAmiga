@@ -1,7 +1,5 @@
 package m68k
 
-import "fmt"
-
 // opMoveq implements MOVEQ (pg. 4-134)
 func opMoveq(c *Processor) (t stepTrace) {
 	b := byte(c.op)
@@ -10,8 +8,8 @@ func opMoveq(c *Processor) (t stepTrace) {
 		op:   "moveq",
 		addr: c.PC,
 		n:    1,
-		src:  fmt.Sprintf("#$%X", b),
-		dst:  fmt.Sprintf("D%d", reg),
+		src:  c.sprintf("#$%X", b),
+		dst:  c.sprintf("D%d", reg),
 		sz:   noSize,
 	}
 	c.PC += 2

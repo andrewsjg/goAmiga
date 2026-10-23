@@ -34,7 +34,9 @@ func opAdd(c *Processor) (t stepTrace) {
 		if t.err != nil {
 			return
 		}
-		t.dst = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d", reg)
+		}
 		dst := NewInt(c.D[reg], int(t.sz))
 		result := dst.Add(src)
 
@@ -53,7 +55,9 @@ func opAdd(c *Processor) (t stepTrace) {
 			c.D[reg] = result.Long()
 		}
 	} else { // Dn + <ea> -> <ea>
-		t.src = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", reg)
+		}
 		s := c.saveRMW(ea)
 		var dst Int
 		dst, t.dst, t.err = c.readInt(ea, t.sz)
@@ -83,7 +87,7 @@ func opAdda(c *Processor) (t stepTrace) {
 		addr: c.PC,
 		n:    1,
 		op:   "adda",
-		dst:  fmt.Sprintf("A%d", reg),
+		dst:  c.sprintf("A%d", reg),
 	}
 	c.PC += 2
 
@@ -131,8 +135,12 @@ func opAddx(c *Processor) (t stepTrace) {
 	}
 
 	if mod == 0 { // data register
-		t.src = fmt.Sprintf("D%d", ry)
-		t.dst = fmt.Sprintf("D%d", rx)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", ry)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d", rx)
+		}
 
 		// compute dst + src + X in one step to avoid flag accumulation
 		a := c.D[rx] & sizeFilter[sz]
@@ -166,8 +174,12 @@ func opAddx(c *Processor) (t stepTrace) {
 			c.D[rx] = result.Long()
 		}
 	} else { // memory with pre-decrement
-		t.src = fmt.Sprintf("-(A%d)", ry)
-		t.dst = fmt.Sprintf("-(A%d)", rx)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("-(A%d)", ry)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("-(A%d)", rx)
+		}
 
 		// Source first, then destination (see readPredec).
 		srcVal, _, err := c.readPredec(ry, t.sz)

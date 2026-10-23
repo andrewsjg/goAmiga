@@ -221,9 +221,9 @@ func opMovec(c *Processor) (t stepTrace) {
 		return
 	}
 	reg := &c.D[ext>>12&7]
-	name := fmt.Sprintf("D%d", ext>>12&7)
+	name := c.sprintf("D%d", ext>>12&7)
 	if ext&0x8000 != 0 {
-		reg, name = &c.A[ext>>12&7], fmt.Sprintf("A%d", ext>>12&7)
+		reg, name = &c.A[ext>>12&7], c.sprintf("A%d", ext>>12&7)
 	}
 	cr, mask, ok := c.controlReg(ext & 0x0FFF)
 	if !ok {
@@ -231,7 +231,7 @@ func opMovec(c *Processor) (t stepTrace) {
 		t.err = c.illegal()
 		return
 	}
-	crName := fmt.Sprintf("$%03X", ext&0xFFF)
+	crName := c.sprintf("$%03X", ext&0xFFF)
 	if c.op&1 == 0 {
 		*reg = *cr & mask
 		t.src, t.dst = crName, name
@@ -267,14 +267,16 @@ func opRtd(c *Processor) (t stepTrace) {
 	}
 	c.A[7] = uint32(int32(c.A[7]+4) + int32(int16(d)))
 	c.PC = pc
-	t.src = fmt.Sprintf("#%d", int16(d))
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("#%d", int16(d))
+	}
 	return
 }
 
 // opExtb implements EXTB.L Dn: byte sign-extended to long.
 func opExtb(c *Processor) (t stepTrace) {
 	reg := c.op & 7
-	t = stepTrace{addr: c.PC, op: "extb", sz: SizeLong, n: 1, dst: fmt.Sprintf("D%d", reg)}
+	t = stepTrace{addr: c.PC, op: "extb", sz: SizeLong, n: 1, dst: c.sprintf("D%d", reg)}
 	c.PC += 2
 	c.D[reg] = uint32(int32(int8(c.D[reg])))
 	c.setStatusForLong(c.D[reg])
@@ -284,7 +286,7 @@ func opExtb(c *Processor) (t stepTrace) {
 // opLinkL implements LINK.L An,#d32.
 func opLinkL(c *Processor) (t stepTrace) {
 	reg := c.op & 7
-	t = stepTrace{addr: c.PC, op: "link", sz: SizeLong, n: 1, src: fmt.Sprintf("A%d", reg)}
+	t = stepTrace{addr: c.PC, op: "link", sz: SizeLong, n: 1, src: c.sprintf("A%d", reg)}
 	c.PC += 2
 	d, _, err := c.readImmLong()
 	if err != nil {
@@ -296,7 +298,9 @@ func opLinkL(c *Processor) (t stepTrace) {
 	}
 	c.A[reg] = c.A[7]
 	c.A[7] = uint32(int32(c.A[7]) + int32(d))
-	t.dst = fmt.Sprintf("#$%X", int32(d))
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("#$%X", int32(d))
+	}
 	return
 }
 
@@ -341,7 +345,7 @@ func opTrapcc(c *Processor) (t stepTrace) {
 // opChkL implements CHK.L <ea>,Dn.
 func opChkL(c *Processor) (t stepTrace) {
 	reg := c.op >> 9 & 7
-	t = stepTrace{addr: c.PC, op: "chk", sz: SizeLong, n: 1, dst: fmt.Sprintf("D%d", reg)}
+	t = stepTrace{addr: c.PC, op: "chk", sz: SizeLong, n: 1, dst: c.sprintf("D%d", reg)}
 	c.PC += 2
 	var bound uint32
 	if bound, t.src, t.err = c.readLong(c.op); t.err != nil {
@@ -402,10 +406,14 @@ func opMulL(c *Processor) (t stepTrace) {
 		if hi|lo == 0 {
 			c.SR |= StatusZero
 		}
-		t.dst = fmt.Sprintf("D%d:D%d", dh, dl)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d:D%d", dh, dl)
+		}
 		return
 	}
-	t.dst = fmt.Sprintf("D%d", dl)
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("D%d", dl)
+	}
 	if lo&0x80000000 != 0 {
 		c.SR |= StatusNegative
 	}
@@ -437,7 +445,9 @@ func opDivL(c *Processor) (t stepTrace) {
 	}
 	dq, dr := ext>>12&7, ext&7
 	signed, wide := ext&0x0800 != 0, ext&0x0400 != 0
-	t.dst = fmt.Sprintf("D%d:D%d", dr, dq)
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("D%d:D%d", dr, dq)
+	}
 	if divisor == 0 {
 		c.SR &^= StatusCarry
 		t.err = c.RaiseException(VecDivideByZero)

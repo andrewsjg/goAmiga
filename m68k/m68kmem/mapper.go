@@ -8,6 +8,7 @@ import (
 // devices using a memory address, mapped into its addressable range.
 type Mapper struct {
 	mappings *mapping
+	last     *mapping // the mapping find found last: most accesses fall in it again
 
 	// OpenBus models a real bus with nothing driving unmapped addresses:
 	// reads of unmapped (or faulting) addresses return zero and writes to
@@ -73,6 +74,7 @@ func (mm *Mapper) Map(m Memory, start, end int) (err error) {
 		end:   end,
 	}
 	mm.mappings = insertMapping(mm.mappings, n)
+	mm.last = nil
 	return
 }
 
@@ -169,8 +171,12 @@ func (mm *Mapper) Write(addr int, p []byte) (n int, err error) {
 
 // find returns the mapping containing addr, or nil.
 func (mm *Mapper) find(addr int) *mapping {
+	if m := mm.last; m != nil && m.start <= addr && m.end >= addr {
+		return m
+	}
 	for m := mm.mappings; m != nil; m = m.next {
 		if m.start <= addr && m.end >= addr {
+			mm.last = m
 			return m
 		}
 	}

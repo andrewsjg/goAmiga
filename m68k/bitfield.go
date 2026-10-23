@@ -53,7 +53,9 @@ func opBitField(c *Processor) (t stepTrace) {
 			*dn = *dn&^m | bits.RotateLeft32((v&mask)<<(32-width), -int(off))
 			return nil
 		}
-		t.dst = fmt.Sprintf("D%d{%d:%d}", c.op&7, offset, width)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d{%d:%d}", c.op&7, offset, width)
+		}
 	} else {
 		base, opr, err := c.controlAddr(decodeEA(c.op))
 		if err != nil {
@@ -95,7 +97,9 @@ func opBitField(c *Processor) (t stepTrace) {
 			_, err = c.M.Write(int(addr), buf[:n])
 			return err
 		}
-		t.dst = fmt.Sprintf("%s{%d:%d}", opr, offset, width)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("%s{%d:%d}", opr, offset, width)
+		}
 	}
 
 	field := get()

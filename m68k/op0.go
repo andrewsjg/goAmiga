@@ -38,8 +38,12 @@ func opMovep(c *Processor) (t stepTrace) {
 	switch mode {
 	case 4: // MOVEP.W (d16,An),Dn — read 2 bytes at addr, addr+2
 		t.sz = SizeWord
-		t.src = fmt.Sprintf("(%d,A%d)", disp, an)
-		t.dst = fmt.Sprintf("D%d", dn)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("(%d,A%d)", disp, an)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d", dn)
+		}
 		hi, err := c.M.Byte(addr)
 		if err != nil {
 			t.err = err
@@ -54,8 +58,12 @@ func opMovep(c *Processor) (t stepTrace) {
 
 	case 5: // MOVEP.L (d16,An),Dn — read 4 bytes at addr, addr+2, addr+4, addr+6
 		t.sz = SizeLong
-		t.src = fmt.Sprintf("(%d,A%d)", disp, an)
-		t.dst = fmt.Sprintf("D%d", dn)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("(%d,A%d)", disp, an)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d", dn)
+		}
 		var buf [4]byte
 		for i := 0; i < 4; i++ {
 			b, err := c.M.Byte(addr + i*2)
@@ -69,8 +77,12 @@ func opMovep(c *Processor) (t stepTrace) {
 
 	case 6: // MOVEP.W Dn,(d16,An) — write 2 bytes to addr, addr+2
 		t.sz = SizeWord
-		t.src = fmt.Sprintf("D%d", dn)
-		t.dst = fmt.Sprintf("(%d,A%d)", disp, an)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", dn)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("(%d,A%d)", disp, an)
+		}
 		val := uint16(c.D[dn])
 		if _, err := c.M.Write(addr, []byte{byte(val >> 8)}); err != nil {
 			t.err = err
@@ -83,8 +95,12 @@ func opMovep(c *Processor) (t stepTrace) {
 
 	case 7: // MOVEP.L Dn,(d16,An) — write 4 bytes to addr, addr+2, addr+4, addr+6
 		t.sz = SizeLong
-		t.src = fmt.Sprintf("D%d", dn)
-		t.dst = fmt.Sprintf("(%d,A%d)", disp, an)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", dn)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("(%d,A%d)", disp, an)
+		}
 		val := c.D[dn]
 		bytes := [4]byte{byte(val >> 24), byte(val >> 16), byte(val >> 8), byte(val)}
 		for i := 0; i < 4; i++ {
@@ -561,7 +577,9 @@ func opBtst(c *Processor) (t stepTrace) {
 
 	// read bit number from data register
 	src := (c.op >> 9) & 0x7
-	t.src = fmt.Sprintf("D%d", src)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("D%d", src)
+	}
 	bit := c.D[src]
 
 	// read destination value
@@ -799,7 +817,9 @@ func opBchg(c *Processor) (t stepTrace) {
 	c.PC += 2
 
 	src := (c.op >> 9) & 0x7
-	t.src = fmt.Sprintf("D%d", src)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("D%d", src)
+	}
 	bitNum := c.D[src]
 
 	ea := decodeEA(c.op)
@@ -850,7 +870,9 @@ func opBclr(c *Processor) (t stepTrace) {
 	c.PC += 2
 
 	src := (c.op >> 9) & 0x7
-	t.src = fmt.Sprintf("D%d", src)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("D%d", src)
+	}
 	bitNum := c.D[src]
 
 	ea := decodeEA(c.op)
@@ -901,7 +923,9 @@ func opBset(c *Processor) (t stepTrace) {
 	c.PC += 2
 
 	src := (c.op >> 9) & 0x7
-	t.src = fmt.Sprintf("D%d", src)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("D%d", src)
+	}
 	bitNum := c.D[src]
 
 	ea := decodeEA(c.op)

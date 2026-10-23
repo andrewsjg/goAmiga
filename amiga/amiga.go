@@ -178,6 +178,8 @@ type Amiga struct {
 	// cycles lost to DMA.
 	cpuChipAccesses int
 
+	scratchBuf []byte // see scratch
+
 	// HostClipboard, if set, is shared with the Amiga's clipboard
 	// (clipboard.go; it needs a hard disk or folder for the board that
 	// carries the helper). Set it before Reset.

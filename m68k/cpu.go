@@ -58,6 +58,15 @@ const (
 
 // string suffix for conditional opcodes
 // see: table 3-19
+// dbccOps and sccOps are the DBcc and Scc mnemonics, by condition.
+var dbccOps, sccOps [16]string
+
+func init() {
+	for i, c := range conditionStrings {
+		dbccOps[i], sccOps[i] = "db"+c, "s"+c
+	}
+}
+
 var conditionStrings = []string{
 	"t",  // true
 	"f",  // false
@@ -101,6 +110,11 @@ type Processor struct {
 	// TraceWriter specifies where trace log output should be written to. If
 	// TraceWriter is nil, no logging is performed.
 	TraceWriter io.Writer
+
+	// The instruction's starting SR and registers, for undoing it on a
+	// fault (Step).
+	stepSR   uint32
+	stepSnap cpuSnapshot
 
 	// DebugExceptions, when true, prints to stdout whenever an exception fires
 	// in user mode (useful for debugging privilege violations and mode switches).
@@ -319,28 +333,18 @@ func (c *Processor) Step() (err error) {
 	traced := c.SR&StatusTrace != 0
 	// The 68020 allows data at odd addresses (see m68020.go), but not
 	// instructions: both fault on a jump to an odd address.
+	//
+	// The faults are panics, recovered by the deferred methods. Step keeps
+	// to its defers and one call, so that Go open-codes them: a deferred
+	// closure in a function with many returns cost every instruction a
+	// defer record and a recover (some 6% of the emulator's time).
 	if !c.NoAddressErrors {
-		snapSR := c.SR
+		c.stepSR = c.SR
 		c.faultPCAdjust = 0
 		if !c.is020() {
 			c.M.OnOddAccess = c.oddAccess
 		}
-		defer func() {
-			c.M.OnOddAccess = nil
-			if r := recover(); r != nil {
-				ae, ok := r.(*addressError)
-				if !ok {
-					panic(r)
-				}
-				// The flags are those from before the instruction, except
-				// that MOVE sets them before its write.
-				isMove := c.op>>12 >= 1 && c.op>>12 <= 3
-				if !(isMove && ae.write) {
-					c.SR, ae.sr = snapSR, snapSR
-				}
-				err = c.raiseAddressError(ae)
-			}
-		}()
+		defer c.recoverAddressError(&err)
 	}
 
 	c.M.Accesses = 0
@@ -355,25 +359,57 @@ func (c *Processor) Step() (err error) {
 		c.M.OnBusError = nil
 	}
 	if c.M.Translate != nil || busErrors {
-		snap := c.snapshot()
-		defer func() {
-			if r := recover(); r != nil {
-				bf, ok := r.(*busFault)
-				if !ok {
-					panic(r)
-				}
-				c.mmu.fcOverride = 0
-				c.M.Fetch = false
-				c.restore(&snap)
-				if c.is040() {
-					err = c.raiseAccessError040(bf)
-				} else {
-					err = c.raiseBusError030(bf)
-				}
-			}
-		}()
+		c.stepSnap = c.snapshot()
+		defer c.recoverBusFault(&err)
 	}
+	err = c.step(traced)
+	return
+}
 
+// recoverAddressError turns an address error raised during the
+// instruction into its exception.
+func (c *Processor) recoverAddressError(err *error) {
+	c.M.OnOddAccess = nil
+	r := recover()
+	if r == nil {
+		return
+	}
+	ae, ok := r.(*addressError)
+	if !ok {
+		panic(r)
+	}
+	// The flags are those from before the instruction, except that MOVE
+	// sets them before its write.
+	isMove := c.op>>12 >= 1 && c.op>>12 <= 3
+	if !(isMove && ae.write) {
+		c.SR, ae.sr = c.stepSR, c.stepSR
+	}
+	*err = c.raiseAddressError(ae)
+}
+
+// recoverBusFault undoes an instruction an access fault stopped, and
+// takes the bus or access error.
+func (c *Processor) recoverBusFault(err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	bf, ok := r.(*busFault)
+	if !ok {
+		panic(r)
+	}
+	c.mmu.fcOverride = 0
+	c.M.Fetch = false
+	c.restore(&c.stepSnap)
+	if c.is040() {
+		*err = c.raiseAccessError040(bf)
+	} else {
+		*err = c.raiseBusError030(bf)
+	}
+}
+
+// step runs the instruction, under Step's fault handling.
+func (c *Processor) step(traced bool) (err error) {
 	// read from program pointer into op
 	// TODO: consider prefetching a whole page of instructions and measure
 	c.prefetchBegin()
@@ -608,15 +644,21 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 
 	case 0x00: // data register
 		b = byte(c.D[reg])
-		opr = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("D%d", reg)
+		}
 
 	case 0x01: // address register
 		b = byte(c.A[reg])
-		opr = fmt.Sprintf("A%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("A%d", reg)
+		}
 
 	case 0x02: // memory address
 		b, err = c.M.Byte(int(c.A[reg]))
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		b, err = c.M.Byte(int(c.A[reg]))
@@ -624,7 +666,9 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 		if reg == 7 {
 			c.A[reg]++ // align stack pointer to 16-bit
 		}
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		c.A[reg]--
@@ -632,7 +676,9 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 			c.A[reg]-- // align stack pointer to 16-bit
 		}
 		b, err = c.M.Byte(int(c.A[reg]))
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -643,11 +689,13 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 		c.PC += 2
 		addr := int(c.A[reg]) + int(d)
 		b, err = c.M.Byte(addr)
-		opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -667,7 +715,9 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 			}
 			c.PC += 2
 			b, err = c.M.Byte(int(int16(addr)))
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -677,7 +727,9 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 			}
 			c.PC += 4
 			b, err = c.M.Byte(int(addr))
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x02: // program counter with displacement
 			var d int16
@@ -688,7 +740,9 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 			addr := int(int32(c.PC) + int32(d))
 			c.PC += 2
 			b, err = c.M.Byte(addr)
-			opr = fmt.Sprintf("($%X,PC)", d)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("($%X,PC)", d)
+			}
 
 		case 0x03: // program counter with index
 			var addr uint32
@@ -703,7 +757,9 @@ func (c *Processor) readByte(ea uint16) (b byte, opr string, err error) {
 			n, err = c.fetchWord(c.PC)
 			b = byte(n)
 			c.PC += 2
-			opr = fmt.Sprintf("#$%X", byteToInt32(b))
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("#$%X", byteToInt32(b))
+			}
 		}
 	}
 	return
@@ -720,15 +776,21 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 
 	case 0x00: // data register
 		n = uint16(c.D[reg])
-		opr = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("D%d", reg)
+		}
 
 	case 0x01: // address register
 		n = uint16(c.A[reg])
-		opr = fmt.Sprintf("A%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("A%d", reg)
+		}
 
 	case 0x02: // memory address
 		n, err = c.M.Word(int(c.A[reg]))
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		// Incremented before the access: an address error leaves it
@@ -736,12 +798,16 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 		addr := c.A[reg]
 		c.A[reg] += 2
 		n, err = c.M.Word(int(addr))
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		c.A[reg] -= 2
 		n, err = c.M.Word(int(c.A[reg]))
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -752,11 +818,13 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 		c.PC += 2
 		addr := int(c.A[reg]) + int(d)
 		n, err = c.M.Word(addr)
-		opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -776,7 +844,9 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 			}
 			c.PC += 2
 			n, err = c.M.Word(int(int16(addr)))
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -786,7 +856,9 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 			}
 			c.PC += 4
 			n, err = c.M.Word(int(addr))
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x02: // program counter with displacement
 			var d int16
@@ -797,7 +869,9 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 			addr := int(int32(c.PC) + int32(d))
 			c.PC += 2
 			n, err = c.M.Word(addr)
-			opr = fmt.Sprintf("($%X,PC)", d)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("($%X,PC)", d)
+			}
 
 		case 0x03: // program counter with index
 			var addr uint32
@@ -810,7 +884,9 @@ func (c *Processor) readWord(ea uint16) (n uint16, opr string, err error) {
 		case 0x04: // immediate word
 			n, err = c.fetchWord(c.PC)
 			c.PC += 2
-			opr = fmt.Sprintf("#$%X", wordToInt32(n))
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("#$%X", wordToInt32(n))
+			}
 		}
 	}
 	return
@@ -827,15 +903,21 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 
 	case 0x00: // data register
 		n = c.D[reg]
-		opr = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("D%d", reg)
+		}
 
 	case 0x01: // address register
 		n = c.A[reg]
-		opr = fmt.Sprintf("A%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("A%d", reg)
+		}
 
 	case 0x02: // memory address
 		n, err = c.M.Long(int(c.A[reg]))
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		// Incremented before the access: an address error leaves it
@@ -843,12 +925,16 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 		addr := c.A[reg]
 		c.A[reg] += 4
 		n, err = c.M.Long(int(addr))
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		c.A[reg] -= 4
 		n, err = c.M.Long(int(c.A[reg]))
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -859,11 +945,13 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 		c.PC += 2
 		addr := int(c.A[reg]) + int(d)
 		n, err = c.M.Long(addr)
-		opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -883,7 +971,9 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 			}
 			c.PC += 2
 			n, err = c.M.Long(int(int16(addr)))
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -893,7 +983,9 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 			}
 			c.PC += 4
 			n, err = c.M.Long(int(addr))
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x02: // program counter with displacement
 			var d int16
@@ -904,7 +996,9 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 			addr := int(int32(c.PC) + int32(d))
 			c.PC += 2
 			n, err = c.M.Long(addr)
-			opr = fmt.Sprintf("($%X,PC)", d)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("($%X,PC)", d)
+			}
 
 		case 0x03: // program counter with index
 			var addr uint32
@@ -917,7 +1011,9 @@ func (c *Processor) readLong(ea uint16) (n uint32, opr string, err error) {
 		case 0x04: // immediate long
 			n, err = c.fetchLong(c.PC)
 			c.PC += 4
-			opr = fmt.Sprintf("#$%X", int32(n))
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("#$%X", int32(n))
+			}
 		}
 	}
 	return
@@ -934,18 +1030,24 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 
 	case 0x02: // memory address
 		_, err = c.M.Read(int(c.A[reg]), b)
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		addr := c.A[reg]
 		c.A[reg] += uint32(len(b))
 		_, err = c.M.Read(int(addr), b)
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		c.A[reg] -= uint32(len(b))
 		_, err = c.M.Read(int(c.A[reg]), b)
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -956,11 +1058,13 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 		c.PC += 2
 		addr := int(c.A[reg]) + int(d)
 		_, err = c.M.Read(addr, b)
-		opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("($%X,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -980,7 +1084,9 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 			}
 			c.PC += 2
 			_, err = c.M.Read(int(int16(addr)), b)
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -990,7 +1096,9 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 			}
 			c.PC += 4
 			_, err = c.M.Read(int(addr), b)
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x02: // program counter with displacement
 			// Used by MOVEM.L (d16,PC),regs and similar multi-byte reads.
@@ -1002,7 +1110,9 @@ func (c *Processor) readBytes(ea uint16, b []byte) (opr string, err error) {
 			addr := int(int32(c.PC) + int32(d))
 			c.PC += 2
 			_, err = c.M.Read(addr, b)
-			opr = fmt.Sprintf("($%X,PC)", d)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("($%X,PC)", d)
+			}
 
 		case 0x03: // program counter with index
 			var addr uint32
@@ -1051,7 +1161,9 @@ func (c *Processor) readImmByte() (b byte, opr string, err error) {
 	}
 	b = byte(n) // are bytes signed???
 	c.PC += 2
-	opr = fmt.Sprintf("#$%X", byteToInt32(b))
+	if c.TraceWriter != nil {
+		opr = fmt.Sprintf("#$%X", byteToInt32(b))
+	}
 	return
 }
 
@@ -1063,7 +1175,9 @@ func (c *Processor) readImmWord() (n uint16, opr string, err error) {
 		return
 	}
 	c.PC += 2
-	opr = fmt.Sprintf("#$%X", wordToInt32(n))
+	if c.TraceWriter != nil {
+		opr = fmt.Sprintf("#$%X", wordToInt32(n))
+	}
 	return
 }
 
@@ -1075,7 +1189,9 @@ func (c *Processor) readImmLong() (n uint32, opr string, err error) {
 		return
 	}
 	c.PC += 4
-	opr = fmt.Sprintf("#$%X", int32(n))
+	if c.TraceWriter != nil {
+		opr = fmt.Sprintf("#$%X", int32(n))
+	}
 	return
 }
 
@@ -1107,11 +1223,15 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 
 	case 0x00: // data register
 		c.D[reg] = c.D[reg]&0xFFFFFF00 | uint32(b)
-		opr = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("D%d", reg)
+		}
 
 	case 0x02: // memory address
 		_, err = c.M.Write(int(c.A[reg]), []byte{b})
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		_, err = c.M.Write(int(c.A[reg]), []byte{b})
@@ -1119,7 +1239,9 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 		if reg == 7 {
 			c.A[reg]++ // align stack pointer to 16-bit
 		}
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		c.A[reg]--
@@ -1127,7 +1249,9 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 			c.A[reg]-- // align stack pointer to 16-bit
 		}
 		_, err = c.M.Write(int(c.A[reg]), []byte{b})
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -1138,11 +1262,13 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 		c.PC += 2
 		addr := int(c.A[reg]) + int(d)
 		_, err = c.M.Write(int(addr), []byte{b})
-		opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -1162,7 +1288,9 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 			}
 			c.PC += 2
 			_, err = c.M.Write(int(int16(addr)), []byte{b})
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -1172,7 +1300,9 @@ func (c *Processor) writeByte(ea uint16, b byte) (opr string, err error) {
 			}
 			c.PC += 4
 			_, err = c.M.Write(int(addr), []byte{b})
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 		}
 	}
 	return
@@ -1188,28 +1318,38 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 
 	case 0x00: // data register
 		c.D[reg] = c.D[reg]&0xFFFF0000 | uint32(v)
-		opr = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("D%d", reg)
+		}
 
 	case 0x01: // address register
 		c.A[reg] = uint32(wordToInt32(v))
-		opr = fmt.Sprintf("A%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("A%d", reg)
+		}
 
 	case 0x02: // memory address
 		binary.BigEndian.PutUint16(c.buf[:2], v)
 		_, err = c.M.Write(int(c.A[reg]), c.buf[:2])
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		binary.BigEndian.PutUint16(c.buf[:2], v)
 		_, err = c.M.Write(int(c.A[reg]), c.buf[:2])
 		c.A[reg] += 2
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		c.A[reg] -= 2
 		binary.BigEndian.PutUint16(c.buf[:2], v)
 		_, err = c.M.Write(int(c.A[reg]), c.buf[:2])
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -1221,11 +1361,13 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 		addr := int(c.A[reg]) + int(d)
 		binary.BigEndian.PutUint16(c.buf[:2], v)
 		_, err = c.M.Write(addr, c.buf[:2])
-		opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -1247,7 +1389,9 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 			c.PC += 2
 			binary.BigEndian.PutUint16(c.buf[:2], v)
 			_, err = c.M.Write(int(int16(addr)), c.buf[:2])
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -1258,7 +1402,9 @@ func (c *Processor) writeWord(ea uint16, v uint16) (opr string, err error) {
 			c.PC += 4
 			binary.BigEndian.PutUint16(c.buf[:2], v)
 			_, err = c.M.Write(int(addr), c.buf[:2])
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 		}
 	}
 	return
@@ -1274,22 +1420,30 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 
 	case 0x00: // data register
 		c.D[reg] = v
-		opr = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("D%d", reg)
+		}
 
 	case 0x01: // address register
 		c.A[reg] = v
-		opr = fmt.Sprintf("A%d", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("A%d", reg)
+		}
 
 	case 0x02: // memory address
 		binary.BigEndian.PutUint32(c.buf[:4], v)
 		_, err = c.M.Write(int(c.A[reg]), c.buf[:4])
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		binary.BigEndian.PutUint32(c.buf[:4], v)
 		_, err = c.M.Write(int(c.A[reg]), c.buf[:4])
 		c.A[reg] += 4
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		// The 68000 writes a long to -(An) low word first, so an address
@@ -1301,7 +1455,9 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 		c.A[reg] -= 4
 		binary.BigEndian.PutUint32(c.buf[:4], v)
 		_, err = c.M.Write(int(c.A[reg]), c.buf[:4])
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -1313,11 +1469,13 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 		addr := int(c.A[reg]) + int(d)
 		binary.BigEndian.PutUint32(c.buf[:4], v)
 		_, err = c.M.Write(addr, c.buf[:4])
-		opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -1339,7 +1497,9 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 			c.PC += 2
 			binary.BigEndian.PutUint32(c.buf[:4], v)
 			_, err = c.M.Write(int(int16(addr)), c.buf[:4])
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -1350,7 +1510,9 @@ func (c *Processor) writeLong(ea uint16, v uint32) (opr string, err error) {
 			c.PC += 4
 			binary.BigEndian.PutUint32(c.buf[:4], v)
 			_, err = c.M.Write(int(addr), c.buf[:4])
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 		}
 	}
 	return
@@ -1366,17 +1528,23 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 
 	case 0x02: // memory address
 		_, err = c.M.Write(int(c.A[reg]), b)
-		opr = fmt.Sprintf("(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)", reg)
+		}
 
 	case 0x03: // memory address with post-increment
 		_, err = c.M.Write(int(c.A[reg]), b)
 		c.A[reg] += uint32(len(b))
-		opr = fmt.Sprintf("(A%d)+", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(A%d)+", reg)
+		}
 
 	case 0x04: // memory address with pre-decrement
 		c.A[reg] -= uint32(len(b))
 		_, err = c.M.Write(int(c.A[reg]), b)
-		opr = fmt.Sprintf("-(A%d)", reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("-(A%d)", reg)
+		}
 
 	case 0x05: // memory address with displacement
 		var d int16
@@ -1387,11 +1555,13 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 		c.PC += 2
 		addr := int(c.A[reg]) + int(d)
 		_, err = c.M.Write(addr, b)
-		opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("(%d,A%d)", d, reg)
+		}
 
 	case 0x06: // address register indirect with index
 		var addr uint32
-		addr, opr, err = c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		addr, opr, err = c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 		if err != nil {
 			return
 		}
@@ -1411,7 +1581,9 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 			}
 			c.PC += 2
 			_, err = c.M.Write(int(int16(addr)), b)
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 
 		case 0x01: // absolute long
 			var addr uint32
@@ -1421,7 +1593,9 @@ func (c *Processor) writeBytes(ea uint16, b []byte) (opr string, err error) {
 			}
 			c.PC += 4
 			_, err = c.M.Write(int(addr), b)
-			opr = fmt.Sprintf("$%X", addr)
+			if c.TraceWriter != nil {
+				opr = fmt.Sprintf("$%X", addr)
+			}
 		}
 	}
 	return
@@ -1506,31 +1680,31 @@ func (c *Processor) controlAddr(ea uint16) (addr uint32, opr string, err error) 
 	reg := ea & 7
 	switch ea >> 3 & 7 {
 	case 2:
-		return c.A[reg], fmt.Sprintf("(A%d)", reg), nil
+		return c.A[reg], c.sprintf("(A%d)", reg), nil
 	case 5:
 		var d int16
 		if d, err = c.M.Sword(int(c.PC)); err != nil {
 			return
 		}
 		c.PC += 2
-		return uint32(int32(c.A[reg]) + int32(d)), fmt.Sprintf("($%X,A%d)", d, reg), nil
+		return uint32(int32(c.A[reg]) + int32(d)), c.sprintf("($%X,A%d)", d, reg), nil
 	case 6:
-		return c.decodeBriefExt(c.A[reg], fmt.Sprintf("A%d", reg))
+		return c.decodeBriefExt(c.A[reg], c.sprintf("A%d", reg))
 	case 7:
 		switch reg {
 		case 0:
 			var n uint16
 			n, _, err = c.readImmWord()
-			return uint32(wordToInt32(n)), fmt.Sprintf("$%X", int32(n)), err
+			return uint32(wordToInt32(n)), c.sprintf("$%X", int32(n)), err
 		case 1:
 			var n uint32
 			n, _, err = c.readImmLong()
-			return n, fmt.Sprintf("$%X", n), err
+			return n, c.sprintf("$%X", n), err
 		case 2:
 			var n uint16
 			n, _, err = c.readImmWord()
 			disp := wordToInt32(n)
-			return uint32(int32(c.PC) + disp - 2), fmt.Sprintf("($%X,PC)", disp), err
+			return uint32(int32(c.PC) + disp - 2), c.sprintf("($%X,PC)", disp), err
 		case 3:
 			return c.decodeBriefExt(c.PC, "PC")
 		}

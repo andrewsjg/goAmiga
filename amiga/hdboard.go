@@ -753,21 +753,27 @@ func (h *hdBoard) beginIO(io uint32) uint32 {
 	switch cmd {
 	case 2: // CMD_READ
 		h.lastIO, h.lastWrite = a.cycles|1, false
-		buf := make([]byte, length)
-		if err := f.ReadAt(buf, offset); err != nil {
-			errCode = ioErr(err)
-		} else {
-			a.pokeBytes(data, buf)
-			actual = length
+		actual = length
+		for done := uint32(0); done < length; {
+			buf := a.scratch(int(length - done))
+			if err := f.ReadAt(buf, offset+int64(done)); err != nil {
+				errCode, actual = ioErr(err), done
+				break
+			}
+			a.pokeBytes(data+done, buf)
+			done += uint32(len(buf))
 		}
 	case 3, 11: // CMD_WRITE, TD_FORMAT
 		h.lastIO, h.lastWrite = a.cycles|1, true
-		buf := make([]byte, length)
-		a.peekBytes(data, buf)
-		if err := f.WriteAt(buf, offset); err != nil {
-			errCode = ioErr(err)
-		} else {
-			actual = length
+		actual = length
+		for done := uint32(0); done < length; {
+			buf := a.scratch(int(length - done))
+			a.peekBytes(data+done, buf)
+			if err := f.WriteAt(buf, offset+int64(done)); err != nil {
+				errCode, actual = ioErr(err), done
+				break
+			}
+			done += uint32(len(buf))
 		}
 	case 0, 1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 21:
 		// CMD_INVALID, RESET, UPDATE, CLEAR, STOP, START, FLUSH, TD_MOTOR
@@ -836,6 +842,22 @@ func ioErr(err error) byte {
 }
 
 // ---- Host access to Amiga memory ----
+
+// scratchMax is the most a transfer between a host file and Amiga memory
+// moves at a time.
+const scratchMax = 1 << 20
+
+// scratch is a buffer for moving data between host files and Amiga
+// memory, of n bytes or scratchMax if less: one buffer, reused, rather
+// than one per transfer (a boot that loads a lot made the Go runtime
+// fetch and return memory from the OS all the time).
+func (a *Amiga) scratch(n int) []byte {
+	n = min(n, scratchMax)
+	if cap(a.scratchBuf) < n {
+		a.scratchBuf = make([]byte, n)
+	}
+	return a.scratchBuf[:n]
+}
 
 // peekBytes and pokeBytes reach Amiga memory as the CPU would (a 24- or
 // 32-bit bus: the Mapper wraps the address to its width).

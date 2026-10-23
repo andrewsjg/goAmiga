@@ -415,14 +415,24 @@ func (d *HostDir) do(a *Amiga, typ uint32, arg [7]uint32) (uint32, error) {
 		if err != nil {
 			return 0, err
 		}
-		buf := make([]byte, arg[2])
-		n, err := io.ReadFull(f.f, buf)
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return 0, err
+		total := uint32(0)
+		for total < arg[2] {
+			buf := a.scratch(int(arg[2] - total))
+			n, err := io.ReadFull(f.f, buf)
+			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+				if total > 0 {
+					break // what was read stands
+				}
+				return 0, err
+			}
+			a.pokeBytes(arg[1]+total, buf[:n])
+			total += uint32(n)
+			if n < len(buf) {
+				break // the end of the file
+			}
 		}
-		a.pokeBytes(arg[1], buf[:n])
 		a.HardDisk.lastIO, a.HardDisk.lastWrite = a.cycles|1, false
-		return uint32(n), nil
+		return total, nil
 	case actionWrite:
 		f, err := d.file(arg[0])
 		if err != nil {
@@ -431,14 +441,22 @@ func (d *HostDir) do(a *Amiga, typ uint32, arg [7]uint32) (uint32, error) {
 		if !f.write {
 			return 0, d.protectedErr()
 		}
-		buf := make([]byte, arg[2])
-		a.peekBytes(arg[1], buf)
-		n, err := f.f.Write(buf)
-		a.HardDisk.lastIO, a.HardDisk.lastWrite = a.cycles|1, true
-		if err != nil {
-			return 0, dosErr(errDiskFull)
+		total := uint32(0)
+		for total < arg[2] {
+			buf := a.scratch(int(arg[2] - total))
+			a.peekBytes(arg[1]+total, buf)
+			n, err := f.f.Write(buf)
+			total += uint32(n)
+			if err != nil {
+				a.HardDisk.lastIO, a.HardDisk.lastWrite = a.cycles|1, true
+				if total > 0 {
+					return total, nil // what was written stands
+				}
+				return 0, dosErr(errDiskFull)
+			}
 		}
-		return uint32(n), nil
+		a.HardDisk.lastIO, a.HardDisk.lastWrite = a.cycles|1, true
+		return total, nil
 	case actionSeek:
 		return d.seek(arg[0], int32(arg[1]), int32(arg[2]))
 	case actionEnd:

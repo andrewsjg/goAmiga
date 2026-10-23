@@ -636,9 +636,11 @@ func (c *Processor) pmove(t stepTrace, ext, ea uint16) stepTrace {
 			return c.mmuIllegal(t)
 		}
 		r := &c.D[ea&7]
-		opr = fmt.Sprintf("D%d", ea&7)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("D%d", ea&7)
+		}
 		if mode == 1 {
-			r, opr = &c.A[ea&7], fmt.Sprintf("A%d", ea&7)
+			r, opr = &c.A[ea&7], c.sprintf("A%d", ea&7)
 		}
 		if toMem {
 			*r = uint32(get())

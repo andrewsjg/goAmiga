@@ -1,8 +1,6 @@
 package m68k
 
-import (
-	"fmt"
-)
+import ()
 
 // opcodes020Misc: the 68020's remaining additions (bit fields, CAS, CAS2,
 // CHK2, CMP2, PACK, UNPK, MOVES). Order matters: CAS2 before CAS.L, and
@@ -122,10 +120,10 @@ func (c *Processor) eaAddr(ea uint16, n int) (uint32, string, error) {
 	case 3: // (An)+
 		a := c.A[reg]
 		c.A[reg] += step
-		return a, fmt.Sprintf("(A%d)+", reg), nil
+		return a, c.sprintf("(A%d)+", reg), nil
 	case 4: // -(An)
 		c.A[reg] -= step
-		return c.A[reg], fmt.Sprintf("-(A%d)", reg), nil
+		return c.A[reg], c.sprintf("-(A%d)", reg), nil
 	}
 	return c.controlAddr(ea)
 }
@@ -160,7 +158,7 @@ func opCas(c *Processor) (t stepTrace) {
 		m := byteMask(n)
 		c.D[dc] = c.D[dc]&^m | v&m
 	}
-	t.src, t.dst = fmt.Sprintf("D%d,D%d", dc, du), opr
+	t.src, t.dst = c.sprintf("D%d,D%d", dc, du), opr
 	return
 }
 

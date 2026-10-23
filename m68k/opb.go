@@ -42,7 +42,9 @@ func opCmp(c *Processor) (t stepTrace) {
 	if t.err != nil {
 		return
 	}
-	t.dst = fmt.Sprintf("D%d", reg)
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("D%d", reg)
+	}
 
 	result := a.Sub(b)
 	c.SR &= ^uint32(StatusCarry | StatusOverflow | StatusZero | StatusNegative)
@@ -58,7 +60,7 @@ func opCmpa(c *Processor) (t stepTrace) {
 		addr: c.PC,
 		op:   "cmpa",
 		n:    1,
-		dst:  fmt.Sprintf("A%d", reg),
+		dst:  c.sprintf("A%d", reg),
 	}
 	c.PC += 2
 
@@ -106,8 +108,12 @@ func opCmpm(c *Processor) (t stepTrace) {
 
 	rx := (c.op & 0x0E00) >> 9
 	ry := c.op & 0x07
-	t.src = fmt.Sprintf("(A%d)+", ry)
-	t.dst = fmt.Sprintf("(A%d)+", rx)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("(A%d)+", ry)
+	}
+	if c.TraceWriter != nil {
+		t.dst = fmt.Sprintf("(A%d)+", rx)
+	}
 
 	// read source (Ay)+
 	srcEA := uint16(0x18 | ry) // mode 3 (post-increment) + register
@@ -144,7 +150,9 @@ func opEor(c *Processor) (t stepTrace) {
 
 	reg := (c.op & 0x0E00) >> 9
 	ea := decodeEA(c.op)
-	t.src = fmt.Sprintf("D%d", reg)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("D%d", reg)
+	}
 
 	s := c.saveRMW(ea)
 	var dst Int

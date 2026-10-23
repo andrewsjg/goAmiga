@@ -58,6 +58,44 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-24 — Twice as fast: trace text, defers, the memory map
+
+The AGS configuration (A4000, 68040 at 1000%, MMU on, 11 hardfiles, RTG)
+ran slowly. Profiled headless on clones of its hardfiles (`cp -c`, so the
+real ones were untouched), the busy part of its boot ran at 29 frames a
+second: 59% of real time on an M4 Max.
+
+1. **Trace text formatted for nobody.** Every instruction built its trace
+   operands (`fmt.Sprintf("D%d", reg)` and the like, about 230 call
+   sites) whether or not tracing was on. That was 29% of the time,
+   allocating 2.4 GB a minute. The plain assignments (158) now format
+   only `if c.TraceWriter != nil`. The others go through `c.sprintf`,
+   which returns "" when not tracing; their arguments are mostly
+   register numbers, which Go boxes without allocating. The shift, DBcc
+   and Scc mnemonics come from tables. MOVEM copied the registers into a
+   new slice every time; it uses an array now. Busy boot: 48 frames a
+   second.
+2. **Two defers on every instruction.** `Step` recovers address errors
+   and MMU faults with deferred closures. With its many return statements
+   Go couldn't open-code them, so each instruction paid for a defer
+   record and a recover (about 6%). `Step` now holds just the two defers,
+   as methods (`recoverAddressError`, `recoverBusFault`), and one call to
+   `step`, and both are open-coded (`-gcflags=-d=defer`). The snapshot
+   they restore lives in the Processor, so it doesn't escape.
+3. **The memory map lookup.** `Mapper.find` walked the list of mappings
+   on every access, and the A4000's fast RAM sits at the end of it. It now
+   remembers the mapping it found last. Busy boot: 61 frames a second,
+   122% of real time.
+
+Also: hard disk and shared-folder transfers reuse one scratch buffer, in
+chunks of at most 1 MB, instead of allocating the whole transfer each
+time. A program asking the shared folder for a 2 GB read would have made
+goAmiga allocate 2 GB.
+
+`runtime.madvise` stays at about 20% in macOS CPU profiles. With no Go
+allocation in the measured stretch, and the same frame rate with the GC
+off (GOGC=off), it is the profiler's sampling, not cost.
+
 ## 2026-10-24 — More than seven drives on the configuration screen
 
 The Hard disks tab hid its Add buttons at seven drives, as its list had

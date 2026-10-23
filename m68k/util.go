@@ -100,7 +100,9 @@ func (c *Processor) decodeBriefExt(baseAddr uint32, baseName string) (addr uint3
 	if ext&0x0800 != 0 {
 		szChar = "L"
 	}
-	opr = fmt.Sprintf("($%X,%s,%s%d.%s)", disp, baseName, regType, idxReg, szChar)
+	if c.TraceWriter != nil {
+		opr = fmt.Sprintf("($%X,%s,%s%d.%s)", disp, baseName, regType, idxReg, szChar)
+	}
 	return
 }
 
@@ -130,9 +132,11 @@ func (c *Processor) decodeFullExt(ext uint16, baseAddr uint32, baseName string) 
 	idxName := ""
 	if ext&0x40 == 0 { // index not suppressed
 		r := ext >> 12 & 7
-		idxName = fmt.Sprintf("D%d", r)
+		if c.TraceWriter != nil {
+			idxName = fmt.Sprintf("D%d", r)
+		}
 		if ext&0x8000 != 0 {
-			idx, idxName = int32(c.A[r]), fmt.Sprintf("A%d", r)
+			idx, idxName = int32(c.A[r]), c.sprintf("A%d", r)
 		} else {
 			idx = int32(c.D[r])
 		}
@@ -140,7 +144,7 @@ func (c *Processor) decodeFullExt(ext uint16, baseAddr uint32, baseName string) 
 			idx = int32(int16(idx))
 		}
 		idx <<= ext >> 9 & 3
-		idxName += fmt.Sprintf("*%d", 1<<(ext>>9&3))
+		idxName += c.sprintf("*%d", 1<<(ext>>9&3))
 	}
 	bdSize := ext >> 4 & 3
 	if bdSize == 0 {
@@ -153,7 +157,9 @@ func (c *Processor) decodeFullExt(ext uint16, baseAddr uint32, baseName string) 
 	iis := ext & 7
 	if iis == 0 { // no memory indirection
 		addr = uint32(int32(base) + bd + idx)
-		opr = fmt.Sprintf("($%X,%s,%s)", bd, baseName, idxName)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("($%X,%s,%s)", bd, baseName, idxName)
+		}
 		return
 	}
 	if ext&0x40 != 0 && iis > 3 || iis == 4 {
@@ -174,10 +180,14 @@ func (c *Processor) decodeFullExt(ext uint16, baseAddr uint32, baseName string) 
 	}
 	if post {
 		addr = uint32(int32(inter) + idx + od)
-		opr = fmt.Sprintf("([$%X,%s],%s,$%X)", bd, baseName, idxName, od)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("([$%X,%s],%s,$%X)", bd, baseName, idxName, od)
+		}
 	} else {
 		addr = uint32(int32(inter) + od)
-		opr = fmt.Sprintf("([$%X,%s,%s],$%X)", bd, baseName, idxName, od)
+		if c.TraceWriter != nil {
+			opr = fmt.Sprintf("([$%X,%s,%s],$%X)", bd, baseName, idxName, od)
+		}
 	}
 	return
 }

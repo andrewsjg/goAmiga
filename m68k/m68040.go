@@ -373,7 +373,9 @@ func opPflush040(c *Processor) (t stepTrace) {
 		t.op = "pflushn"
 	}
 	reg := c.op & 7
-	t.src = fmt.Sprintf("(A%d)", reg)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("(A%d)", reg)
+	}
 	page := c.A[reg] >> m.ps
 	super := c.DFC&4 != 0
 	c.flushATC040(func(e *atc040Entry) bool {
@@ -398,7 +400,9 @@ func opPtest040(c *Processor) (t stepTrace) {
 	c.PC += 2
 	m := &c.mmu4
 	reg := c.op & 7
-	t.src = fmt.Sprintf("(A%d)", reg)
+	if c.TraceWriter != nil {
+		t.src = fmt.Sprintf("(A%d)", reg)
+	}
 	la := c.A[reg]
 	fc := uint8(c.DFC & 7)
 	super := fc&4 != 0
@@ -459,7 +463,7 @@ func opMove16(c *Processor) (t stepTrace) {
 		if ay != ax {
 			c.A[ay] += 16
 		}
-		t.src, t.dst = fmt.Sprintf("(A%d)+", ax), fmt.Sprintf("(A%d)+", ay)
+		t.src, t.dst = c.sprintf("(A%d)+", ax), c.sprintf("(A%d)+", ay)
 	} else {
 		abs, _, err := c.readImmLong()
 		if err != nil {
@@ -472,17 +476,17 @@ func opMove16(c *Processor) (t stepTrace) {
 		case 0: // (Ay)+,abs
 			src, dst = an, abs
 			c.A[ay] += 16
-			t.src, t.dst = fmt.Sprintf("(A%d)+", ay), fmt.Sprintf("$%X", abs)
+			t.src, t.dst = c.sprintf("(A%d)+", ay), c.sprintf("$%X", abs)
 		case 1: // abs,(Ay)+
 			src, dst = abs, an
 			c.A[ay] += 16
-			t.src, t.dst = fmt.Sprintf("$%X", abs), fmt.Sprintf("(A%d)+", ay)
+			t.src, t.dst = c.sprintf("$%X", abs), c.sprintf("(A%d)+", ay)
 		case 2: // (Ay),abs
 			src, dst = an, abs
-			t.src, t.dst = fmt.Sprintf("(A%d)", ay), fmt.Sprintf("$%X", abs)
+			t.src, t.dst = c.sprintf("(A%d)", ay), c.sprintf("$%X", abs)
 		case 3: // abs,(Ay)
 			src, dst = abs, an
-			t.src, t.dst = fmt.Sprintf("$%X", abs), fmt.Sprintf("(A%d)", ay)
+			t.src, t.dst = c.sprintf("$%X", abs), c.sprintf("(A%d)", ay)
 		}
 	}
 	var line [16]byte

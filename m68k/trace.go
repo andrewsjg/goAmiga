@@ -44,3 +44,13 @@ func (c *stepTrace) String() string {
 	}
 	return b.String()
 }
+
+// sprintf formats a trace's text, only while tracing: the instructions
+// build their operands' text every time they run, and formatting it for
+// nobody cost a third of the emulator's time.
+func (c *Processor) sprintf(format string, a ...any) string {
+	if c.TraceWriter == nil {
+		return ""
+	}
+	return fmt.Sprintf(format, a...)
+}

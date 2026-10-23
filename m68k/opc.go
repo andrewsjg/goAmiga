@@ -51,7 +51,9 @@ func opAnd(c *Processor) (t stepTrace) {
 		if t.err != nil {
 			return
 		}
-		t.dst = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d", reg)
+		}
 		result := NewInt(c.D[reg]&src.Long(), int(t.sz))
 
 		// preserve upper bits of register for byte/word
@@ -72,7 +74,9 @@ func opAnd(c *Processor) (t stepTrace) {
 			c.SR |= StatusNegative
 		}
 	} else { // Dn AND <ea> -> <ea>
-		t.src = fmt.Sprintf("D%d", reg)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", reg)
+		}
 		s := c.saveRMW(ea)
 		var dst Int
 		dst, t.dst, t.err = c.readInt(ea, t.sz)
@@ -103,7 +107,7 @@ func opMulu(c *Processor) (t stepTrace) {
 		n:    1,
 		op:   "mulu",
 		sz:   SizeWord,
-		dst:  fmt.Sprintf("D%d", reg),
+		dst:  c.sprintf("D%d", reg),
 	}
 	c.PC += 2
 
@@ -136,7 +140,7 @@ func opMuls(c *Processor) (t stepTrace) {
 		n:    1,
 		op:   "muls",
 		sz:   SizeWord,
-		dst:  fmt.Sprintf("D%d", reg),
+		dst:  c.sprintf("D%d", reg),
 	}
 	c.PC += 2
 
@@ -176,16 +180,28 @@ func opExgC(c *Processor) (t stepTrace) {
 	opmode := (c.op & 0x00F8) >> 3
 	switch opmode {
 	case 0x08: // Dx, Dy
-		t.src = fmt.Sprintf("D%d", rx)
-		t.dst = fmt.Sprintf("D%d", ry)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", rx)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("D%d", ry)
+		}
 		c.D[rx], c.D[ry] = c.D[ry], c.D[rx]
 	case 0x09: // Ax, Ay
-		t.src = fmt.Sprintf("A%d", rx)
-		t.dst = fmt.Sprintf("A%d", ry)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("A%d", rx)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("A%d", ry)
+		}
 		c.A[rx], c.A[ry] = c.A[ry], c.A[rx]
 	case 0x11: // Dx, Ay
-		t.src = fmt.Sprintf("D%d", rx)
-		t.dst = fmt.Sprintf("A%d", ry)
+		if c.TraceWriter != nil {
+			t.src = fmt.Sprintf("D%d", rx)
+		}
+		if c.TraceWriter != nil {
+			t.dst = fmt.Sprintf("A%d", ry)
+		}
 		c.D[rx], c.A[ry] = c.A[ry], c.D[rx]
 	default:
 		t.err = errBadOpcode
