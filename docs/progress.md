@@ -58,6 +58,25 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-24 — More than seven drives on the configuration screen
+
+The Hard disks tab hid its Add buttons at seven drives, as its list had
+room for seven rows. The emulator takes more:
+- **Hardfiles:** 28, the Unit structures that fit in the board's RAM
+  before its command list. Nothing checked this, so a 29th from the
+  command line would have written over the board's other structures.
+  `AttachHardfile` now refuses it (`TestHardfileLimit`).
+- **Partitions:** 64 in all, hardfiles' and folders'.
+
+The list now shows six drives at a time, with ▲ ▼ and the mouse wheel to
+scroll, and "1-6 of 30" beside it. Each Add button is greyed out at its
+own limit: 28 hardfiles, SCSI IDs 0-6, 64 partitions. The explanation
+below shows only when there's room.
+
+`TestLauncherTextFits` now also lays out the tab with 0, 5 and 30 drives
+(with both IDE drives set). It caught the explanation running off the
+panel with five.
+
 ## 2026-10-23 — Clipboard and AHI without drives
 
 The clipboard helper and the AHI driver live on goAmiga's hard disk

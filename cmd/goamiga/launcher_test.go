@@ -3,6 +3,7 @@
 package main
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/andrewsjg/goamiga/internal/config"
@@ -18,7 +19,28 @@ func TestLauncherTextFits(t *testing.T) {
 	s.Serial, s.BSDSocket, s.A2065, s.JoyKeys, s.JoyAnalog = "telnet:2323", true, true, true, true
 	s.Motherboard, s.RTG, s.Tape = "a4000", 16, "4:/a/rather/long/path/to/a/tape/folder"
 	s.WHDLoad = "/Users/someone/Games/WHDLoad/A Game With A Long Name.lha"
+	checkLauncherText(t, s, "every option")
+	// The Hard disks tab with no drives, five (the explanation still
+	// shows), and thirty (a page of them, scrolled).
+	for _, drives := range []int{0, 5, 30} {
+		s := s
+		s.IDE = config.List{"/disks/ide-master.hdf", "/disks/ide-slave.hdf"}
+		s.Hardfiles, s.Dirs = nil, nil
+		for i := range drives {
+			if i%2 == 0 {
+				s.Hardfiles = append(s.Hardfiles, "/Users/someone/Amiga/Hard disks/a rather long name "+strconv.Itoa(i)+".hdf")
+			} else {
+				s.Dirs = append(s.Dirs, "/Users/someone/Amiga/Shared/folder "+strconv.Itoa(i))
+			}
+		}
+		checkLauncherText(t, s, strconv.Itoa(drives)+" drives")
+	}
+}
+
+func checkLauncherText(t *testing.T, s config.Settings, what string) {
+	t.Helper()
 	l := newLauncher(s, "A configuration")
+	l.hdScroll = 3
 	var texts []placedText
 	l.ui.texts = &texts
 	l.ui.place(launcherW, launcherH, launcherW, launcherH)
@@ -35,10 +57,10 @@ func TestLauncherTextFits(t *testing.T) {
 				continue // the title, the tabs, the status line
 			}
 			if p.x+p.w > right {
-				t.Errorf("%s tab: %q at x %d runs to %d, past %d", name, p.s, p.x, p.x+p.w, right)
+				t.Errorf("%s, %s tab: %q at x %d runs to %d, past %d", what, name, p.s, p.x, p.x+p.w, right)
 			}
 			if p.x >= 250 && p.y+uiTextH > 474 {
-				t.Errorf("%s tab: %q at y %d runs below the panel (474)", name, p.s, p.y)
+				t.Errorf("%s, %s tab: %q at y %d runs below the panel (474)", what, name, p.s, p.y)
 			}
 		}
 	}

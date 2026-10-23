@@ -3,6 +3,7 @@ package amiga
 import (
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
 	"io"
 	"strings"
 
@@ -45,6 +46,9 @@ const (
 	hdNameSize = 32
 	hdNodes    = hdRAM + 0x4000 // BootNodes, 20 bytes each
 	hdMaxParts = 64
+	// HardfileLimit is how many hardfiles the board takes: its Unit
+	// structures fill the RAM up to the command list.
+	HardfileLimit = (hdCmdList - hdUnits) / hdUnitSize
 
 	hdDeviceName = "goamiga.device"
 )
@@ -135,6 +139,9 @@ func (a *Amiga) AttachHardfile(path string, readOnly bool) error {
 		a.HardDisk = &hdBoard{amiga: a}
 	}
 	h := a.HardDisk
+	if len(h.Files) >= HardfileLimit {
+		return fmt.Errorf("%s: goAmiga's hard disk controller takes at most %d hardfiles", filepath.Base(path), HardfileLimit)
+	}
 	// An unformatted plain hardfile gets the ROM's native filesystem:
 	// FFS from Kickstart 2.0 (V36) on, OFS before.
 	dosType := uint32(0x444F5300)

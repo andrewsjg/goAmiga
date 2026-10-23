@@ -32,6 +32,8 @@ var launcherTabs = []string{"Machine", "Memory", "Floppies", "Hard disks", "WHDL
 type launcher struct {
 	ui *ui
 
+	hdScroll int // the first drive shown on the Hard disks tab
+
 	kicksFor string   // the ROM kicks was found for (WHDLoad tab)
 	kicks    []string // WHDLoad's names for the Kickstart images beside it
 	s        config.Settings
@@ -590,63 +592,92 @@ func (l *launcher) hardDiskTab(x, y int) {
 	x -= 130
 	u.text(x, y, "Hardfiles, host folders and SCSI disks", uiBlack)
 	y += 26
-	row := func(label string, remove func()) {
-		u.fill(x, y, 400, 22, uiDarker)
-		u.bevel(x, y, 400, 22, false)
-		u.text(x+6, y+3, u.fit(label, 388), uiBlack)
-		if u.button(x+406, y, 70, 22, "Remove") {
-			remove()
-		}
-		y += 28
+	// The drives: hardfiles, then folders, then SCSI disks, a page of
+	// hdRows at a time (▲▼ or the mouse wheel to scroll).
+	type drive struct {
+		label  string
+		remove func()
 	}
-	for i := 0; i < len(l.s.Hardfiles); i++ {
-		row(fmt.Sprintf("Unit %d: %s", i, l.s.Hardfiles[i]), func() {
-			l.s.Hardfiles = slices.Delete(l.s.Hardfiles, i, i+1)
-			i--
-		})
+	var drives []drive
+	for i, f := range l.s.Hardfiles {
+		drives = append(drives, drive{fmt.Sprintf("Unit %d: %s", i, f), func() {
+			l.s.Hardfiles = slices.Delete(slices.Clone(l.s.Hardfiles), i, i+1)
+		}})
 	}
-	for i := 0; i < len(l.s.Dirs); i++ {
-		vol, p := config.SplitDir(l.s.Dirs[i])
+	for i, d := range l.s.Dirs {
+		vol, p := config.SplitDir(d)
 		if vol == "" {
 			vol = filepath.Base(p)
 		}
-		row(fmt.Sprintf("Folder %s: %s", vol, p), func() {
-			l.s.Dirs = slices.Delete(l.s.Dirs, i, i+1)
-			i--
-		})
+		drives = append(drives, drive{fmt.Sprintf("Folder %s: %s", vol, p), func() {
+			l.s.Dirs = slices.Delete(slices.Clone(l.s.Dirs), i, i+1)
+		}})
 	}
-	for i := 0; i < len(l.s.SCSI); i++ {
-		v := l.s.SCSI[i]
+	for i, v := range l.s.SCSI {
 		label := v
 		if len(v) > 2 && v[1] == ':' {
 			label = fmt.Sprintf("SCSI ID %c: %s", v[0], v[2:])
 		}
-		row(label, func() {
-			l.s.SCSI = slices.Delete(l.s.SCSI, i, i+1)
-			i--
-		})
+		drives = append(drives, drive{label, func() {
+			l.s.SCSI = slices.Delete(slices.Clone(l.s.SCSI), i, i+1)
+		}})
 	}
-	rows := len(l.s.Hardfiles) + len(l.s.Dirs) + len(l.s.SCSI)
-	if rows < 7 {
-		if u.button(x, y, 120, 24, "Add hardfile…") {
-			l.choose("hdf", "", hdfFilter, false)
+	const hdRows = 6
+	l.hdScroll = max(0, min(l.hdScroll, len(drives)-hdRows))
+	if len(drives) > hdRows && u.hit(x, y, 510, hdRows*28) {
+		if _, dy := ebiten.Wheel(); dy > 0 {
+			l.hdScroll = max(0, l.hdScroll-1)
+		} else if dy < 0 {
+			l.hdScroll = min(len(drives)-hdRows, l.hdScroll+1)
 		}
-		if u.button(x+128, y, 120, 24, "Add folder…") {
-			l.choose("dir", "", nil, true)
+	}
+	top := y
+	var removed func()
+	for _, d := range drives[l.hdScroll:min(len(drives), l.hdScroll+hdRows)] {
+		u.fill(x, y, 400, 22, uiDarker)
+		u.bevel(x, y, 400, 22, false)
+		u.text(x+6, y+3, u.fit(d.label, 388), uiBlack)
+		if u.button(x+406, y, 70, 22, "Remove") {
+			removed = d.remove
 		}
-		if u.button(x+256, y, 130, 24, "Add SCSI disk…") {
-			l.choose("scsi", "", hdfFilter, false)
+		y += 28
+	}
+	if removed != nil {
+		removed() // after drawing: the list is read as it was
+	}
+	if len(drives) > hdRows {
+		if u.buttonOn(x+482, top, 28, 22, "▲", l.hdScroll > 0) {
+			l.hdScroll--
 		}
+		if u.buttonOn(x+482, top+(hdRows-1)*28, 28, 22, "▼", l.hdScroll+hdRows < len(drives)) {
+			l.hdScroll++
+		}
+		u.text(x+482, top+3*28-22, fmt.Sprintf("%d-%d", l.hdScroll+1, l.hdScroll+hdRows), uiDim)
+		u.text(x+482, top+3*28-4, fmt.Sprintf("of %d", len(drives)), uiDim)
+	}
+	// Adding stops at what the machine takes: 28 hardfiles, SCSI IDs
+	// 0-6, and 64 partitions in all (a folder is one).
+	partitions := len(l.s.Hardfiles) + len(l.s.Dirs) // at least one each
+	if u.buttonOn(x, y, 120, 24, "Add hardfile…", len(l.s.Hardfiles) < amiga.HardfileLimit && partitions < 64) {
+		l.choose("hdf", "", hdfFilter, false)
+	}
+	if u.buttonOn(x+128, y, 120, 24, "Add folder…", partitions < 64) {
+		l.choose("dir", "", nil, true)
+	}
+	if u.buttonOn(x+256, y, 130, 24, "Add SCSI disk…", len(l.s.SCSI) < 7) {
+		l.choose("scsi", "", hdfFilter, false)
 	}
 	y += 34
-	if rows > 5 {
-		return
-	}
-	for _, ln := range u.wrap("Plain hardfiles and RDB images both work here. A new, empty hardfile "+
+	// The explanation, if there's room for it below the drives.
+	lines := u.wrap("Plain hardfiles and RDB images both work here. A new, empty hardfile "+
 		"can be made with --hdf-create from the command line and formatted from Workbench. "+
 		"A folder appears as a volume named after it, and boots if it has S/Startup-Sequence. "+
 		"SCSI disks go on an A2091 for Amiga Unix (the first at ID 6, where it looks for its "+
-		"root); AmigaOS sees them too.", 520) {
+		"root); AmigaOS sees them too.", 520)
+	if y+len(lines)*18 > 474 {
+		return
+	}
+	for _, ln := range lines {
 		u.text(x, y, ln, uiDim)
 		y += 18
 	}
