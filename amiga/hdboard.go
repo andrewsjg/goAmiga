@@ -3,8 +3,8 @@ package amiga
 import (
 	"encoding/binary"
 	"fmt"
-	"path/filepath"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/andrewsjg/goamiga/m68k/m68kmem"
