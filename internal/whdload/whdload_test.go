@@ -77,29 +77,39 @@ func TestPrepareDownloads(t *testing.T) {
 	}
 }
 
-// A game given as an archive is unpacked once into games/, and its slave
-// found one folder down; the next run uses what was unpacked.
+// A game given as an archive is unpacked once into games/, where its
+// files stay. An install package from whdload.de (the slave and its
+// Install script, without the game's files) is unpacked but refused,
+// saying what it is.
 func TestPrepareArchive(t *testing.T) {
-	archive := "../../WHDLoad/installs/SDI.lha"
-	if _, err := os.Stat(archive); err != nil {
-		t.Skip(err)
+	archives, _ := filepath.Glob("../../WHDLoad/installs/*.lha")
+	if len(archives) == 0 {
+		t.Skip("no install archives")
 	}
 	home := t.TempDir()
 	os.WriteFile(filepath.Join(home, "WHDLoad"), []byte("whdload"), 0o644)
 	os.MkdirAll(filepath.Join(home, "Kickstarts"), 0o755)
 	os.WriteFile(filepath.Join(home, "Kickstarts", "kick34005.A500.RTB"), []byte("rtb"), 0o644)
-	g, err := Prepare(home, archive, nil, t.Logf)
+	for _, a := range archives {
+		_, err := Prepare(home, a, nil, t.Logf)
+		if err == nil || !strings.Contains(err.Error(), "installer") {
+			t.Errorf("%s: %v, want it refused as an installer", filepath.Base(a), err)
+		}
+	}
+
+	// Installed, with the game's files beside the slave: it runs, and the
+	// next run uses what was unpacked.
+	sdi := filepath.Join(home, "games", "SDI", "SDIHD")
+	os.MkdirAll(filepath.Join(sdi, "data"), 0o755)
+	os.WriteFile(filepath.Join(sdi, "data", "prog"), []byte("game"), 0o644)
+	g, err := Prepare(home, "../../WHDLoad/installs/SDI.lha", nil, t.Logf)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if g.Dir != filepath.Join(home, "games", "SDI") || g.Path != "SDIHD" || g.Slave != "SDI.slave" {
 		t.Errorf("dir %q path %q slave %q", g.Dir, g.Path, g.Slave)
 	}
-	os.WriteFile(filepath.Join(g.Dir, "SDIHD", "highs"), []byte("saved"), 0o644)
-	if _, err := Prepare(home, archive, nil, t.Logf); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(filepath.Join(g.Dir, "SDIHD", "highs")); string(b) != "saved" {
-		t.Error("the second run unpacked the archive again over the saved file")
+	if b, _ := os.ReadFile(filepath.Join(sdi, "data", "prog")); string(b) != "game" {
+		t.Error("the second run unpacked the archive again over the game's files")
 	}
 }

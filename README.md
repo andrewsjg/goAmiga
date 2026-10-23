@@ -379,6 +379,13 @@ goamiga --rom ROMS/kick31a1200.rom --cpu 68020 --chipset aga --fastram 8192 \
   and its saves and high scores are kept there. The slave and its options
   come from the game's icon tooltypes (`SLAVE=`, `PRELOAD`, `CUSTOM1=` …),
   as WHDLoad packs set them.
+- **Installed games only.** The archives on whdload.de's game pages are
+  *installers*: the slave and an Install script, without the game's
+  files, which the script copies from the original disk. goAmiga says so
+  if given one. To install a game, put the installer in a shared folder,
+  run its Install icon from Workbench with the original disk (an ADF or
+  IPF) in DF0:, and install into that shared folder. Then give goAmiga
+  the installed folder. Pre-installed WHDLoad packs work as they are.
 - **WHDLoad** itself is downloaded from whdload.de the first time, along
   with the Kickstart relocation tables (Aminet `util/boot/skick346.lha`).
   Both go in `~/.config/goamiga/whdload`.

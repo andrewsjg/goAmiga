@@ -64,6 +64,11 @@ func Prepare(home, path string, roms []string, logf func(string, ...any)) (*Game
 	} else if err := g.findSlave(); err != nil {
 		return nil, err
 	}
+	if installerOnly(filepath.Join(g.Dir, filepath.FromSlash(g.Path))) {
+		return nil, fmt.Errorf("%s is WHDLoad's installer for the game, not the installed game: its files come from "+
+			"the original disk. Install it from Workbench (its Install icon, with the original disk in DF0:) "+
+			"and give the installed folder, or use an installed version", filepath.Base(path))
+	}
 	if err := g.writeBoot(home, roms); err != nil {
 		return nil, err
 	}
@@ -233,6 +238,44 @@ func (g *Game) findSlave() error {
 	g.Path, g.Slave = cleanRel(filepath.Dir(slaves[0])), filepath.Base(slaves[0])
 	g.Args = []string{"PRELOAD"}
 	return nil
+}
+
+// installerOnly reports whether a slave's folder is a WHDLoad install
+// package as whdload.de has them: an Installer script beside the slave,
+// and none of what installing adds (a data folder, Disk.N images). An
+// installed game doesn't keep the Install script.
+func installerOnly(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	script := false
+	for _, e := range entries {
+		n := strings.ToLower(e.Name())
+		switch {
+		case e.IsDir():
+			if n != "source" && n != "src" && n != "sources" {
+				return false // data, or the game in a folder: installed
+			}
+		case strings.HasPrefix(n, "disk.") || strings.HasPrefix(n, "disk-"):
+			return false // disk images: installed
+		case !script && !strings.HasSuffix(n, ".info") && strings.Contains(n, "install"):
+			script = installerScript(filepath.Join(dir, e.Name()))
+		}
+	}
+	return script
+}
+
+// installerScript reports whether a file is a script for the Amiga's
+// Installer: text in its Lisp-like language.
+func installerScript(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) > 1<<20 {
+		return false
+	}
+	t := string(b)
+	return strings.Contains(t, "(welcome") || strings.Contains(t, "@app-name") ||
+		strings.Contains(t, "(copyfiles") || strings.Contains(t, "(set @default-dest")
 }
 
 func cleanRel(dir string) string {

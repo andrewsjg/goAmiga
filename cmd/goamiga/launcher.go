@@ -159,7 +159,7 @@ func (l *launcher) update() (start *config.Settings, quit bool) {
 		col = uiRed
 	}
 	lines := u.wrap(l.status, 560)
-	for i, ln := range lines[:min(len(lines), 2)] {
+	for i, ln := range lines[:min(len(lines), 3)] {
 		u.text(16, 496+i*18, ln, col)
 	}
 	if u.button(launcherW-230, 500, 110, 40, "Start") || (u.enter && u.focus == "") {

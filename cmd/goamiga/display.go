@@ -183,7 +183,7 @@ func (g *app) startWHDLoad(path string) {
 	if err != nil {
 		l := newLauncher(s, name)
 		l.tab = slices.Index(launcherTabs, "WHDLoad")
-		l.say(true, "Can't start %s: %v", filepath.Base(path), err)
+		l.say(true, "Can't start the game: %v", err)
 		g.showLauncher(l)
 		return
 	}
