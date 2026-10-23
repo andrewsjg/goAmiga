@@ -32,7 +32,7 @@ import (
 
 const (
 	stateMagic   = "goAmiga state\n"
-	stateVersion = 19
+	stateVersion = 20 // 20: the RTG pointer, the clipboard helper
 )
 
 // stateCodec writes or reads the fields of a state in order.
@@ -460,6 +460,21 @@ func (h *hdBoard) state(s *stateCodec) {
 	for _, d := range h.Dirs {
 		d.state(s)
 	}
+	h.clip.state(s)
+}
+
+// state saves or loads the clipboard helper's progress (the Amiga side
+// is in the middle of its loop, in memory the state also holds).
+func (c *clipState) state(s *stateCodec) {
+	for _, p := range []*int{&c.step, &c.procStep, &c.retry, &c.hostCount, &c.dataPos} {
+		num(s, p)
+	}
+	num(s, &c.wakeAt)
+	for _, p := range []*uint32{&c.dosBase, &c.port, &c.io, &c.buf, &c.lastID} {
+		num(s, p)
+	}
+	s.str(&c.lastText)
+	s.bytes(&c.data)
 }
 
 // count saves or loads a slice of numbers.

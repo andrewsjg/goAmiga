@@ -178,6 +178,11 @@ type Amiga struct {
 	// cycles lost to DMA.
 	cpuChipAccesses int
 
+	// HostClipboard, if set, is shared with the Amiga's clipboard
+	// (clipboard.go; it needs a hard disk or folder for the board that
+	// carries the helper). Set it before Reset.
+	HostClipboard HostClipboard
+
 	// ExactBus places the 68000's chip accesses in time within each
 	// instruction, against the Copper and the other DMA (cpubus.go).
 	ExactBus      bool

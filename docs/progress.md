@@ -58,6 +58,58 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-23 — Sharing the clipboard
+
+Text copied on either side can be pasted on the other (`--clipboard`, on
+by default).
+
+**How.** AmigaOS keeps clips in clipboard.device unit 0 as IFF FTXT, and
+only a program on the Amiga can use the device. The hard disk board
+(which already runs goAmiga's code at boot and a handler process per
+shared folder) now also starts a helper (`amiga/clipboard.go`):
+
+- **The task.** The board's RomTag init adds a small exec task, with its
+  structure and stack in the board's RAM, and a vertical blank interrupt
+  server. About once a second the server wakes the task, until DOS has
+  started its first process. By then it has booted and assigned DEVS:.
+  The task then creates the "goAmiga clipboard" process (CreateProc, on
+  a segment in the board's ROM), removes the interrupt server and ends.
+- **The loop.** The task and the process run the same three-instruction
+  loop: trap, `jsr (a5)`, trap. Go sets up each library call (A6, A5 =
+  the function's vector, the arguments) and takes its result, so all the
+  logic is a state machine in Go.
+- **The process.** It sets `pr_WindowPtr` to -1, so no requesters. It
+  makes its port and IORequest, allocates a 32 KB transfer buffer and
+  opens clipboard.device, retrying 5, 10, 20 … 60 s apart if it isn't
+  there yet. Every 0.2 s (`Delay(10)`) it then:
+  - reads the current clip ID, and if it's new, reads the clip
+    (CMD_READ until `io_Actual` is 0), takes its CHRS text and gives it
+    to the host;
+  - if the host's clipboard has changed, writes the text as a new FTXT
+    clip (CMD_WRITE, CMD_UPDATE) and notes the clip's ID, so it isn't
+    read back.
+- **Echoes and text.** Echoes are suppressed both ways, and text is
+  converted between UTF-8 and ISO-8859-1.
+- **Save states** keep the helper's progress. The state version is now
+  20; the RTG pointer had changed the format too.
+
+On the Mac the clipboard is NSPasteboard: its change count, and its
+string for `NSPasteboardTypeString`, through cgo as for the Dock icon.
+Elsewhere sharing is off for now.
+
+**Verified** (`amiga/clipboard_test.go`): Workbench 3.2 boots on an
+A1200 from a shared folder, with clipboard.device and ConClip, and a fake
+host clipboard.
+- `TestClipboardRoundTrip`: host text becomes the Amiga's clip, and comes
+  back intact (with an é) when the helper rereads the device.
+- `TestClipboardShellCopy`: `echo goamiga` typed in a Shell, marked with
+  a mouse drag and copied with Right Amiga+C, arrives on the host. Then
+  `echo pasted >SYS:pasted`, copied on the host and pasted with Right
+  Amiga+V, runs and makes the file.
+- `TestMacClipboard` (with `GOAMIGA_PASTEBOARD` set, since it uses the
+  real clipboard and restores it): text set comes back, and the change
+  count moves.
+
 ## 2026-10-22 — WHDLoad
 
 **WHDLoad works.** WHDLoad 20.1 was tested on an A1200 (68020, AGA, 8 MB

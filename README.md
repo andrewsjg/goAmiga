@@ -46,6 +46,8 @@ A500 to the A1200. It has its own 680x0 CPU core, in [`m68k/`](m68k/).
 - Folders on your computer as Amiga drives, bootable or not.
 - WHDLoad games straight from their archives (see
   [WHDLoad games](#whdload-games)).
+- A clipboard shared with the Mac: copy on either side, paste on the
+  other.
 
 **Connections:**
 - The serial port over telnet or TCP.
@@ -403,6 +405,24 @@ goamiga --rom ROMS/kick31a1200.rom --cpu 68020 --chipset aga --fastram 8192 \
 
 WHDLoad also works the usual way: install it and your games on a hardfile
 or a host folder, and run them from Workbench.
+
+### Sharing the clipboard
+
+Text copied on the Mac can be pasted on the Amiga, and text copied on the
+Amiga can be pasted on the Mac. In a Shell, mark text with the mouse and
+press Right Amiga+C to copy, and Right Amiga+V to paste. This is on by
+default (`--clipboard=false` turns it off; on the configuration screen
+it's under Ports).
+
+It works through a small helper that goAmiga runs on the Amiga, the
+"goAmiga clipboard" process. The helper needs:
+- Kickstart 2.0 or later;
+- a hard disk or shared folder, since the helper lives on the board that
+  carries them;
+- `clipboard.device` in DEVS:, as every Workbench has.
+
+Text is converted between the Mac's UTF-8 and the Amiga's ISO-8859-1;
+characters the Amiga can't show become `?`.
 
 ### Settings files
 

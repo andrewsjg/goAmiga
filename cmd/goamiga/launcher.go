@@ -767,6 +767,15 @@ func (l *launcher) portsTab(x, y int) {
 	u.checkbox(x, y, "Gamepad as an analogue joystick", &l.s.JoyAnalog)
 	y += 22
 	u.text(x, y, "Proportional, for the few games that read one.", uiDim)
+	y += 34
+	u.label(x-10, y, "Clipboard")
+	u.checkbox(x, y, "Share with this computer", &l.s.Clipboard)
+	y += 22
+	for _, ln := range u.wrap("Copy on either side, paste on the other. Needs Kickstart 2.0+ and a hard "+
+		"disk or folder (goAmiga's helper lives on its board).", 400) {
+		u.text(x, y, ln, uiDim)
+		y += 18
+	}
 }
 
 func (l *launcher) displayTab(x, y int) {

@@ -90,6 +90,10 @@ type hdBoard struct {
 	// until their startup packets say which folder they serve.
 	newPorts map[uint32]uint32
 
+	// The clipboard helper (clipboard.go): its code, and its progress.
+	clipTaskCode, clipVBLCode, clipSeg uint32
+	clip                               clipState
+
 	// Trace, if set, logs driver activity.
 	Trace io.Writer
 
@@ -387,8 +391,35 @@ func (h *hdBoard) buildROM(base uint32) {
 	s.execBase()
 	s.jsrLVO(lvoCloseLibrary)
 	s.label("initDone")
+	// The clipboard helper (a6 = ExecBase): a task, and the vertical
+	// blank server that wakes it.
+	s.trap(base, hdTrapClipInit) // d0 = 1, a1-a3 for AddTask; 0: none
+	s.tstD0()
+	s.branch(beq, "initEnd")
+	s.jsrLVO(lvoAddTask)
+	s.trap(base, hdTrapClipIntInit) // a1 = the Interrupt, d0 = INTB_VERTB
+	s.jsrLVO(lvoAddIntServer)
+	s.label("initEnd")
 	s.w(0x4CDF, 0x7CFC) // movem.l (sp)+,d2-d7/a2-a6
 	s.moveq(0)
+	s.rts()
+
+	// The clipboard task: calls what Go sets up (a5 = function).
+	s.label("clipTask")
+	s.trap(base, hdTrapClipTaskCall)
+	s.w(0x4E95) // jsr (a5)
+	s.trap(base, hdTrapClipTaskRet)
+	s.branch(bra, "clipTask")
+
+	// Its vertical blank server: d0 = signal to send the task (a1), or 0.
+	s.label("clipVBL")
+	s.trap(base, hdTrapClipVBL)
+	s.tstD0()
+	s.branch(beq, "clipVBLDone")
+	s.execBase()
+	s.jsrLVO(lvoSignal)
+	s.label("clipVBLDone")
+	s.moveq(0) // and Z: the next server runs
 	s.rts()
 
 	// Device entry points (a6 = device base, a1 = IORequest).
@@ -440,6 +471,17 @@ func (h *hdBoard) buildROM(base uint32) {
 	s.jsrLVO(lvoPutMsg)
 	s.branch(bra, "dirLoop")
 
+	// The clipboard process, created by the task: a segment.
+	s.align(4)
+	s.l(16)
+	s.label("clipSeg")
+	s.l(0) // next segment
+	s.label("clipProc")
+	s.trap(base, hdTrapClipProcCall)
+	s.w(0x4E95) // jsr (a5)
+	s.trap(base, hdTrapClipProcRet)
+	s.branch(bra, "clipProc")
+
 	s.resolve()
 	if len(s.code) > hdRAM-hdROM {
 		panic("hdBoard: ROM too big")
@@ -450,6 +492,7 @@ func (h *hdBoard) buildROM(base uint32) {
 	h.diagOff, h.romtagOff, h.diagEnd = off("diag"), off("romtag"), off("diagEnd")
 	h.devNameAddr = s.labels["devName"]
 	h.dirSeg = s.labels["dirSeg"]
+	h.clipTaskCode, h.clipVBLCode, h.clipSeg = s.labels["clipTask"], s.labels["clipVBL"], s.labels["clipSeg"]
 
 	// Device base: jump table below it, Library above.
 	for i, fn := range []string{"devOpen", "devClose", "devNull", "devNull", "devBeginIO", "devNull"} {
@@ -591,6 +634,20 @@ func (h *hdBoard) trap(n int) {
 		a.poke32(io+24, 0xFFFFFFFF)
 	case hdTrapBeginIO:
 		cpu.D[0] = h.beginIO(cpu.A[1])
+	case hdTrapClipInit:
+		h.clipInit()
+	case hdTrapClipIntInit:
+		h.clipIntInit()
+	case hdTrapClipVBL:
+		h.clipVBL()
+	case hdTrapClipTaskCall:
+		h.clipTaskCall()
+	case hdTrapClipTaskRet:
+		h.clipTaskRet()
+	case hdTrapClipProcCall:
+		h.clipProcCall()
+	case hdTrapClipProcRet:
+		h.clipProcRet()
 	}
 }
 

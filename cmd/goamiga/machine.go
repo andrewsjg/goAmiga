@@ -74,7 +74,13 @@ func buildMachine(s *config.Settings, loadState string, logger io.Writer, out io
 		}
 	}
 	for _, step := range []func() error{
-		func() error { a.ExactBus = s.ExactBus; return a.SetChipRAM(chipRAM) },
+		func() error {
+			a.ExactBus = s.ExactBus
+			if s.Clipboard {
+				a.HostClipboard = hostClipboard()
+			}
+			return a.SetChipRAM(chipRAM)
+		},
 		func() error { return a.SetCPU(s.CPU, s.CPUSpeed) },
 		func() error { return a.SetFPU(s.FPU) },
 		func() error { return a.SetChipset(chipset) },
