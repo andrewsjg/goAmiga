@@ -58,6 +58,41 @@ verified. Longer investigations get their own write-up in `docs/`.
    (`busErrorCount`); with the open-bus Mapper they should not occur.
    Real bus errors exist only for the A3000/A4000's bus timeout.
 
+## 2026-10-25 — A native SwiftUI configuration screen for macOS
+
+goAmiga.app now opens on a SwiftUI configuration screen (`macos/`, a Swift
+package that `scripts/macos-app.sh` builds when Swift is installed). It has
+the Ebitengine launcher's tabs and settings, with native pop-up menus,
+toggles and file dialogs, and disks, hardfiles, folders and WHDLoad games
+can be dropped on it from the Finder.
+
+All the logic stays in Go. `goamiga --launcher-api` answers one JSON
+request per line on stdin (`cmd/goamiga/launcherapi.go`): the startup
+configuration, saved configurations (load, save, delete), model presets,
+placing a chosen file (`applyChoice`, shared with the Ebitengine launcher),
+the Kickstart ROM's identity and fit, WHDLoad's state, and `start`, which
+checks the settings and writes `~/.config/goamiga/launch.conf`.
+`config.Settings` gained JSON tags for this. The Swift side is only UI
+(`Bridge.swift` talks to the API; `Model.swift` holds the screen's state).
+
+Start runs `goamiga --config launch.conf --name NAME` as a child process and
+hides the configuration screen and its Dock icon. Closing the machine's
+window quits the app. Cmd+, (Config) needs the screen back: with
+`GOAMIGA_RETURN_CONFIG` set, goamiga writes the running machine's settings
+(disks as they are now) to that file and exits with status 3, and the
+screen shows them again. Any other exit shows the last error line goamiga
+printed.
+
+Bugs on the way: `FileHandle.read(upToCount:)` waits for the whole count
+(the bridge hung on the first answer; `availableData` returns what has
+come), and a hidden window reports `canBecomeMain` false, so the screen
+keeps the windows it hid rather than looking for them.
+
+Verified with `TestLauncherAPI` (every request against a temporary home),
+`GOAMIGA_UISHOT=DIR`, which saves each tab of the SwiftUI screen as a PNG
+as the Ebitengine launcher's does, a real start of the A4000 configuration,
+and a stand-in goamiga that exits with status 3 to check the round trip.
+
 ## 2026-10-24 — The AGS Workbench pointer
 
 In AGS's AGA Workbench mode (1024x384, programmable beam, HTOTAL $A0) the

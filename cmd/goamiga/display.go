@@ -35,6 +35,9 @@ type app struct {
 
 	dockIconSet bool
 
+	returnPath string // returnEnv: a native configuration screen's file
+	returned   bool   // the machine was switched off for it
+
 	lw, lh int // the configuration screen's size in pixels (Layout)
 }
 
@@ -47,11 +50,15 @@ func runLauncher() error {
 }
 
 // runMachine opens the window on a machine built from the command line.
-func runMachine(m *machine, s *config.Settings) error {
-	g := &app{}
-	g.startMachine(m, s, "")
+func runMachine(m *machine, s *config.Settings, name string) error {
+	g := &app{returnPath: os.Getenv(returnEnv)}
+	g.startMachine(m, s, name)
 	setIcon()
-	return ebiten.RunGame(g)
+	err := ebiten.RunGame(g)
+	if err == nil && g.returned {
+		return errReturnToLauncher
+	}
+	return err
 }
 
 func (g *app) showLauncher(l *launcher) {
@@ -109,6 +116,17 @@ func (g *app) Update() error {
 		if p := g.disp.WHDLoadRequested; p != "" {
 			g.startWHDLoad(p)
 			return nil
+		}
+		if g.disp.ConfigRequested && g.returnPath != "" {
+			// A native configuration screen started this run: it takes
+			// the settings back and shows itself again.
+			s := g.s
+			g.stopMachine()
+			if err := s.Write(g.returnPath); err != nil {
+				return err
+			}
+			g.returned = true
+			return ebiten.Termination
 		}
 		if g.disp.ConfigRequested {
 			s, name := g.s, g.name

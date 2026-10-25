@@ -23,5 +23,6 @@ __pycache__/
 goamiga.conf
 *.hdf
 /goAmiga.app/
+/macos/.build/
 /WHDLoad/
 /AHI/

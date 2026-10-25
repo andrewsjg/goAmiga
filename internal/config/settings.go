@@ -15,53 +15,53 @@ import (
 // command-line flags, a settings file and a saved configuration are three
 // ways of filling it in.
 type Settings struct {
-	ROM          string
-	Drives       [4]List // per drive: the first disk goes in, the rest are for Cmd+F11
-	NumDrives    int
-	Hardfiles    List
-	Dirs         List   // host folders as drives: PATH or VOLUME=PATH
-	IDE          List   // IDE drives on Gayle: the master, then the slave
-	SCSI         List   // SCSI disks on an A2091: ID:PATH
-	Tape         string // a SCSI tape drive on the A2091: ID:DIR
-	WHDLoad      string // a WHDLoad game to boot: an .lha, a folder or a .slave
-	Gayle        string // auto (with AGA, as in the A1200), on or off
-	HDFCreate    int
-	WriteProtect bool
+	ROM          string  `json:"rom"`
+	Drives       [4]List `json:"drives"` // per drive: the first disk goes in, the rest are for Cmd+F11
+	NumDrives    int     `json:"numDrives"`
+	Hardfiles    List    `json:"hardfiles"`
+	Dirs         List    `json:"dirs"`    // host folders as drives: PATH or VOLUME=PATH
+	IDE          List    `json:"ide"`     // IDE drives on Gayle: the master, then the slave
+	SCSI         List    `json:"scsi"`    // SCSI disks on an A2091: ID:PATH
+	Tape         string  `json:"tape"`    // a SCSI tape drive on the A2091: ID:DIR
+	WHDLoad      string  `json:"whdload"` // a WHDLoad game to boot: an .lha, a folder or a .slave
+	Gayle        string  `json:"gayle"`   // auto (with AGA, as in the A1200), on or off
+	HDFCreate    int     `json:"hdfCreate"`
+	WriteProtect bool    `json:"writeProtect"`
 
-	CPU      string
-	CPUSpeed int
-	FPU      string
-	Chipset  string
-	Video    string
-	ChipRAM  int
-	SlowRAM  int
-	FastRAM  int
+	CPU      string `json:"cpu"`
+	CPUSpeed int    `json:"cpuSpeed"`
+	FPU      string `json:"fpu"`
+	Chipset  string `json:"chipset"`
+	Video    string `json:"video"`
+	ChipRAM  int    `json:"chipRAM"`
+	SlowRAM  int    `json:"slowRAM"`
+	FastRAM  int    `json:"fastRAM"`
 
-	Motherboard string // none, a3000 or a4000
-	MBRAM       int    // motherboard fast RAM in KB
-	Z3RAM       int    // Zorro III fast RAM in MB
-	CPUSlotRAM  int    // CPU-slot fast RAM in MB, from $08000000
-	RTG         int    // the uaegfx RTG card's memory in MB (0: none)
+	Motherboard string `json:"motherboard"` // none, a3000 or a4000
+	MBRAM       int    `json:"mbRAM"`       // motherboard fast RAM in KB
+	Z3RAM       int    `json:"z3RAM"`       // Zorro III fast RAM in MB
+	CPUSlotRAM  int    `json:"cpuSlotRAM"`  // CPU-slot fast RAM in MB, from $08000000
+	RTG         int    `json:"rtg"`         // the uaegfx RTG card's memory in MB (0: none)
 
-	Serial    string
-	BSDSocket bool
-	Clock     bool
-	ClockY2K  bool
-	A2065     bool
-	A2065Fwd  string
-	JoyKeys   bool
-	JoyAnalog bool
+	Serial    string `json:"serial"`
+	BSDSocket bool   `json:"bsdSocket"`
+	Clock     bool   `json:"clock"`
+	ClockY2K  bool   `json:"clockY2K"`
+	A2065     bool   `json:"a2065"`
+	A2065Fwd  string `json:"a2065Fwd"`
+	JoyKeys   bool   `json:"joyKeys"`
+	JoyAnalog bool   `json:"joyAnalog"`
 
-	ExactBus  bool // the 68000's chip accesses timed one by one (cpubus.go)
-	Clipboard bool // share the clipboard with the host
+	ExactBus  bool `json:"exactBus"`  // the 68000's chip accesses timed one by one (cpubus.go)
+	Clipboard bool `json:"clipboard"` // share the clipboard with the host
 
-	Mute          bool
-	Overscan      bool
-	Scale         int
-	StatusBar     bool
-	Warp          bool
-	ScreenshotDir string
-	StateDir      string
+	Mute          bool   `json:"mute"`
+	Overscan      bool   `json:"overscan"`
+	Scale         int    `json:"scale"`
+	StatusBar     bool   `json:"statusBar"`
+	Warp          bool   `json:"warp"`
+	ScreenshotDir string `json:"screenshotDir"`
+	StateDir      string `json:"stateDir"`
 }
 
 // Defaults are the settings with nothing given: an A500 with 1 MB of chip

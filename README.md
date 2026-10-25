@@ -84,7 +84,11 @@ Or install it with `go install github.com/andrewsjg/goamiga/cmd/goamiga@latest`.
 On macOS, `scripts/macos-app.sh` builds `goAmiga.app`, an application
 bundle with the Boing Ball icon, which you can put in Applications. The
 bare binary shows the icon in the Dock too, and on Windows and Linux it is
-the window's icon.
+the window's icon. With Swift installed (Xcode or its command-line tools)
+the app opens on a native SwiftUI configuration screen (`macos/`): the same
+settings, with Mac pop-up menus, file dialogs and drag and drop of disks
+and hardfiles. `GOAMIGA_NO_SWIFTUI=1 scripts/macos-app.sh` builds the app
+with goAmiga's own configuration screen instead.
 
 You also need a **Kickstart ROM**; none is included. Amiga Forever (Cloanto)
 supplies the classic ROMs, and Hyperion sells Kickstart 3.2.

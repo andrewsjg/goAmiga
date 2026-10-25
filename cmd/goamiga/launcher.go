@@ -342,55 +342,6 @@ var (
 	hdfFilter  = zenity.FileFilters{{Name: "Hardfiles", Patterns: []string{"*.hdf", "*.hdz"}, CaseFold: true}, {Name: "All files", Patterns: []string{"*"}}}
 )
 
-// presets set up the common models (the ROM stays as chosen).
-var presets = []struct {
-	name  string
-	apply func(s *config.Settings)
-}{
-	{"A500", func(s *config.Settings) {
-		s.RTG, s.CPUSlotRAM = 0, 0
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ocs", 512, 512, 0
-		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "off", false, "none", 0
-	}},
-	{"A500+", func(s *config.Settings) {
-		s.RTG, s.CPUSlotRAM = 0, 0
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
-		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "off", false, "none", 0
-	}},
-	{"A600", func(s *config.Settings) {
-		s.RTG, s.CPUSlotRAM = 0, 0
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68000", 0, "auto", "ecs", 1024, 0, 0
-		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
-	}},
-	{"A1200", func(s *config.Settings) {
-		s.RTG, s.CPUSlotRAM = 0, 0
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "auto", "aga", 2048, 0, 0
-		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
-	}},
-	{"A1200 + fast", func(s *config.Settings) {
-		s.RTG, s.CPUSlotRAM = 0, 0
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68020", 0, "68882", "aga", 2048, 0, 8192
-		s.Gayle, s.ClockY2K, s.Motherboard, s.Z3RAM = "on", false, "none", 0
-	}},
-	// The A3000's processor and chipset: what Amiga Unix needs (its disk
-	// goes on the A2091 at SCSI ID 6). The real machine's built-in SCSI
-	// and 32-bit memory aren't emulated.
-	{"A3000", func(s *config.Settings) {
-		s.RTG, s.CPUSlotRAM = 0, 0
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68030", 0, "68882", "ecs", 1024, 0, 8192
-		s.Gayle, s.Motherboard, s.Z3RAM = "off", "none", 0
-		s.Clock, s.ClockY2K = true, true // AMIX's date wants a year before 2000
-	}},
-	// The A4000/040: its motherboard (Ramsey, 16 MB of 32-bit RAM, the
-	// IDE interface) and Zorro III. It needs the A4000 Kickstart.
-	{"A4000", func(s *config.Settings) {
-		s.RTG, s.CPUSlotRAM = 0, 0
-		s.CPU, s.CPUSpeed, s.FPU, s.Chipset, s.ChipRAM, s.SlowRAM, s.FastRAM = "68040", 0, "auto", "aga", 2048, 0, 0
-		s.Gayle, s.Motherboard, s.MBRAM, s.Z3RAM = "auto", "a4000", 16384, 0
-		s.Clock, s.ClockY2K = true, false
-	}},
-}
-
 func (l *launcher) machineTab(x, y int) {
 	u := l.ui
 	u.label(x-10, y, "Model")
@@ -402,13 +353,7 @@ func (l *launcher) machineTab(x, y int) {
 		}
 		if u.button(bx, y, w, 24, p.name) {
 			p.apply(&l.s)
-			if p.name == "A3000" {
-				l.say(false, "A3000 settings: for Amiga Unix, add its disk as a SCSI disk (ID 6) on the Hard disks tab")
-			} else if p.name == "A4000" {
-				l.say(false, "A4000 settings: choose the A4000 Kickstart ROM; IDE drives go on its own interface")
-			} else {
-				l.say(false, "%s settings (choose a matching Kickstart ROM)", p.name)
-			}
+			l.say(false, "%s", presetMessage(p.name))
 		}
 		bx += w + 6
 	}
@@ -885,57 +830,10 @@ func (l *launcher) pollChooser() {
 		l.say(true, "File dialog: %v", c.err)
 		return
 	}
-	switch {
-	case c.target == "rom":
-		l.s.ROM = c.path
-	case strings.HasPrefix(c.target, "df"):
-		n := int(c.target[2] - '0')
-		l.s.Drives[n] = config.List{c.path}
-	case c.target == "hdf":
-		l.s.Hardfiles = append(l.s.Hardfiles, c.path)
-	case c.target == "dir":
-		l.s.Dirs = append(l.s.Dirs, c.path)
-	case c.target == "tape":
-		l.s.Tape = "4:" + c.path
-	case c.target == "scsi":
-		l.s.SCSI = append(l.s.SCSI, fmt.Sprintf("%d:%s", freeSCSIID(l.s.SCSI), c.path))
-	case strings.HasPrefix(c.target, "ide"):
-		if i := int(c.target[3] - '0'); i < len(l.s.IDE) {
-			l.s.IDE[i] = c.path
-		} else {
-			l.s.IDE = append(l.s.IDE, c.path)
-		}
-	case c.target == "shots":
-		l.s.ScreenshotDir = c.path
-	case c.target == "states":
-		l.s.StateDir = c.path
-	case c.target == "whdload", c.target == "whdloaddir":
-		l.s.WHDLoad = c.path
-	}
+	applyChoice(&l.s, c.target, c.path)
 }
 
 func (l *launcher) draw(screen *ebiten.Image) {
 	screen.Fill(uiGrey) // the margins round the design, when the window's shape differs
 	l.ui.draw(screen)
-}
-
-// freeSCSIID is the ID for a new SCSI disk: 6 (the A3000's internal
-// drive, where Amiga Unix looks for its root) if free, else the lowest
-// free one.
-func freeSCSIID(disks []string) int {
-	used := map[byte]bool{}
-	for _, d := range disks {
-		if len(d) > 1 {
-			used[d[0]] = true
-		}
-	}
-	if !used['6'] {
-		return 6
-	}
-	for id := byte('0'); id <= '5'; id++ {
-		if !used[id] {
-			return int(id - '0')
-		}
-	}
-	return 6
 }
