@@ -8,6 +8,7 @@ HDD/
 Workbench/
 amix/
 Picasso96/
+.DS_Store
 
 # Build outputs
 /goamiga
